@@ -4,6 +4,8 @@
 
 ## Completed
 
+- scrap the log-on-dash-v approach, just enable logging dynamically (and allow changing log level) with a keyboard shortcut and bring up the logger ui component when that key is pressed (it's a toggle obviously) (75b2c86)
+
 - remove the v1 in Logs; remove the forward slashes; the ghost text should read type a Perl-compatible regex; put the log lines themselves in visually separate components (1c623d4)
 - build a search engine (and sweet embedded UI for it) that MUST run locally, with spinner and selection (1c623d4)
 - make a global search interface that works like google, pop up a box, show matches, select and jump to row, runs locally with background indexing and spinner (1c623d4)

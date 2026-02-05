@@ -54,6 +54,299 @@ func (s *Store) SeedDefaults() error {
 	return nil
 }
 
+// SeedDemoData populates the database with plausible sample data for testing.
+// It is idempotent: if a house profile already exists, it returns immediately.
+func (s *Store) SeedDemoData() error {
+	var count int64
+	if err := s.db.Model(&HouseProfile{}).Count(&count).Error; err != nil {
+		return fmt.Errorf("check existing data: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+
+	// Helper for pointer values.
+	ptr := func(v int64) *int64 { return &v }
+	ptrTime := func(y, m, d int) *time.Time {
+		t := time.Date(y, time.Month(m), d, 0, 0, 0, 0, time.UTC)
+		return &t
+	}
+
+	// House profile
+	house := HouseProfile{
+		Nickname:         "Elm Street",
+		AddressLine1:     "742 Elm Street",
+		City:             "Springfield",
+		State:            "IL",
+		PostalCode:       "62704",
+		YearBuilt:        1987,
+		SquareFeet:       2400,
+		LotSquareFeet:    8500,
+		Bedrooms:         4,
+		Bathrooms:        2.5,
+		FoundationType:   "Poured Concrete",
+		WiringType:       "Copper",
+		RoofType:         "Asphalt Shingle",
+		ExteriorType:     "Vinyl Siding",
+		HeatingType:      "Forced Air Gas",
+		CoolingType:      "Central AC",
+		WaterSource:      "Municipal",
+		SewerType:        "Municipal",
+		ParkingType:      "Attached 2-Car",
+		BasementType:     "Finished",
+		InsuranceCarrier: "Acme Insurance",
+		InsurancePolicy:  "HO-00-0000000",
+		InsuranceRenewal: ptrTime(2026, 8, 15),
+		PropertyTaxCents: ptr(485000),
+		HOAName:          "Elm Street HOA",
+		HOAFeeCents:      ptr(15000),
+	}
+	if err := s.db.Create(&house).Error; err != nil {
+		return fmt.Errorf("seed house: %w", err)
+	}
+
+	// Look up seeded project types and maintenance categories by name.
+	typeID := func(name string) uint {
+		var pt ProjectType
+		s.db.Where("name = ?", name).First(&pt)
+		return pt.ID
+	}
+	catID := func(name string) uint {
+		var mc MaintenanceCategory
+		s.db.Where("name = ?", name).First(&mc)
+		return mc.ID
+	}
+
+	// Vendors (all fictitious: 555 numbers, example.com emails)
+	vendors := []Vendor{
+		{
+			Name:        "Hartley Plumbing",
+			ContactName: "Dave Hartley",
+			Phone:       "555-555-0142",
+			Email:       "dave@example.com",
+		},
+		{
+			Name:        "Greenleaf Landscaping",
+			ContactName: "Maria Santos",
+			Phone:       "555-555-0198",
+			Email:       "maria@example.com",
+		},
+		{
+			Name:        "Sparks Electric",
+			ContactName: "Tom Nguyen",
+			Phone:       "555-555-0231",
+			Email:       "tom@example.com",
+		},
+		{
+			Name:        "Premier Roofing",
+			ContactName: "Jake Miller",
+			Phone:       "555-555-0307",
+			Website:     "https://example.com/premier",
+		},
+		{
+			Name:        "Central HVAC Services",
+			ContactName: "Lisa Park",
+			Phone:       "555-555-0415",
+			Email:       "lisa@example.com",
+		},
+		{Name: "Bright Window Co", ContactName: "Sam Torres", Phone: "555-555-0523"},
+	}
+	for i := range vendors {
+		if err := s.db.Create(&vendors[i]).Error; err != nil {
+			return fmt.Errorf("seed vendor %s: %w", vendors[i].Name, err)
+		}
+	}
+
+	// Projects
+	projects := []Project{
+		{
+			Title:             "Replace water heater",
+			ProjectTypeID:     typeID("Plumbing"),
+			Status:            ProjectStatusCompleted,
+			Description:       "50-gal tank water heater failed, replacing with tankless unit",
+			StartDate:         ptrTime(2025, 3, 10),
+			EndDate:           ptrTime(2025, 3, 14),
+			BudgetCents:       ptr(350000),
+			ActualCents:       ptr(328500),
+			PreferredVendorID: &vendors[0].ID,
+		},
+		{
+			Title:             "Front yard landscaping",
+			ProjectTypeID:     typeID("Landscaping"),
+			Status:            ProjectStatusInProgress,
+			Description:       "Remove dead bushes, plant native perennials, add mulch beds",
+			StartDate:         ptrTime(2025, 10, 1),
+			BudgetCents:       ptr(450000),
+			PreferredVendorID: &vendors[1].ID,
+		},
+		{
+			Title:         "Upgrade electrical panel",
+			ProjectTypeID: typeID("Electrical"),
+			Status:        ProjectStatusQuoted,
+			Description:   "Upgrade from 100A to 200A service for EV charger support",
+			BudgetCents:   ptr(600000),
+		},
+		{
+			Title:         "Replace back deck boards",
+			ProjectTypeID: typeID("Exterior"),
+			Status:        ProjectStatusPlanned,
+			Description:   "Composite decking to replace rotting pressure-treated lumber",
+			BudgetCents:   ptr(800000),
+		},
+		{
+			Title:             "Kitchen faucet replacement",
+			ProjectTypeID:     typeID("Plumbing"),
+			Status:            ProjectStatusCompleted,
+			Description:       "Pulldown faucet, brushed nickel finish",
+			StartDate:         ptrTime(2025, 6, 20),
+			EndDate:           ptrTime(2025, 6, 20),
+			BudgetCents:       ptr(45000),
+			ActualCents:       ptr(42000),
+			PreferredVendorID: &vendors[0].ID,
+		},
+		{
+			Title:         "Paint master bedroom",
+			ProjectTypeID: typeID("Painting"),
+			Status:        ProjectStatusPlanned,
+			Description:   "Walls in off-white, trim in bright white, two coats",
+		},
+	}
+	for i := range projects {
+		if err := s.db.Create(&projects[i]).Error; err != nil {
+			return fmt.Errorf("seed project %s: %w", projects[i].Title, err)
+		}
+	}
+
+	// Quotes
+	quotes := []struct {
+		projectIdx int
+		vendorIdx  int
+		total      int64
+		labor      *int64
+		materials  *int64
+		received   *time.Time
+		notes      string
+	}{
+		{2, 2, 575000, ptr(375000), ptr(200000), ptrTime(2025, 11, 5), "Includes permit fees"},
+		{
+			2,
+			0,
+			620000,
+			ptr(400000),
+			ptr(220000),
+			ptrTime(2025, 11, 12),
+			"Would need to subcontract",
+		},
+		{
+			3,
+			4,
+			780000,
+			ptr(450000),
+			ptr(330000),
+			ptrTime(2025, 12, 1),
+			"Composite boards, includes railing",
+		},
+		{1, 1, 420000, ptr(280000), ptr(140000), ptrTime(2025, 9, 15), "Phase 1 front beds only"},
+		{1, 1, 680000, ptr(400000), ptr(280000), ptrTime(2025, 9, 15), "Full front and side yards"},
+	}
+	for _, q := range quotes {
+		quote := Quote{
+			ProjectID:      projects[q.projectIdx].ID,
+			VendorID:       vendors[q.vendorIdx].ID,
+			TotalCents:     q.total,
+			LaborCents:     q.labor,
+			MaterialsCents: q.materials,
+			ReceivedDate:   q.received,
+			Notes:          q.notes,
+		}
+		if err := s.db.Create(&quote).Error; err != nil {
+			return fmt.Errorf("seed quote: %w", err)
+		}
+	}
+
+	// Maintenance items
+	maintItems := []MaintenanceItem{
+		{
+			Name:           "HVAC filter replacement",
+			CategoryID:     catID("HVAC"),
+			LastServicedAt: ptrTime(2025, 12, 1),
+			NextDueAt:      ptrTime(2026, 3, 1),
+			IntervalMonths: 3,
+			Notes:          "20x25x1 MERV 13, buy in bulk",
+			CostCents:      ptr(2500),
+		},
+		{
+			Name:           "Gutter cleaning",
+			CategoryID:     catID("Exterior"),
+			LastServicedAt: ptrTime(2025, 11, 10),
+			NextDueAt:      ptrTime(2026, 5, 10),
+			IntervalMonths: 6,
+			Notes:          "Front and back, check downspout screens",
+			CostCents:      ptr(15000),
+		},
+		{
+			Name:           "Smoke detector batteries",
+			CategoryID:     catID("Safety"),
+			LastServicedAt: ptrTime(2025, 11, 1),
+			NextDueAt:      ptrTime(2026, 11, 1),
+			IntervalMonths: 12,
+			Notes:          "6 detectors, use 9V lithium",
+			CostCents:      ptr(3000),
+		},
+		{
+			Name:           "Water softener salt",
+			CategoryID:     catID("Plumbing"),
+			LastServicedAt: ptrTime(2026, 1, 15),
+			NextDueAt:      ptrTime(2026, 3, 15),
+			IntervalMonths: 2,
+			Notes:          "40lb bag solar salt",
+			CostCents:      ptr(800),
+		},
+		{
+			Name:           "Furnace annual inspection",
+			CategoryID:     catID("HVAC"),
+			LastServicedAt: ptrTime(2025, 9, 20),
+			NextDueAt:      ptrTime(2026, 9, 20),
+			IntervalMonths: 12,
+			Notes:          "Central HVAC Services, schedule in August",
+			CostCents:      ptr(18000),
+		},
+		{
+			Name:           "Lawn mower blade sharpening",
+			CategoryID:     catID("Landscaping"),
+			LastServicedAt: ptrTime(2025, 4, 1),
+			NextDueAt:      ptrTime(2026, 4, 1),
+			IntervalMonths: 12,
+			Notes:          "Or replace blade if nicked",
+			CostCents:      ptr(2000),
+		},
+		{
+			Name:           "Refrigerator coil cleaning",
+			CategoryID:     catID("Appliance"),
+			LastServicedAt: ptrTime(2025, 7, 1),
+			NextDueAt:      ptrTime(2026, 1, 1),
+			IntervalMonths: 6,
+			ManualURL:      "https://example.com/fridge-manual",
+			Notes:          "Pull out, vacuum coils underneath",
+		},
+		{
+			Name:           "Sump pump test",
+			CategoryID:     catID("Plumbing"),
+			LastServicedAt: ptrTime(2025, 10, 1),
+			NextDueAt:      ptrTime(2026, 4, 1),
+			IntervalMonths: 6,
+			Notes:          "Pour 5 gallons in pit, confirm auto-start and drain",
+		},
+	}
+	for i := range maintItems {
+		if err := s.db.Create(&maintItems[i]).Error; err != nil {
+			return fmt.Errorf("seed maintenance %s: %w", maintItems[i].Name, err)
+		}
+	}
+
+	return nil
+}
+
 func (s *Store) HouseProfile() (HouseProfile, error) {
 	var profile HouseProfile
 	err := s.db.First(&profile).Error

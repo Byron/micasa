@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -11,7 +12,7 @@ import (
 )
 
 func main() {
-	dbOverride, showHelp, err := parseArgs(os.Args[1:])
+	dbOverride, demo, showHelp, err := parseArgs(os.Args[1:])
 	if err != nil {
 		fail("parse args", err)
 	}
@@ -19,7 +20,7 @@ func main() {
 		printHelp()
 		return
 	}
-	dbPath, err := resolveDBPath(dbOverride)
+	dbPath, err := resolveDBPath(dbOverride, demo)
 	if err != nil {
 		fail("resolve db path", err)
 	}
@@ -33,7 +34,12 @@ func main() {
 	if err := store.SeedDefaults(); err != nil {
 		fail("seed defaults", err)
 	}
-	model, err := app.NewModel(store, app.Options{})
+	if demo {
+		if err := store.SeedDemoData(); err != nil {
+			fail("seed demo data", err)
+		}
+	}
+	model, err := app.NewModel(store, app.Options{DBPath: dbPath})
 	if err != nil {
 		fail("initialize app", err)
 	}
@@ -42,28 +48,34 @@ func main() {
 	}
 }
 
-func parseArgs(args []string) (string, bool, error) {
+func parseArgs(args []string) (string, bool, bool, error) {
 	var dbPath string
+	var demo bool
 	for _, arg := range args {
 		switch arg {
 		case "-h", "--help":
-			return "", true, nil
+			return "", false, true, nil
+		case "--demo":
+			demo = true
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return "", false, fmt.Errorf("unknown flag: %s", arg)
+				return "", false, false, fmt.Errorf("unknown flag: %s", arg)
 			}
 			if dbPath != "" {
-				return "", false, fmt.Errorf("too many arguments")
+				return "", false, false, fmt.Errorf("too many arguments")
 			}
 			dbPath = arg
 		}
 	}
-	return dbPath, false, nil
+	return dbPath, demo, false, nil
 }
 
-func resolveDBPath(override string) (string, error) {
+func resolveDBPath(override string, demo bool) (string, error) {
 	if override != "" {
 		return override, nil
+	}
+	if demo {
+		return filepath.Join(os.TempDir(), "micasa-demo.db"), nil
 	}
 	return data.DefaultDBPath()
 }
@@ -77,6 +89,7 @@ func printHelp() {
 		"",
 		"Options:",
 		"  -h, --help  Show help and exit.",
+		"  --demo      Launch with sample data in a temporary database.",
 		"",
 		"Args:",
 		"  db-path     Override default sqlite path.",

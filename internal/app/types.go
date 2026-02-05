@@ -88,7 +88,9 @@ type searchIndexErrMsg struct {
 	Err error
 }
 
-type Options struct{}
+type Options struct {
+	DBPath string
+}
 
 type alignKind int
 

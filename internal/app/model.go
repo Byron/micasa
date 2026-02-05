@@ -14,6 +14,7 @@ import (
 
 type Model struct {
 	store                 *data.Store
+	dbPath                string
 	styles                Styles
 	tabs                  []Tab
 	active                int
@@ -40,6 +41,7 @@ func NewModel(store *data.Store, options Options) (*Model, error) {
 	styles := DefaultStyles()
 	model := &Model{
 		store:     store,
+		dbPath:    options.DBPath,
 		styles:    styles,
 		tabs:      NewTabs(styles),
 		active:    0,

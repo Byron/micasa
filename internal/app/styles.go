@@ -56,8 +56,7 @@ func DefaultStyles() Styles {
 			Padding(0, 1).
 			Bold(true),
 		HeaderHint: lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#9CA3AF")).
-			Italic(true),
+			Foreground(lipgloss.Color("#9CA3AF")),
 		HeaderBadge: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#E2E8F0")).
 			Background(lipgloss.Color("#1F2937")).

@@ -196,11 +196,7 @@ func (m *Model) statusView() string {
 			help,
 		)
 	}
-	deleted := "deleted:off"
 	tab := m.activeTab()
-	if tab != nil && tab.ShowDeleted {
-		deleted = "deleted:on"
-	}
 	help := joinWithSeparator(
 		m.helpSeparator(),
 		m.helpItem("tab/shift+tab", "switch"),
@@ -215,12 +211,28 @@ func (m *Model) statusView() string {
 		m.helpItem("q", "quit"),
 	)
 	help = joinWithSeparator(m.helpSeparator(), help, m.helpItem("l", "log"))
-	deletedLabel := m.styles.HeaderHint.Render(deleted)
-	helpLine := joinWithSeparator(
-		m.helpSeparator(),
-		help,
-		deletedLabel,
-	)
+	metaSep := m.styles.HeaderHint.Render("  ▏ ")
+	var deletedLabel string
+	if tab != nil && tab.ShowDeleted {
+		deletedLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#FCA5A5")).Render("+ deleted")
+	}
+	dbLabel := m.styles.HeaderHint.Render("db:") +
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#D1D5DB")).Render(m.dbPath)
+	leftPart := help
+	if deletedLabel != "" {
+		leftPart = help + metaSep + deletedLabel
+	}
+	leftWidth := ansi.StringWidth(leftPart)
+	dbWidth := ansi.StringWidth(dbLabel)
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	gap := width - leftWidth - dbWidth
+	if gap < 2 {
+		gap = 2
+	}
+	helpLine := leftPart + strings.Repeat(" ", gap) + dbLabel
 	if m.status.Text == "" {
 		return helpLine
 	}
