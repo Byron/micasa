@@ -26,6 +26,7 @@ type Styles struct {
 	LogLevelInfo   lipgloss.Style
 	LogLevelError  lipgloss.Style
 	LogLevelDebug  lipgloss.Style
+	LogHighlight   lipgloss.Style
 	SearchBox      lipgloss.Style
 	SearchTitle    lipgloss.Style
 	SearchHint     lipgloss.Style
@@ -118,6 +119,10 @@ func DefaultStyles() Styles {
 			Bold(true),
 		LogLevelDebug: lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#A78BFA")).
+			Bold(true),
+		LogHighlight: lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#1F2937")).
+			Background(lipgloss.Color("#FBBF24")).
 			Bold(true),
 		SearchBox: lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).

@@ -45,6 +45,12 @@ type logState struct {
 	filter     *regexp2.Regexp
 	filterErr  error
 	entries    []logEntry
+	highlights []logMatch
+}
+
+type logMatch struct {
+	Start int
+	End   int
 }
 
 func newLogState(verbosity int) logState {
@@ -105,15 +111,64 @@ func (l *logState) append(level logLevel, message string) {
 	}
 }
 
-func (l *logState) matches(line string) bool {
+func (l *logState) matchLine(line string) bool {
 	if l.filterErr != nil || l.filter == nil {
+		l.highlights = nil
 		return true
 	}
-	ok, err := l.filter.MatchString(line)
+	match, err := l.filter.FindStringMatch(line)
 	if err != nil {
+		l.highlights = nil
 		return false
 	}
-	return ok
+	if match == nil {
+		l.highlights = nil
+		return false
+	}
+	groups := match.Groups()
+	if len(groups) == 0 {
+		l.highlights = []logMatch{{Start: match.Index, End: match.Index + match.Length}}
+		return true
+	}
+	matches := make([]logMatch, 0, len(groups))
+	for _, group := range groups {
+		if group.Length <= 0 {
+			continue
+		}
+		start := group.Index
+		end := group.Index + group.Length
+		if start < 0 || end <= start {
+			continue
+		}
+		matches = append(matches, logMatch{Start: start, End: end})
+	}
+	if len(matches) == 0 {
+		matches = []logMatch{{Start: match.Index, End: match.Index + match.Length}}
+	}
+	l.highlights = matches
+	return true
+}
+
+// findHighlights returns all non-overlapping match spans for the active filter.
+func (l *logState) findHighlights(line string) []logMatch {
+	if l.filterErr != nil || l.filter == nil {
+		return nil
+	}
+	match, err := l.filter.FindStringMatch(line)
+	if err != nil || match == nil {
+		return nil
+	}
+	var result []logMatch
+	for match != nil {
+		if match.Length > 0 {
+			result = append(result, logMatch{Start: match.Index, End: match.Index + match.Length})
+		}
+		match, err = l.filter.FindNextMatch(match)
+		if err != nil {
+			break
+		}
+	}
+	return result
 }
 
 func (l *logState) validityLabel() string {

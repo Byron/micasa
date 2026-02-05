@@ -259,7 +259,7 @@ func (m *Model) filteredLogEntries() []logEntry {
 			entry.Level.String(),
 			entry.Message,
 		)
-		if !m.log.matches(raw) {
+		if !m.log.matchLine(raw) {
 			continue
 		}
 		entries = append(entries, entry)
@@ -276,8 +276,46 @@ func (m *Model) formatLogEntry(entry logEntry, width int) string {
 		levelStyle = m.styles.LogLevelDebug
 	}
 	level := levelStyle.Render(entry.Level.String())
-	raw := fmt.Sprintf("%s %s %s", entry.Time.Format("15:04:05"), level, entry.Message)
+	message := entry.Message
+	// Highlight regex matches within the message portion.
+	highlights := m.log.findHighlights(entry.Message)
+	if len(highlights) > 0 {
+		message = applyHighlights(entry.Message, highlights, m.styles.LogHighlight)
+	}
+	raw := fmt.Sprintf("%s %s %s", entry.Time.Format("15:04:05"), level, message)
 	return ansi.Truncate(raw, width, "…")
+}
+
+// applyHighlights inserts styled spans for each match range in the text.
+func applyHighlights(text string, spans []logMatch, style lipgloss.Style) string {
+	if len(spans) == 0 {
+		return text
+	}
+	var b strings.Builder
+	prev := 0
+	for _, span := range spans {
+		start := span.Start
+		end := span.End
+		if start < prev {
+			start = prev
+		}
+		if start > len(text) {
+			break
+		}
+		if end > len(text) {
+			end = len(text)
+		}
+		if start >= end {
+			continue
+		}
+		b.WriteString(text[prev:start])
+		b.WriteString(style.Render(text[start:end]))
+		prev = end
+	}
+	if prev < len(text) {
+		b.WriteString(text[prev:])
+	}
+	return b.String()
 }
 
 func (m *Model) searchView() string {
