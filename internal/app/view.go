@@ -47,7 +47,7 @@ func (m *Model) houseCollapsed() string {
 		m.chip("Beds", formatInt(m.house.Bedrooms)),
 		m.chip("Baths", formatFloat(m.house.Bathrooms)),
 	)
-	return lipgloss.JoinVertical(lipgloss.Left, line1, line2)
+	return joinVerticalNonEmpty(line1, line2)
 }
 
 func (m *Model) houseExpanded() string {
@@ -86,14 +86,7 @@ func (m *Model) houseExpanded() string {
 		m.chip("Tax", data.FormatOptionalCents(m.house.PropertyTaxCents)),
 		m.chip("HOA", hoaSummary(m.house)),
 	)
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		line1,
-		line2,
-		line3,
-		line4,
-		line5,
-	)
+	return joinVerticalNonEmpty(line1, line2, line3, line4, line5)
 }
 
 func (m *Model) tabsView() string {
@@ -205,6 +198,9 @@ func (m *Model) houseTitleLine(state string) string {
 }
 
 func (m *Model) chip(label, value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
 	labelText := m.styles.HeaderLabel.Render(label)
 	valueText := m.renderHouseValue(value)
 	return m.styles.HeaderChip.Render(fmt.Sprintf("%s %s", labelText, valueText))
@@ -212,7 +208,16 @@ func (m *Model) chip(label, value string) string {
 
 func (m *Model) sectionLine(label string, chips ...string) string {
 	section := m.styles.HeaderSection.Render(label)
-	parts := append([]string{section}, chips...)
+	parts := make([]string, 0, len(chips)+1)
+	for _, chip := range chips {
+		if strings.TrimSpace(chip) != "" {
+			parts = append(parts, chip)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	parts = append([]string{section}, parts...)
 	return joinInline(parts...)
 }
 
@@ -270,6 +275,19 @@ func joinInline(values ...string) string {
 		return ""
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Center, filtered...)
+}
+
+func joinVerticalNonEmpty(values ...string) string {
+	filtered := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			filtered = append(filtered, value)
+		}
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, filtered...)
 }
 
 func joinWithSeparator(sep string, values ...string) string {
