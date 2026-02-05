@@ -124,7 +124,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "d":
 			m.deleteSelected()
 			return m, nil
-		case "u":
+		case "u", "U":
 			m.restoreSelected()
 			return m, nil
 		case "x":
@@ -221,7 +221,8 @@ func (m *Model) deleteSelected() {
 		m.setStatusError(err.Error())
 		return
 	}
-	m.setStatusInfo("Deleted.")
+	tab.LastDeleted = &meta.ID
+	m.setStatusInfo("Deleted. Press u to undo.")
 	_ = m.reloadActiveTab()
 }
 
@@ -232,28 +233,42 @@ func (m *Model) restoreSelected() {
 	}
 	meta, ok := m.selectedRowMeta()
 	if !ok {
-		m.setStatusError("Nothing selected.")
+		if tab.LastDeleted == nil {
+			m.setStatusError("Nothing selected.")
+			return
+		}
+		if err := m.restoreByTab(tab.Kind, *tab.LastDeleted); err != nil {
+			m.setStatusError(err.Error())
+			return
+		}
+		tab.LastDeleted = nil
+		m.setStatusInfo("Restored last deleted.")
+		_ = m.reloadActiveTab()
 		return
 	}
 	if !meta.Deleted {
 		m.setStatusError("Selected item is not deleted.")
 		return
 	}
-	var err error
-	switch tab.Kind {
-	case tabProjects:
-		err = m.store.RestoreProject(meta.ID)
-	case tabQuotes:
-		err = m.store.RestoreQuote(meta.ID)
-	case tabMaintenance:
-		err = m.store.RestoreMaintenance(meta.ID)
-	}
-	if err != nil {
+	if err := m.restoreByTab(tab.Kind, meta.ID); err != nil {
 		m.setStatusError(err.Error())
 		return
 	}
 	m.setStatusInfo("Restored.")
 	_ = m.reloadActiveTab()
+}
+
+func (m *Model) restoreByTab(kind TabKind, id uint) error {
+	switch kind {
+	case tabProjects:
+		return m.store.RestoreProject(id)
+	case tabQuotes:
+		return m.store.RestoreQuote(id)
+	case tabMaintenance:
+		return m.store.RestoreMaintenance(id)
+	default:
+		return nil
+	}
 }
 
 func (m *Model) toggleShowDeleted() {
