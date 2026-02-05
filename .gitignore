@@ -7,4 +7,4 @@ target/
 *.sqlite
 dev.md
 vendor
-./micasa
+micasa
