@@ -214,13 +214,9 @@ func (m *Model) logView() string {
 	if width <= 0 {
 		width = 80
 	}
-	contentWidth := width - 4
-	if contentWidth < 1 {
-		contentWidth = 1
-	}
-	header = ansi.Truncate(header, contentWidth, "…")
-	filterLine = ansi.Truncate(filterLine, contentWidth, "…")
-	statusLine = ansi.Truncate(statusLine, contentWidth, "…")
+	header = ansi.Truncate(header, width, "…")
+	filterLine = ansi.Truncate(filterLine, width, "…")
+	statusLine = ansi.Truncate(statusLine, width, "…")
 	bodyLines := m.logBodyLines()
 	if bodyLines < 1 {
 		bodyLines = 1
@@ -231,19 +227,18 @@ func (m *Model) logView() string {
 	}
 	lines := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		line := m.formatLogEntry(entry, contentWidth)
+		line := m.formatLogEntry(entry, width)
 		lines = append(lines, line)
 	}
 	if len(lines) == 0 {
 		lines = []string{m.styles.Empty.Render("No log entries.")}
 	}
-	content := joinVerticalNonEmpty(
+	return joinVerticalNonEmpty(
 		header,
 		filterLine,
 		statusLine,
 		strings.Join(lines, "\n"),
 	)
-	return m.styles.LogBox.Render(content)
 }
 
 func (m *Model) logDivider() string {
@@ -282,11 +277,7 @@ func (m *Model) formatLogEntry(entry logEntry, width int) string {
 	}
 	level := levelStyle.Render(entry.Level.String())
 	raw := fmt.Sprintf("%s %s %s", entry.Time.Format("15:04:05"), level, entry.Message)
-	innerWidth := width - 2
-	if innerWidth < 1 {
-		innerWidth = 1
-	}
-	return m.styles.LogEntry.Render(ansi.Truncate(raw, innerWidth, "…"))
+	return ansi.Truncate(raw, width, "…")
 }
 
 func (m *Model) searchView() string {
