@@ -42,3 +42,7 @@
 - Added `tabAppliances` case to `tabLabel` (view.go), `tabIndex` (search.go)
 - Added appliances to `buildSearchEntries` so they appear in global search
 - All tests pass, build clean
+- Cross-tab FK navigation: `navigateToLink()` + `selectedCell()` in model.go
+- Header shows relation type (e.g. "m:1") via `LinkIndicator` style on linked columns
+- Status bar `editHint` shows "follow m:1" when on a linked cell with a target
+- Created PLANS.md for tracking feature plans across agent sessions

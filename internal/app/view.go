@@ -265,6 +265,12 @@ func (m *Model) editHint() string {
 		return "edit"
 	}
 	spec := tab.Specs[col]
+	// Show "follow link" hint when on a linked cell with a target.
+	if spec.Link != nil {
+		if c, ok := m.selectedCell(col); ok && c.LinkID > 0 {
+			return "follow " + spec.Link.Relation
+		}
+	}
 	if spec.Kind == cellReadonly {
 		return "edit all"
 	}
@@ -676,7 +682,11 @@ func renderHeaderRow(
 	cells := make([]string, 0, len(specs))
 	for i, spec := range specs {
 		width := safeWidth(widths, i)
-		text := formatCell(spec.Title, width, spec.Align)
+		title := spec.Title
+		if spec.Link != nil {
+			title = title + " " + styles.LinkIndicator.Render(spec.Link.Relation)
+		}
+		text := formatCell(title, width, spec.Align)
 		if i == colCursor {
 			cells = append(cells, styles.ColActiveHeader.Render(text))
 		} else {

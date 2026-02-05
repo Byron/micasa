@@ -327,10 +327,52 @@ func (m *Model) startCellOrFormEdit() error {
 		col = 0
 	}
 	spec := tab.Specs[col]
+
+	// If the column is linked and the cell has a target ID, navigate cross-tab.
+	if spec.Link != nil {
+		if c, ok := m.selectedCell(col); ok && c.LinkID > 0 {
+			return m.navigateToLink(spec.Link, c.LinkID)
+		}
+	}
+
 	if spec.Kind == cellReadonly {
 		return m.startEditForm()
 	}
 	return m.startInlineCellEdit(meta.ID, tab.Kind, col)
+}
+
+// navigateToLink switches to the target tab and selects the row matching the FK.
+func (m *Model) navigateToLink(link *columnLink, targetID uint) error {
+	targetIdx := tabIndex(link.TargetTab)
+	m.active = targetIdx
+	_ = m.reloadActiveTab()
+	tab := m.activeTab()
+	if tab == nil {
+		return fmt.Errorf("target tab not found")
+	}
+	if selectRowByID(tab, targetID) {
+		m.setStatusInfo(fmt.Sprintf("Followed %s link to ID %d.", link.Relation, targetID))
+		return nil
+	}
+	m.setStatusError(fmt.Sprintf("Linked item %d not found (deleted?).", targetID))
+	return nil
+}
+
+// selectedCell returns the cell at the given column for the currently selected row.
+func (m *Model) selectedCell(col int) (cell, bool) {
+	tab := m.activeTab()
+	if tab == nil {
+		return cell{}, false
+	}
+	cursor := tab.Table.Cursor()
+	if cursor < 0 || cursor >= len(tab.CellRows) {
+		return cell{}, false
+	}
+	row := tab.CellRows[cursor]
+	if col < 0 || col >= len(row) {
+		return cell{}, false
+	}
+	return row[col], true
 }
 
 func (m *Model) deleteSelected() {

@@ -19,9 +19,13 @@ The first work item is a multi-part feature. Prior agent did most of the data + 
 - `inlineEditAppliance()` for per-cell editing
 - Switch cases in: `handleFormSubmit`, `startAddForm`, `startEditForm`, `deleteSelected`, `restoreByTab`, `deletionEntityForTab`, `reloadTab`, `tabLabel`, `tabIndex`, `buildSearchEntries`
 
-**Cross-tab navigation (enter on linked cell)** -- NOT YET DONE:
-- The `columnLink` struct and `cell.LinkID` are in place but no key handler navigates on enter yet.
-- This is part of the same work item; needs: detect link on enter, switch tab, find row by ID.
+**Cross-tab navigation (enter on linked cell)** -- DONE:
+- `navigateToLink()` switches tab and selects target row by ID
+- `selectedCell()` helper reads cell at current cursor position
+- Header shows relation type (e.g. "m:1") in muted rose via `LinkIndicator` style
+- Status bar shows "follow m:1" hint when cursor is on a linked cell with a target
+- Works for Quotes.Project (m:1 -> Projects) and Maintenance.Appliance (m:1 -> Appliances)
+- For empty links (e.g. maintenance with no appliance), falls through to normal edit
 
 ## Remaining Work Items (from remaining_work.md)
 

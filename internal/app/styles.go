@@ -45,6 +45,7 @@ type Styles struct {
 	Deleted         lipgloss.Style
 	DeletedLabel    lipgloss.Style
 	DBHint          lipgloss.Style
+	LinkIndicator   lipgloss.Style
 }
 
 // Colorblind-safe palette (Wong) with adaptive light/dark variants.
@@ -220,5 +221,7 @@ func DefaultStyles() Styles {
 			Foreground(danger),
 		DBHint: lipgloss.NewStyle().
 			Foreground(textBright),
+		LinkIndicator: lipgloss.NewStyle().
+			Foreground(muted),
 	}
 }
