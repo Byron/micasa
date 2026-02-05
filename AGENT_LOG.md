@@ -29,3 +29,16 @@
 - Rewrote entire palette to Wong colorblind-safe colors with `lipgloss.AdaptiveColor` for auto light/dark detection
 
 **Codebase**: Bubbletea TUI for home project/maintenance management. Has house profile, projects, quotes, maintenance tabs with forms, search, and log pane. Data layer uses GORM+SQLite.
+
+## 2026-02-05 Session 3
+
+**Context**: Previous agent partially implemented the Appliances tab work item but left the build broken. The data model, store CRUD methods, table column specs, row rendering, form data structs, form builders, and form submit methods were all done. What was missing: wiring into the app layer switch statements.
+
+**Work done** (see git log for details):
+- Fixed build: added `applianceOptions()` helper (returns `huh.Option[uint]` list with "(none)" sentinel)
+- Added `inlineEditAppliance()` for per-cell editing (col mapping: 0=ID..8=Cost)
+- Wired `tabAppliances` into all switch statements in `model.go`: `startAddForm`, `startEditForm`, `deleteSelected`, `restoreByTab`, `deletionEntityForTab`, `reloadTab`
+- Wired `formAppliance` into `handleFormSubmit` in `forms.go`
+- Added `tabAppliances` case to `tabLabel` (view.go), `tabIndex` (search.go)
+- Added appliances to `buildSearchEntries` so they appear in global search
+- All tests pass, build clean

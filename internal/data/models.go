@@ -17,6 +17,7 @@ const (
 	DeletionEntityProject     = "project"
 	DeletionEntityQuote       = "quote"
 	DeletionEntityMaintenance = "maintenance"
+	DeletionEntityAppliance   = "appliance"
 )
 
 func ProjectStatuses() []string {
@@ -123,16 +124,34 @@ type MaintenanceCategory struct {
 	UpdatedAt time.Time
 }
 
+type Appliance struct {
+	ID             uint `gorm:"primaryKey"`
+	Name           string
+	Brand          string
+	ModelNumber    string     `gorm:"column:model_no"`
+	SerialNumber   string     `gorm:"column:serial_no"`
+	PurchaseDate   *time.Time `gorm:"column:purch_dt"`
+	WarrantyExpiry *time.Time `gorm:"column:warr_exp"`
+	Location       string
+	CostCents      *int64 `gorm:"column:cost_ct"`
+	Notes          string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      gorm.DeletedAt `gorm:"index"`
+}
+
 type MaintenanceItem struct {
 	ID             uint `gorm:"primaryKey"`
 	Name           string
 	CategoryID     uint
 	Category       MaintenanceCategory `gorm:"constraint:OnDelete:RESTRICT;"`
-	LastServicedAt *time.Time          `gorm:"column:last_srv"`
-	NextDueAt      *time.Time          `gorm:"column:next_due"`
-	IntervalMonths int                 `gorm:"column:int_mo"`
-	ManualURL      string              `gorm:"column:man_url"`
-	ManualText     string              `gorm:"column:man_txt"`
+	ApplianceID    *uint
+	Appliance      Appliance  `gorm:"constraint:OnDelete:SET NULL;"`
+	LastServicedAt *time.Time `gorm:"column:last_srv"`
+	NextDueAt      *time.Time `gorm:"column:next_due"`
+	IntervalMonths int        `gorm:"column:int_mo"`
+	ManualURL      string     `gorm:"column:man_url"`
+	ManualText     string     `gorm:"column:man_txt"`
 	Notes          string
 	CostCents      *int64 `gorm:"column:cost_ct"`
 	CreatedAt      time.Time

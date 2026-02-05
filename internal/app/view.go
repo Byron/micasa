@@ -628,6 +628,8 @@ func tabLabel(kind TabKind) string {
 		return "Quotes"
 	case tabMaintenance:
 		return "Maintenance"
+	case tabAppliances:
+		return "Appliances"
 	default:
 		return "Unknown"
 	}

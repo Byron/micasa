@@ -12,6 +12,7 @@ func NewTabs(styles Styles) []Tab {
 	projectSpecs := projectColumnSpecs()
 	quoteSpecs := quoteColumnSpecs()
 	maintenanceSpecs := maintenanceColumnSpecs()
+	applianceSpecs := applianceColumnSpecs()
 	return []Tab{
 		{
 			Kind:  tabProjects,
@@ -30,6 +31,12 @@ func NewTabs(styles Styles) []Tab {
 			Name:  "Maintenance",
 			Specs: maintenanceSpecs,
 			Table: newTable(specsToColumns(maintenanceSpecs), styles),
+		},
+		{
+			Kind:  tabAppliances,
+			Name:  "Appliances",
+			Specs: applianceSpecs,
+			Table: newTable(specsToColumns(applianceSpecs), styles),
 		},
 	}
 }
@@ -50,7 +57,13 @@ func projectColumnSpecs() []columnSpec {
 func quoteColumnSpecs() []columnSpec {
 	return []columnSpec{
 		{Title: "ID", Min: 4, Max: 6, Align: alignRight, Kind: cellReadonly},
-		{Title: "Project", Min: 12, Max: 24, Flex: true},
+		{
+			Title: "Project",
+			Min:   12,
+			Max:   24,
+			Flex:  true,
+			Link:  &columnLink{TargetTab: tabProjects, Relation: "m:1"},
+		},
 		{Title: "Vendor", Min: 12, Max: 20, Flex: true},
 		{Title: "Total", Min: 10, Max: 14, Align: alignRight, Kind: cellMoney},
 		{Title: "Labor", Min: 10, Max: 14, Align: alignRight, Kind: cellMoney},
@@ -65,11 +78,61 @@ func maintenanceColumnSpecs() []columnSpec {
 		{Title: "ID", Min: 4, Max: 6, Align: alignRight, Kind: cellReadonly},
 		{Title: "Item", Min: 12, Max: 26, Flex: true},
 		{Title: "Category", Min: 10, Max: 14},
+		{
+			Title: "Appliance",
+			Min:   10,
+			Max:   18,
+			Flex:  true,
+			Link:  &columnLink{TargetTab: tabAppliances, Relation: "m:1"},
+		},
 		{Title: "Last", Min: 10, Max: 12, Kind: cellDate},
 		{Title: "Next", Min: 10, Max: 12, Kind: cellDate},
 		{Title: "Every", Min: 6, Max: 10},
 		{Title: "Manual", Min: 8, Max: 14, Flex: true},
 	}
+}
+
+func applianceColumnSpecs() []columnSpec {
+	return []columnSpec{
+		{Title: "ID", Min: 4, Max: 6, Align: alignRight, Kind: cellReadonly},
+		{Title: "Name", Min: 12, Max: 24, Flex: true},
+		{Title: "Brand", Min: 8, Max: 16, Flex: true},
+		{Title: "Model", Min: 8, Max: 16},
+		{Title: "Serial", Min: 8, Max: 14},
+		{Title: "Location", Min: 8, Max: 14},
+		{Title: "Purchased", Min: 10, Max: 12, Kind: cellDate},
+		{Title: "Warranty", Min: 10, Max: 12, Kind: cellDate},
+		{Title: "Cost", Min: 8, Max: 12, Align: alignRight, Kind: cellMoney},
+	}
+}
+
+func applianceRows(
+	items []data.Appliance,
+) ([]table.Row, []rowMeta, [][]cell) {
+	rows := make([]table.Row, 0, len(items))
+	meta := make([]rowMeta, 0, len(items))
+	cells := make([][]cell, 0, len(items))
+	for _, item := range items {
+		deleted := item.DeletedAt.Valid
+		rowCells := []cell{
+			{Value: fmt.Sprintf("%d", item.ID), Kind: cellReadonly},
+			{Value: item.Name, Kind: cellText},
+			{Value: item.Brand, Kind: cellText},
+			{Value: item.ModelNumber, Kind: cellText},
+			{Value: item.SerialNumber, Kind: cellText},
+			{Value: item.Location, Kind: cellText},
+			{Value: dateValue(item.PurchaseDate), Kind: cellDate},
+			{Value: dateValue(item.WarrantyExpiry), Kind: cellDate},
+			{Value: centsValue(item.CostCents), Kind: cellMoney},
+		}
+		rows = append(rows, cellsToRow(rowCells))
+		cells = append(cells, rowCells)
+		meta = append(meta, rowMeta{
+			ID:      item.ID,
+			Deleted: deleted,
+		})
+	}
+	return rows, meta, cells
 }
 
 func specsToColumns(specs []columnSpec) []table.Column {
@@ -138,7 +201,7 @@ func quoteRows(
 		}
 		rowCells := []cell{
 			{Value: fmt.Sprintf("%d", quote.ID), Kind: cellReadonly},
-			{Value: projectName, Kind: cellText},
+			{Value: projectName, Kind: cellText, LinkID: quote.ProjectID},
 			{Value: quote.Vendor.Name, Kind: cellText},
 			{Value: data.FormatCents(quote.TotalCents), Kind: cellMoney},
 			{Value: centsValue(quote.LaborCents), Kind: cellMoney},
@@ -169,10 +232,17 @@ func maintenanceRows(
 		if item.IntervalMonths > 0 {
 			interval = fmt.Sprintf("%d mo", item.IntervalMonths)
 		}
+		appName := ""
+		var appLinkID uint
+		if item.ApplianceID != nil {
+			appName = item.Appliance.Name
+			appLinkID = *item.ApplianceID
+		}
 		rowCells := []cell{
 			{Value: fmt.Sprintf("%d", item.ID), Kind: cellReadonly},
 			{Value: item.Name, Kind: cellText},
 			{Value: item.Category.Name, Kind: cellText},
+			{Value: appName, Kind: cellText, LinkID: appLinkID},
 			{Value: dateValue(item.LastServicedAt), Kind: cellDate},
 			{Value: dateValue(item.NextDueAt), Kind: cellDate},
 			{Value: interval, Kind: cellText},

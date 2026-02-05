@@ -69,11 +69,24 @@ type quoteFormData struct {
 type maintenanceFormData struct {
 	Name           string
 	CategoryID     uint
+	ApplianceID    uint // 0 means none
 	LastServiced   string
 	NextDue        string
 	IntervalMonths string
 	ManualURL      string
 	ManualText     string
+	Cost           string
+	Notes          string
+}
+
+type applianceFormData struct {
+	Name           string
+	Brand          string
+	ModelNumber    string
+	SerialNumber   string
+	PurchaseDate   string
+	WarrantyExpiry string
+	Location       string
 	Cost           string
 	Notes          string
 }
@@ -358,8 +371,10 @@ func (m *Model) startMaintenanceForm() {
 	if len(options) > 0 {
 		values.CategoryID = options[0].Value
 	}
+	appliances, _ := m.store.ListAppliances(false)
+	appOpts := applianceOptions(appliances)
 	m.logDebug("Opening maintenance form.")
-	m.openMaintenanceForm(values, options)
+	m.openMaintenanceForm(values, options, appOpts)
 }
 
 func (m *Model) startEditMaintenanceForm(id uint) error {
@@ -367,9 +382,14 @@ func (m *Model) startEditMaintenanceForm(id uint) error {
 	if err != nil {
 		return fmt.Errorf("load maintenance item: %w", err)
 	}
+	var appID uint
+	if item.ApplianceID != nil {
+		appID = *item.ApplianceID
+	}
 	values := &maintenanceFormData{
 		Name:           item.Name,
 		CategoryID:     item.CategoryID,
+		ApplianceID:    appID,
 		LastServiced:   data.FormatDate(item.LastServicedAt),
 		NextDue:        data.FormatDate(item.NextDueAt),
 		IntervalMonths: intToString(item.IntervalMonths),
@@ -379,13 +399,19 @@ func (m *Model) startEditMaintenanceForm(id uint) error {
 		Notes:          item.Notes,
 	}
 	options := maintenanceOptions(m.maintenanceCategories)
+	appliances, _ := m.store.ListAppliances(false)
+	appOpts := applianceOptions(appliances)
 	m.logDebug(fmt.Sprintf("Editing maintenance item %d.", id))
 	m.editID = &id
-	m.openMaintenanceForm(values, options)
+	m.openMaintenanceForm(values, options, appOpts)
 	return nil
 }
 
-func (m *Model) openMaintenanceForm(values *maintenanceFormData, options []huh.Option[uint]) {
+func (m *Model) openMaintenanceForm(
+	values *maintenanceFormData,
+	catOptions []huh.Option[uint],
+	appOptions []huh.Option[uint],
+) {
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
@@ -394,8 +420,12 @@ func (m *Model) openMaintenanceForm(values *maintenanceFormData, options []huh.O
 				Validate(requiredText("item")),
 			huh.NewSelect[uint]().
 				Title("Category").
-				Options(options...).
+				Options(catOptions...).
 				Value(&values.CategoryID),
+			huh.NewSelect[uint]().
+				Title("Appliance").
+				Options(appOptions...).
+				Value(&values.ApplianceID),
 			huh.NewInput().
 				Title("Last serviced (YYYY-MM-DD)").
 				Value(&values.LastServiced).
@@ -429,6 +459,135 @@ func (m *Model) openMaintenanceForm(values *maintenanceFormData, options []huh.O
 	m.snapshotForm()
 }
 
+func (m *Model) startApplianceForm() {
+	values := &applianceFormData{}
+	m.logDebug("Opening appliance form.")
+	m.openApplianceForm(values)
+}
+
+func (m *Model) startEditApplianceForm(id uint) error {
+	item, err := m.store.GetAppliance(id)
+	if err != nil {
+		return fmt.Errorf("load appliance: %w", err)
+	}
+	values := &applianceFormData{
+		Name:           item.Name,
+		Brand:          item.Brand,
+		ModelNumber:    item.ModelNumber,
+		SerialNumber:   item.SerialNumber,
+		PurchaseDate:   data.FormatDate(item.PurchaseDate),
+		WarrantyExpiry: data.FormatDate(item.WarrantyExpiry),
+		Location:       item.Location,
+		Cost:           data.FormatOptionalCents(item.CostCents),
+		Notes:          item.Notes,
+	}
+	m.logDebug(fmt.Sprintf("Editing appliance %d.", id))
+	m.editID = &id
+	m.openApplianceForm(values)
+	return nil
+}
+
+func (m *Model) openApplianceForm(values *applianceFormData) {
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Name").
+				Placeholder("Kitchen Refrigerator").
+				Value(&values.Name).
+				Validate(requiredText("name")),
+			huh.NewInput().Title("Brand").Value(&values.Brand),
+			huh.NewInput().Title("Model number").Value(&values.ModelNumber),
+			huh.NewInput().Title("Serial number").Value(&values.SerialNumber),
+			huh.NewInput().Title("Location").Placeholder("Kitchen").Value(&values.Location),
+		).Title("Identity"),
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Purchase date (YYYY-MM-DD)").
+				Value(&values.PurchaseDate).
+				Validate(optionalDate("purchase date")),
+			huh.NewInput().
+				Title("Warranty expiry (YYYY-MM-DD)").
+				Value(&values.WarrantyExpiry).
+				Validate(optionalDate("warranty expiry")),
+			huh.NewInput().
+				Title("Cost").
+				Placeholder("899.00").
+				Value(&values.Cost).
+				Validate(optionalMoney("cost")),
+			huh.NewText().Title("Notes").Value(&values.Notes),
+		).Title("Details"),
+	)
+	applyFormDefaults(form)
+	m.mode = modeForm
+	m.formKind = formAppliance
+	m.form = form
+	m.formData = values
+	m.snapshotForm()
+}
+
+func (m *Model) submitApplianceForm() error {
+	values, ok := m.formData.(*applianceFormData)
+	if !ok {
+		return fmt.Errorf("unexpected appliance form data")
+	}
+	purchaseDate, err := data.ParseOptionalDate(values.PurchaseDate)
+	if err != nil {
+		return err
+	}
+	warrantyExpiry, err := data.ParseOptionalDate(values.WarrantyExpiry)
+	if err != nil {
+		return err
+	}
+	cost, err := data.ParseOptionalCents(values.Cost)
+	if err != nil {
+		return err
+	}
+	item := data.Appliance{
+		Name:           strings.TrimSpace(values.Name),
+		Brand:          strings.TrimSpace(values.Brand),
+		ModelNumber:    strings.TrimSpace(values.ModelNumber),
+		SerialNumber:   strings.TrimSpace(values.SerialNumber),
+		PurchaseDate:   purchaseDate,
+		WarrantyExpiry: warrantyExpiry,
+		Location:       strings.TrimSpace(values.Location),
+		CostCents:      cost,
+		Notes:          strings.TrimSpace(values.Notes),
+	}
+	return m.store.CreateAppliance(item)
+}
+
+func (m *Model) submitEditApplianceForm(id uint) error {
+	values, ok := m.formData.(*applianceFormData)
+	if !ok {
+		return fmt.Errorf("unexpected appliance form data")
+	}
+	purchaseDate, err := data.ParseOptionalDate(values.PurchaseDate)
+	if err != nil {
+		return err
+	}
+	warrantyExpiry, err := data.ParseOptionalDate(values.WarrantyExpiry)
+	if err != nil {
+		return err
+	}
+	cost, err := data.ParseOptionalCents(values.Cost)
+	if err != nil {
+		return err
+	}
+	item := data.Appliance{
+		ID:             id,
+		Name:           strings.TrimSpace(values.Name),
+		Brand:          strings.TrimSpace(values.Brand),
+		ModelNumber:    strings.TrimSpace(values.ModelNumber),
+		SerialNumber:   strings.TrimSpace(values.SerialNumber),
+		PurchaseDate:   purchaseDate,
+		WarrantyExpiry: warrantyExpiry,
+		Location:       strings.TrimSpace(values.Location),
+		CostCents:      cost,
+		Notes:          strings.TrimSpace(values.Notes),
+	}
+	return m.store.UpdateAppliance(item)
+}
+
 // startInlineCellEdit opens a single-field form for the given column.
 func (m *Model) startInlineCellEdit(id uint, tabKind TabKind, col int) error {
 	switch tabKind {
@@ -438,6 +597,8 @@ func (m *Model) startInlineCellEdit(id uint, tabKind TabKind, col int) error {
 		return m.inlineEditQuote(id, col)
 	case tabMaintenance:
 		return m.inlineEditMaintenance(id, col)
+	case tabAppliances:
+		return m.inlineEditAppliance(id, col)
 	default:
 		return fmt.Errorf("unknown tab")
 	}
@@ -592,9 +753,14 @@ func (m *Model) inlineEditMaintenance(id uint, col int) error {
 	if err != nil {
 		return fmt.Errorf("load maintenance item: %w", err)
 	}
+	var appID uint
+	if item.ApplianceID != nil {
+		appID = *item.ApplianceID
+	}
 	values := &maintenanceFormData{
 		Name:           item.Name,
 		CategoryID:     item.CategoryID,
+		ApplianceID:    appID,
 		LastServiced:   data.FormatDate(item.LastServicedAt),
 		NextDue:        data.FormatDate(item.NextDueAt),
 		IntervalMonths: intToString(item.IntervalMonths),
@@ -603,33 +769,42 @@ func (m *Model) inlineEditMaintenance(id uint, col int) error {
 		Cost:           data.FormatOptionalCents(item.CostCents),
 		Notes:          item.Notes,
 	}
-	options := maintenanceOptions(m.maintenanceCategories)
-	// Column mapping: 0=ID, 1=Item, 2=Category, 3=Last, 4=Next, 5=Every, 6=Manual
+	catOptions := maintenanceOptions(m.maintenanceCategories)
+	// Column mapping: 0=ID, 1=Item, 2=Category, 3=Appliance, 4=Last, 5=Next, 6=Every, 7=Manual
 	var field huh.Field
 	switch col {
 	case 1:
 		field = huh.NewInput().Title("Item").Value(&values.Name).Validate(requiredText("item"))
 	case 2:
 		field = huh.NewSelect[uint]().Title("Category").
-			Options(options...).
+			Options(catOptions...).
 			Value(&values.CategoryID)
 	case 3:
+		appliances, loadErr := m.store.ListAppliances(false)
+		if loadErr != nil {
+			return loadErr
+		}
+		appOpts := applianceOptions(appliances)
+		field = huh.NewSelect[uint]().Title("Appliance").
+			Options(appOpts...).
+			Value(&values.ApplianceID)
+	case 4:
 		field = huh.NewInput().
 			Title("Last serviced (YYYY-MM-DD)").
 			Value(&values.LastServiced).
 			Validate(optionalDate("last serviced"))
-	case 4:
+	case 5:
 		field = huh.NewInput().
 			Title("Next due (YYYY-MM-DD)").
 			Value(&values.NextDue).
 			Validate(optionalDate("next due"))
-	case 5:
+	case 6:
 		field = huh.NewInput().
 			Title("Interval months").
 			Placeholder("6").
 			Value(&values.IntervalMonths).
 			Validate(optionalInt("interval months"))
-	case 6:
+	case 7:
 		field = huh.NewInput().Title("Manual URL").Value(&values.ManualURL)
 	default:
 		return m.startEditMaintenanceForm(id)
@@ -643,6 +818,78 @@ func (m *Model) inlineEditMaintenance(id uint, col int) error {
 	m.formData = values
 	m.snapshotForm()
 	return nil
+}
+
+func (m *Model) inlineEditAppliance(id uint, col int) error {
+	item, err := m.store.GetAppliance(id)
+	if err != nil {
+		return fmt.Errorf("load appliance: %w", err)
+	}
+	values := &applianceFormData{
+		Name:           item.Name,
+		Brand:          item.Brand,
+		ModelNumber:    item.ModelNumber,
+		SerialNumber:   item.SerialNumber,
+		PurchaseDate:   data.FormatDate(item.PurchaseDate),
+		WarrantyExpiry: data.FormatDate(item.WarrantyExpiry),
+		Location:       item.Location,
+		Cost:           data.FormatOptionalCents(item.CostCents),
+		Notes:          item.Notes,
+	}
+	// Column mapping: 0=ID, 1=Name, 2=Brand, 3=Model, 4=Serial, 5=Location, 6=Purchased, 7=Warranty, 8=Cost
+	var field huh.Field
+	switch col {
+	case 1:
+		field = huh.NewInput().Title("Name").Value(&values.Name).Validate(requiredText("name"))
+	case 2:
+		field = huh.NewInput().Title("Brand").Value(&values.Brand)
+	case 3:
+		field = huh.NewInput().Title("Model number").Value(&values.ModelNumber)
+	case 4:
+		field = huh.NewInput().Title("Serial number").Value(&values.SerialNumber)
+	case 5:
+		field = huh.NewInput().Title("Location").Value(&values.Location)
+	case 6:
+		field = huh.NewInput().
+			Title("Purchase date (YYYY-MM-DD)").
+			Value(&values.PurchaseDate).
+			Validate(optionalDate("purchase date"))
+	case 7:
+		field = huh.NewInput().
+			Title("Warranty expiry (YYYY-MM-DD)").
+			Value(&values.WarrantyExpiry).
+			Validate(optionalDate("warranty expiry"))
+	case 8:
+		field = huh.NewInput().
+			Title("Cost").
+			Placeholder("899.00").
+			Value(&values.Cost).
+			Validate(optionalMoney("cost"))
+	default:
+		return m.startEditApplianceForm(id)
+	}
+	m.editID = &id
+	form := huh.NewForm(huh.NewGroup(field))
+	applyFormDefaults(form)
+	m.mode = modeForm
+	m.formKind = formAppliance
+	m.form = form
+	m.formData = values
+	m.snapshotForm()
+	return nil
+}
+
+func applianceOptions(appliances []data.Appliance) []huh.Option[uint] {
+	options := make([]huh.Option[uint], 0, len(appliances)+1)
+	options = append(options, huh.NewOption("(none)", uint(0)))
+	for _, appliance := range appliances {
+		label := appliance.Name
+		if appliance.Brand != "" {
+			label = fmt.Sprintf("%s (%s)", appliance.Name, appliance.Brand)
+		}
+		options = append(options, huh.NewOption(label, appliance.ID))
+	}
+	return options
 }
 
 func applyFormDefaults(form *huh.Form) {
@@ -676,6 +923,11 @@ func (m *Model) handleFormSubmit() error {
 			return m.submitEditMaintenanceForm(*m.editID)
 		}
 		return m.submitMaintenanceForm()
+	case formAppliance:
+		if m.editID != nil {
+			return m.submitEditApplianceForm(*m.editID)
+		}
+		return m.submitApplianceForm()
 	default:
 		return nil
 	}

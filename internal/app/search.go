@@ -149,7 +149,11 @@ func buildSearchEntries(store *data.Store) ([]searchEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	entries := make([]searchEntry, 0, len(projects)+len(quotes)+len(maintenance))
+	appliances, err := store.ListAppliances(false)
+	if err != nil {
+		return nil, err
+	}
+	entries := make([]searchEntry, 0, len(projects)+len(quotes)+len(maintenance)+len(appliances))
 	for _, project := range projects {
 		title := project.Title
 		if title == "" {
@@ -191,6 +195,20 @@ func buildSearchEntries(store *data.Store) ([]searchEntry, error) {
 		entries = append(entries, searchEntry{
 			Tab:        tabMaintenance,
 			ID:         item.ID,
+			Title:      title,
+			Summary:    summary,
+			Searchable: strings.ToLower(title + " " + summary),
+		})
+	}
+	for _, appliance := range appliances {
+		title := appliance.Name
+		if title == "" {
+			title = fmt.Sprintf("Appliance %d", appliance.ID)
+		}
+		summary := fmt.Sprintf("%s • %s", appliance.Brand, appliance.Location)
+		entries = append(entries, searchEntry{
+			Tab:        tabAppliances,
+			ID:         appliance.ID,
 			Title:      title,
 			Summary:    summary,
 			Searchable: strings.ToLower(title + " " + summary),
@@ -238,6 +256,8 @@ func tabIndex(kind TabKind) int {
 		return 1
 	case tabMaintenance:
 		return 2
+	case tabAppliances:
+		return 3
 	default:
 		return 0
 	}

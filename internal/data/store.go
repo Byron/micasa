@@ -39,6 +39,7 @@ func (s *Store) AutoMigrate() error {
 		&Project{},
 		&Quote{},
 		&MaintenanceCategory{},
+		&Appliance{},
 		&MaintenanceItem{},
 		&DeletionRecord{},
 	)
@@ -264,6 +265,84 @@ func (s *Store) SeedDemoData() error {
 		}
 	}
 
+	// Appliances (all fictitious brands)
+	appliances := []Appliance{
+		{
+			Name:           "Kitchen Refrigerator",
+			Brand:          "Frostline",
+			ModelNumber:    "FR-2400X",
+			SerialNumber:   "FL-00-849271",
+			Location:       "Kitchen",
+			PurchaseDate:   ptrTime(2020, 6, 15),
+			WarrantyExpiry: ptrTime(2025, 6, 15),
+			CostCents:      ptr(189900),
+		},
+		{
+			Name:           "Washer",
+			Brand:          "CleanWave",
+			ModelNumber:    "CW-850F",
+			SerialNumber:   "CW-00-331045",
+			Location:       "Laundry Room",
+			PurchaseDate:   ptrTime(2021, 3, 10),
+			WarrantyExpiry: ptrTime(2024, 3, 10),
+			CostCents:      ptr(89900),
+		},
+		{
+			Name:           "Dryer",
+			Brand:          "CleanWave",
+			ModelNumber:    "CW-850D",
+			SerialNumber:   "CW-00-331046",
+			Location:       "Laundry Room",
+			PurchaseDate:   ptrTime(2021, 3, 10),
+			WarrantyExpiry: ptrTime(2024, 3, 10),
+			CostCents:      ptr(79900),
+		},
+		{
+			Name:         "Dishwasher",
+			Brand:        "Frostline",
+			ModelNumber:  "FR-DW550",
+			SerialNumber: "FL-00-220318",
+			Location:     "Kitchen",
+			PurchaseDate: ptrTime(2019, 11, 20),
+			CostCents:    ptr(64900),
+		},
+		{
+			Name:           "Tankless Water Heater",
+			Brand:          "AquaMax",
+			ModelNumber:    "AM-TL200",
+			SerialNumber:   "AQ-00-558102",
+			Location:       "Utility Closet",
+			PurchaseDate:   ptrTime(2025, 3, 14),
+			WarrantyExpiry: ptrTime(2035, 3, 14),
+			CostCents:      ptr(328500),
+			Notes:          "Installed during water heater replacement project",
+		},
+		{
+			Name:           "Central AC / Furnace",
+			Brand:          "AirComfort",
+			ModelNumber:    "AC-4800DX",
+			SerialNumber:   "AF-00-994520",
+			Location:       "Basement",
+			PurchaseDate:   ptrTime(2018, 8, 1),
+			WarrantyExpiry: ptrTime(2028, 8, 1),
+			CostCents:      ptr(650000),
+		},
+		{
+			Name:         "Garage Door Opener",
+			Brand:        "LiftRight",
+			ModelNumber:  "LR-3400",
+			SerialNumber: "LR-00-117890",
+			Location:     "Garage",
+			PurchaseDate: ptrTime(2017, 5, 22),
+			CostCents:    ptr(35000),
+		},
+	}
+	for i := range appliances {
+		if err := s.db.Create(&appliances[i]).Error; err != nil {
+			return fmt.Errorf("seed appliance %s: %w", appliances[i].Name, err)
+		}
+	}
+
 	// Maintenance items
 	maintItems := []MaintenanceItem{
 		{
@@ -342,6 +421,16 @@ func (s *Store) SeedDemoData() error {
 		if err := s.db.Create(&maintItems[i]).Error; err != nil {
 			return fmt.Errorf("seed maintenance %s: %w", maintItems[i].Name, err)
 		}
+	}
+
+	// Link some maintenance items to appliances.
+	appLinks := map[string]uint{
+		"HVAC filter replacement":    appliances[5].ID,
+		"Furnace annual inspection":  appliances[5].ID,
+		"Refrigerator coil cleaning": appliances[0].ID,
+	}
+	for name, appID := range appLinks {
+		s.db.Model(&MaintenanceItem{}).Where("name = ?", name).Update("appliance_id", appID)
 	}
 
 	return nil
@@ -424,7 +513,11 @@ func (s *Store) ListQuotes(includeDeleted bool) ([]Quote, error) {
 
 func (s *Store) ListMaintenance(includeDeleted bool) ([]MaintenanceItem, error) {
 	var items []MaintenanceItem
-	db := s.db.Preload("Category").Order("updated_at desc")
+	db := s.db.Preload("Category")
+	db = db.Preload("Appliance", func(q *gorm.DB) *gorm.DB {
+		return q.Unscoped()
+	})
+	db = db.Order("updated_at desc")
 	if includeDeleted {
 		db = db.Unscoped()
 	}
@@ -491,7 +584,11 @@ func (s *Store) UpdateQuote(quote Quote, vendor Vendor) error {
 
 func (s *Store) GetMaintenance(id uint) (MaintenanceItem, error) {
 	var item MaintenanceItem
-	err := s.db.Preload("Category").First(&item, id).Error
+	err := s.db.Preload("Category").
+		Preload("Appliance", func(q *gorm.DB) *gorm.DB {
+			return q.Unscoped()
+		}).
+		First(&item, id).Error
 	return item, err
 }
 
@@ -504,6 +601,53 @@ func (s *Store) UpdateMaintenance(item MaintenanceItem) error {
 		Select("*").
 		Omit("id", "created_at", "deleted_at").
 		Updates(item).Error
+}
+
+func (s *Store) ListAppliances(includeDeleted bool) ([]Appliance, error) {
+	var items []Appliance
+	db := s.db.Order("updated_at desc")
+	if includeDeleted {
+		db = db.Unscoped()
+	}
+	if err := db.Find(&items).Error; err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+func (s *Store) GetAppliance(id uint) (Appliance, error) {
+	var item Appliance
+	err := s.db.First(&item, id).Error
+	return item, err
+}
+
+func (s *Store) CreateAppliance(item Appliance) error {
+	return s.db.Create(&item).Error
+}
+
+func (s *Store) UpdateAppliance(item Appliance) error {
+	return s.db.Model(&Appliance{}).Where("id = ?", item.ID).
+		Select("*").
+		Omit("id", "created_at", "deleted_at").
+		Updates(item).Error
+}
+
+func (s *Store) DeleteAppliance(id uint) error {
+	result := s.db.Delete(&Appliance{}, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return s.logDeletion(DeletionEntityAppliance, id)
+}
+
+func (s *Store) RestoreAppliance(id uint) error {
+	if err := s.restoreByID(&Appliance{}, id); err != nil {
+		return err
+	}
+	return s.markDeletionRestored(DeletionEntityAppliance, id)
 }
 
 func (s *Store) DeleteProject(id uint) error {

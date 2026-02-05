@@ -22,6 +22,7 @@ const (
 	formProject
 	formQuote
 	formMaintenance
+	formAppliance
 )
 
 type TabKind int
@@ -30,6 +31,7 @@ const (
 	tabProjects TabKind = iota
 	tabQuotes
 	tabMaintenance
+	tabAppliances
 )
 
 type rowMeta struct {
@@ -110,8 +112,15 @@ const (
 )
 
 type cell struct {
-	Value string
-	Kind  cellKind
+	Value  string
+	Kind   cellKind
+	LinkID uint // FK target ID for cross-tab navigation; 0 = no link
+}
+
+// columnLink describes a foreign-key relationship to another tab.
+type columnLink struct {
+	TargetTab TabKind
+	Relation  string // "m:1", "1:m", "1:1", "m:n"
 }
 
 type columnSpec struct {
@@ -121,4 +130,5 @@ type columnSpec struct {
 	Flex  bool
 	Align alignKind
 	Kind  cellKind
+	Link  *columnLink // non-nil if this column references another tab
 }

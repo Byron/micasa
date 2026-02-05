@@ -279,6 +279,8 @@ func (m *Model) startAddForm() {
 		}
 	case tabMaintenance:
 		m.startMaintenanceForm()
+	case tabAppliances:
+		m.startApplianceForm()
 	}
 }
 
@@ -301,6 +303,8 @@ func (m *Model) startEditForm() error {
 		return m.startEditQuoteForm(meta.ID)
 	case tabMaintenance:
 		return m.startEditMaintenanceForm(meta.ID)
+	case tabAppliances:
+		return m.startEditApplianceForm(meta.ID)
 	default:
 		return fmt.Errorf("unknown tab")
 	}
@@ -351,6 +355,8 @@ func (m *Model) deleteSelected() {
 		err = m.store.DeleteQuote(meta.ID)
 	case tabMaintenance:
 		err = m.store.DeleteMaintenance(meta.ID)
+	case tabAppliances:
+		err = m.store.DeleteAppliance(meta.ID)
 	}
 	if err != nil {
 		m.setStatusError(err.Error())
@@ -423,6 +429,8 @@ func (m *Model) restoreByTab(kind TabKind, id uint) error {
 		return m.store.RestoreQuote(id)
 	case tabMaintenance:
 		return m.store.RestoreMaintenance(id)
+	case tabAppliances:
+		return m.store.RestoreAppliance(id)
 	default:
 		return nil
 	}
@@ -436,6 +444,8 @@ func deletionEntityForTab(kind TabKind) string {
 		return data.DeletionEntityQuote
 	case tabMaintenance:
 		return data.DeletionEntityMaintenance
+	case tabAppliances:
+		return data.DeletionEntityAppliance
 	default:
 		return ""
 	}
@@ -514,6 +524,16 @@ func (m *Model) reloadTab(tab *Tab) error {
 		rows, meta, cellRows = maintenanceRows(items)
 		tab.CellRows = cellRows
 		m.logDebug(fmt.Sprintf("Loaded %d maintenance items", len(items)))
+	case tabAppliances:
+		var appliances []data.Appliance
+		appliances, err = m.store.ListAppliances(tab.ShowDeleted)
+		if err != nil {
+			return err
+		}
+		var cellRows [][]cell
+		rows, meta, cellRows = applianceRows(appliances)
+		tab.CellRows = cellRows
+		m.logDebug(fmt.Sprintf("Loaded %d appliances", len(appliances)))
 	}
 	tab.Table.SetRows(rows)
 	tab.Rows = meta

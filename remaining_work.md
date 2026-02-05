@@ -1,6 +1,15 @@
+- make a new tab, call it Appliances, for tracking appliance information; add
+  an appliance field to Maintenance that links (by foreign key) to this new
+  dataset; second, make it so that when i hit enter on cell that is linked
+  (maybe also find a way to indicate that a column is linked to another table
+  [including its relationship 1:1, 1:m, m:1 or m:n as the indicator would also
+  │ be fuckin' dope]) that will move you to that cell in the other tab (if it's
+  1:1 of course. if 1:m go to the first match, if m:1, there's only a single
+  match, if m:n not sure, help me   figure out the ux for that )
 - add the ability to sort by a column with a key stroke, it should toggle
   ascending, descending, and no sort. sort by primary key by default
-- for maintenance items, compute the default ghost text for next due date from the last serviced date + the maintenance interval
+- for maintenance items, compute the default ghost text for next due date from
+  the last serviced date + the maintenance interval and default to that
 
 ## Completed
 
