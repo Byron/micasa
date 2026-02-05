@@ -1,7 +1,7 @@
 - remove the v1 in Logs; remove the forward slashes; the ghost test should read
   type a Perl-compatible regex; put the log lines themselves in visually
   separate components
-- i don't see a spinner spinning or any activity when i begin searching; also the search indexing seems to never complete and so i never get search results even when i konw i should
+- build a search engine (and sweet embedded UI for it) that MUST run locally. everything in the data should be searchable, show a spinner while the index is building (which obv needs to happen asynchronously in the background). the search interface should pop up a box like google's and show any of the data that matches and allow selecting it and then take you to that row
 - highlight the part of the string that the regex matched in log lines
 - i can't edit existing entries, make that work please
 - add the ability to sort by a column with a key stroke, it should toggle
