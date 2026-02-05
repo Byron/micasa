@@ -44,6 +44,7 @@ type Tab struct {
 	Rows        []rowMeta
 	Specs       []columnSpec
 	CellRows    [][]cell
+	ColCursor   int
 	LastDeleted *uint
 	ShowDeleted bool
 }

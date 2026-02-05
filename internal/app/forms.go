@@ -157,6 +157,11 @@ func (m *Model) startHouseForm() {
 		).Title("Financial"),
 	)
 	applyFormDefaults(form)
+	formWidth := 60
+	if m.width > 0 && m.width < formWidth+10 {
+		formWidth = m.width - 10
+	}
+	form.WithWidth(formWidth)
 	m.mode = modeForm
 	m.formKind = formHouse
 	m.form = form
@@ -422,6 +427,222 @@ func (m *Model) openMaintenanceForm(values *maintenanceFormData, options []huh.O
 	m.form = form
 	m.formData = values
 	m.snapshotForm()
+}
+
+// startInlineCellEdit opens a single-field form for the given column.
+func (m *Model) startInlineCellEdit(id uint, tabKind TabKind, col int) error {
+	switch tabKind {
+	case tabProjects:
+		return m.inlineEditProject(id, col)
+	case tabQuotes:
+		return m.inlineEditQuote(id, col)
+	case tabMaintenance:
+		return m.inlineEditMaintenance(id, col)
+	default:
+		return fmt.Errorf("unknown tab")
+	}
+}
+
+func (m *Model) inlineEditProject(id uint, col int) error {
+	project, err := m.store.GetProject(id)
+	if err != nil {
+		return fmt.Errorf("load project: %w", err)
+	}
+	values := &projectFormData{
+		Title:         project.Title,
+		ProjectTypeID: project.ProjectTypeID,
+		Status:        project.Status,
+		Budget:        data.FormatOptionalCents(project.BudgetCents),
+		Actual:        data.FormatOptionalCents(project.ActualCents),
+		StartDate:     data.FormatDate(project.StartDate),
+		EndDate:       data.FormatDate(project.EndDate),
+		Description:   project.Description,
+	}
+	options := projectTypeOptions(m.projectTypes)
+	// Column mapping: 0=ID, 1=Type, 2=Title, 3=Status, 4=Budget, 5=Actual, 6=Start, 7=End
+	var field huh.Field
+	switch col {
+	case 1:
+		field = huh.NewSelect[uint]().Title("Project type").
+			Options(options...).
+			Value(&values.ProjectTypeID)
+	case 2:
+		field = huh.NewInput().Title("Title").Value(&values.Title).Validate(requiredText("title"))
+	case 3:
+		field = huh.NewSelect[string]().Title("Status").
+			Options(statusOptions()...).
+			Value(&values.Status)
+	case 4:
+		field = huh.NewInput().
+			Title("Budget").
+			Placeholder("1250.00").
+			Value(&values.Budget).
+			Validate(optionalMoney("budget"))
+	case 5:
+		field = huh.NewInput().
+			Title("Actual cost").
+			Placeholder("1400.00").
+			Value(&values.Actual).
+			Validate(optionalMoney("actual cost"))
+	case 6:
+		field = huh.NewInput().
+			Title("Start date (YYYY-MM-DD)").
+			Value(&values.StartDate).
+			Validate(optionalDate("start date"))
+	case 7:
+		field = huh.NewInput().
+			Title("End date (YYYY-MM-DD)").
+			Value(&values.EndDate).
+			Validate(optionalDate("end date"))
+	default:
+		return m.startEditProjectForm(id)
+	}
+	m.editID = &id
+	form := huh.NewForm(huh.NewGroup(field))
+	applyFormDefaults(form)
+	m.mode = modeForm
+	m.formKind = formProject
+	m.form = form
+	m.formData = values
+	m.snapshotForm()
+	return nil
+}
+
+func (m *Model) inlineEditQuote(id uint, col int) error {
+	quote, err := m.store.GetQuote(id)
+	if err != nil {
+		return fmt.Errorf("load quote: %w", err)
+	}
+	projects, err := m.store.ListProjects(false)
+	if err != nil {
+		return err
+	}
+	values := &quoteFormData{
+		ProjectID:    quote.ProjectID,
+		VendorName:   quote.Vendor.Name,
+		ContactName:  quote.Vendor.ContactName,
+		Email:        quote.Vendor.Email,
+		Phone:        quote.Vendor.Phone,
+		Website:      quote.Vendor.Website,
+		Total:        data.FormatCents(quote.TotalCents),
+		Labor:        data.FormatOptionalCents(quote.LaborCents),
+		Materials:    data.FormatOptionalCents(quote.MaterialsCents),
+		Other:        data.FormatOptionalCents(quote.OtherCents),
+		ReceivedDate: data.FormatDate(quote.ReceivedDate),
+		Notes:        quote.Notes,
+	}
+	projectOpts := projectOptions(projects)
+	// Column mapping: 0=ID, 1=Project, 2=Vendor, 3=Total, 4=Labor, 5=Mat, 6=Other, 7=Recv
+	var field huh.Field
+	switch col {
+	case 1:
+		field = huh.NewSelect[uint]().Title("Project").
+			Options(projectOpts...).
+			Value(&values.ProjectID)
+	case 2:
+		field = huh.NewInput().
+			Title("Vendor name").
+			Value(&values.VendorName).
+			Validate(requiredText("vendor name"))
+	case 3:
+		field = huh.NewInput().
+			Title("Total").
+			Placeholder("3250.00").
+			Value(&values.Total).
+			Validate(requiredMoney("total"))
+	case 4:
+		field = huh.NewInput().
+			Title("Labor").
+			Placeholder("2000.00").
+			Value(&values.Labor).
+			Validate(optionalMoney("labor"))
+	case 5:
+		field = huh.NewInput().
+			Title("Materials").
+			Placeholder("1000.00").
+			Value(&values.Materials).
+			Validate(optionalMoney("materials"))
+	case 6:
+		field = huh.NewInput().
+			Title("Other").
+			Placeholder("250.00").
+			Value(&values.Other).
+			Validate(optionalMoney("other costs"))
+	case 7:
+		field = huh.NewInput().
+			Title("Received date (YYYY-MM-DD)").
+			Value(&values.ReceivedDate).
+			Validate(optionalDate("received date"))
+	default:
+		return m.startEditQuoteForm(id)
+	}
+	m.editID = &id
+	form := huh.NewForm(huh.NewGroup(field))
+	applyFormDefaults(form)
+	m.mode = modeForm
+	m.formKind = formQuote
+	m.form = form
+	m.formData = values
+	m.snapshotForm()
+	return nil
+}
+
+func (m *Model) inlineEditMaintenance(id uint, col int) error {
+	item, err := m.store.GetMaintenance(id)
+	if err != nil {
+		return fmt.Errorf("load maintenance item: %w", err)
+	}
+	values := &maintenanceFormData{
+		Name:           item.Name,
+		CategoryID:     item.CategoryID,
+		LastServiced:   data.FormatDate(item.LastServicedAt),
+		NextDue:        data.FormatDate(item.NextDueAt),
+		IntervalMonths: intToString(item.IntervalMonths),
+		ManualURL:      item.ManualURL,
+		ManualText:     item.ManualText,
+		Cost:           data.FormatOptionalCents(item.CostCents),
+		Notes:          item.Notes,
+	}
+	options := maintenanceOptions(m.maintenanceCategories)
+	// Column mapping: 0=ID, 1=Item, 2=Category, 3=Last, 4=Next, 5=Every, 6=Manual
+	var field huh.Field
+	switch col {
+	case 1:
+		field = huh.NewInput().Title("Item").Value(&values.Name).Validate(requiredText("item"))
+	case 2:
+		field = huh.NewSelect[uint]().Title("Category").
+			Options(options...).
+			Value(&values.CategoryID)
+	case 3:
+		field = huh.NewInput().
+			Title("Last serviced (YYYY-MM-DD)").
+			Value(&values.LastServiced).
+			Validate(optionalDate("last serviced"))
+	case 4:
+		field = huh.NewInput().
+			Title("Next due (YYYY-MM-DD)").
+			Value(&values.NextDue).
+			Validate(optionalDate("next due"))
+	case 5:
+		field = huh.NewInput().
+			Title("Interval months").
+			Placeholder("6").
+			Value(&values.IntervalMonths).
+			Validate(optionalInt("interval months"))
+	case 6:
+		field = huh.NewInput().Title("Manual URL").Value(&values.ManualURL)
+	default:
+		return m.startEditMaintenanceForm(id)
+	}
+	m.editID = &id
+	form := huh.NewForm(huh.NewGroup(field))
+	applyFormDefaults(form)
+	m.mode = modeForm
+	m.formKind = formMaintenance
+	m.form = form
+	m.formData = values
+	m.snapshotForm()
+	return nil
 }
 
 func applyFormDefaults(form *huh.Form) {

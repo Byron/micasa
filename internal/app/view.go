@@ -11,6 +11,13 @@ import (
 )
 
 func (m *Model) buildView() string {
+	if m.showHelp {
+		return m.helpFullScreen()
+	}
+	if m.mode == modeForm && m.form != nil && m.formKind == formHouse {
+		return m.formFullScreen()
+	}
+
 	house := m.houseView()
 	tabs := m.tabsView()
 	tabLine := m.tabUnderline()
@@ -200,8 +207,9 @@ func (m *Model) statusView() string {
 	help := joinWithSeparator(
 		m.helpSeparator(),
 		m.helpItem("tab/shift+tab", "switch"),
+		m.helpItem("left/right", "column"),
 		m.helpItem("a", "add"),
-		m.helpItem("e", "edit"),
+		m.helpItem("e", m.editHint()),
 		m.helpItem("d", "delete"),
 		m.helpItem("u", "restore"),
 		m.helpItem("x", "deleted"),
@@ -214,10 +222,10 @@ func (m *Model) statusView() string {
 	metaSep := m.styles.HeaderHint.Render("  ▏ ")
 	var deletedLabel string
 	if tab != nil && tab.ShowDeleted {
-		deletedLabel = lipgloss.NewStyle().Foreground(lipgloss.Color("#FCA5A5")).Render("+ deleted")
+		deletedLabel = m.styles.DeletedLabel.Render("+ deleted")
 	}
 	dbLabel := m.styles.HeaderHint.Render("db:") +
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#D1D5DB")).Render(m.dbPath)
+		m.styles.DBHint.Render(m.dbPath)
 	leftPart := help
 	if deletedLabel != "" {
 		leftPart = help + metaSep + deletedLabel
@@ -245,6 +253,190 @@ func (m *Model) statusView() string {
 		style.Render(m.status.Text),
 		helpLine,
 	)
+}
+
+func (m *Model) editHint() string {
+	tab := m.activeTab()
+	if tab == nil {
+		return "edit"
+	}
+	col := tab.ColCursor
+	if col < 0 || col >= len(tab.Specs) {
+		return "edit"
+	}
+	spec := tab.Specs[col]
+	if spec.Kind == cellReadonly {
+		return "edit all"
+	}
+	return "edit: " + spec.Title
+}
+
+func (m *Model) formFullScreen() string {
+	formContent := m.form.View()
+	status := m.statusView()
+	panel := lipgloss.JoinVertical(lipgloss.Left, formContent, "", status)
+
+	panelH := lipgloss.Height(panel)
+	panelW := lipgloss.Width(panel)
+
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+
+	padTop := (height - panelH) / 2
+	if padTop < 1 {
+		padTop = 1
+	}
+	padLeft := (width - panelW) / 2
+	if padLeft < 0 {
+		padLeft = 0
+	}
+
+	lines := strings.Split(panel, "\n")
+	var b strings.Builder
+	for i := 0; i < padTop; i++ {
+		b.WriteString("\n")
+	}
+	indent := strings.Repeat(" ", padLeft)
+	for i, line := range lines {
+		b.WriteString(indent)
+		b.WriteString(line)
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func (m *Model) helpFullScreen() string {
+	panel := m.helpView()
+	panelH := lipgloss.Height(panel)
+	panelW := lipgloss.Width(panel)
+
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+
+	padTop := (height - panelH) / 2
+	if padTop < 0 {
+		padTop = 0
+	}
+	padLeft := (width - panelW) / 2
+	if padLeft < 0 {
+		padLeft = 0
+	}
+
+	lines := strings.Split(panel, "\n")
+	var b strings.Builder
+	for i := 0; i < padTop; i++ {
+		b.WriteString("\n")
+	}
+	indent := strings.Repeat(" ", padLeft)
+	for i, line := range lines {
+		b.WriteString(indent)
+		b.WriteString(line)
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func (m *Model) helpView() string {
+	type binding struct {
+		key  string
+		desc string
+	}
+	sections := []struct {
+		title    string
+		bindings []binding
+	}{
+		{
+			title: "Navigation",
+			bindings: []binding{
+				{"tab", "Next tab"},
+				{"shift+tab", "Previous tab"},
+				{"up/down", "Move through rows"},
+				{"left/right", "Move through columns"},
+				{"h", "Toggle house profile"},
+			},
+		},
+		{
+			title: "Actions",
+			bindings: []binding{
+				{"a", "Add new entry"},
+				{"e / enter", "Edit cell (or full row on ID column)"},
+				{"d", "Delete selected entry"},
+				{"u", "Restore last deleted entry"},
+				{"x", "Toggle showing deleted items"},
+				{"p", "Edit house profile"},
+			},
+		},
+		{
+			title: "Tools",
+			bindings: []binding{
+				{"/", "Search"},
+				{"l", "Toggle log panel"},
+				{"?", "This help menu"},
+				{"q", "Quit"},
+				{"ctrl+c", "Force quit"},
+			},
+		},
+		{
+			title: "Log Mode",
+			bindings: []binding{
+				{"/", "Focus regex filter"},
+				{"!", "Cycle log level"},
+				{"esc", "Close log panel"},
+			},
+		},
+		{
+			title: "Forms",
+			bindings: []binding{
+				{"ctrl+s", "Save immediately"},
+				{"esc", "Cancel and discard"},
+			},
+		},
+	}
+
+	var b strings.Builder
+	b.WriteString(m.styles.HeaderTitle.Render(" Keyboard Shortcuts "))
+	b.WriteString("\n\n")
+	for i, section := range sections {
+		b.WriteString(m.styles.HeaderSection.Render(" " + section.title + " "))
+		b.WriteString("\n")
+		for _, bind := range section.bindings {
+			keys := m.renderKeys(bind.key)
+			desc := m.styles.HeaderHint.Render(bind.desc)
+			b.WriteString(fmt.Sprintf("  %s  %s\n", keys, desc))
+		}
+		if i < len(sections)-1 {
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n")
+	b.WriteString(m.styles.HeaderHint.Render("Press "))
+	b.WriteString(m.renderKeys("esc"))
+	b.WriteString(m.styles.HeaderHint.Render(" or "))
+	b.WriteString(m.renderKeys("?"))
+	b.WriteString(m.styles.HeaderHint.Render(" to close"))
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accent).
+		Padding(1, 2).
+		Render(b.String())
+	return box
 }
 
 func (m *Model) logView() string {
@@ -452,7 +644,7 @@ func (m *Model) tableView(tab *Tab) string {
 	separator := m.styles.TableSeparator.Render(" │ ")
 	dividerSep := m.styles.TableSeparator.Render("─┼─")
 	widths := columnWidths(tab.Specs, tab.CellRows, width, lipgloss.Width(separator))
-	header := renderHeaderRow(tab.Specs, widths, separator, m.styles.TableHeader)
+	header := renderHeaderRow(tab.Specs, widths, separator, tab.ColCursor, m.styles)
 	divider := renderDivider(widths, dividerSep, m.styles.TableSeparator)
 	rows := renderRows(
 		tab.Specs,
@@ -461,6 +653,7 @@ func (m *Model) tableView(tab *Tab) string {
 		widths,
 		separator,
 		tab.Table.Cursor(),
+		tab.ColCursor,
 		tab.Table.Height(),
 		m.styles,
 	)
@@ -475,13 +668,18 @@ func renderHeaderRow(
 	specs []columnSpec,
 	widths []int,
 	separator string,
-	style lipgloss.Style,
+	colCursor int,
+	styles Styles,
 ) string {
 	cells := make([]string, 0, len(specs))
 	for i, spec := range specs {
 		width := safeWidth(widths, i)
 		text := formatCell(spec.Title, width, spec.Align)
-		cells = append(cells, style.Render(text))
+		if i == colCursor {
+			cells = append(cells, styles.ColActiveHeader.Render(text))
+		} else {
+			cells = append(cells, styles.TableHeader.Render(text))
+		}
 	}
 	return strings.Join(cells, separator)
 }
@@ -508,6 +706,7 @@ func renderRows(
 	widths []int,
 	separator string,
 	cursor int,
+	colCursor int,
 	height int,
 	styles Styles,
 ) []string {
@@ -523,7 +722,7 @@ func renderRows(
 	for i := start; i < end; i++ {
 		selected := i == cursor
 		deleted := i < len(meta) && meta[i].Deleted
-		row := renderRow(specs, rows[i], widths, separator, selected, deleted, styles)
+		row := renderRow(specs, rows[i], widths, separator, selected, deleted, colCursor, styles)
 		rendered = append(rendered, row)
 	}
 	return rendered
@@ -536,6 +735,7 @@ func renderRow(
 	separator string,
 	selected bool,
 	deleted bool,
+	colCursor int,
 	styles Styles,
 ) string {
 	cells := make([]string, 0, len(specs))
@@ -545,14 +745,17 @@ func renderRow(
 		if i < len(row) {
 			cellValue = row[i]
 		}
-		cells = append(cells, renderCell(cellValue, spec, width, styles))
+		rendered := renderCell(cellValue, spec, width, styles)
+		if selected && i == colCursor {
+			rendered = styles.CellActive.Render(rendered)
+		} else if selected {
+			rendered = styles.TableSelected.Render(rendered)
+		}
+		cells = append(cells, rendered)
 	}
 	rendered := strings.Join(cells, separator)
 	if deleted {
 		rendered = styles.Deleted.Render(rendered)
-	}
-	if selected {
-		rendered = styles.TableSelected.Render(rendered)
 	}
 	return rendered
 }

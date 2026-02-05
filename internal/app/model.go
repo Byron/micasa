@@ -20,6 +20,7 @@ type Model struct {
 	active                int
 	width                 int
 	height                int
+	showHelp              bool
 	showHouse             bool
 	hasHouse              bool
 	house                 data.HouseProfile
@@ -81,6 +82,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// Help overlay: esc or ? dismisses it.
+	if m.showHelp {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			switch keyMsg.String() {
+			case "esc", "?":
+				m.showHelp = false
+			}
+		}
+		return m, nil
+	}
+
 	// Log filter typing mode: only esc escapes back to log browsing.
 	if m.log.enabled && m.log.focus && m.mode != modeForm {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
@@ -123,6 +135,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "ctrl+s" {
 			return m, m.saveForm()
 		}
+		// Don't let WindowSizeMsg resize the house form (it has a fixed width).
+		if _, isResize := msg.(tea.WindowSizeMsg); isResize && m.formKind == formHouse {
+			return m, nil
+		}
 		updated, cmd := m.form.Update(msg)
 		form, ok := updated.(*huh.Form)
 		if ok {
@@ -148,6 +164,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch typed.String() {
 		case "q":
 			return m, tea.Quit
+		case "?":
+			m.showHelp = true
+			return m, nil
 		case "/":
 			return m, m.openSearch()
 		case "l":
@@ -168,8 +187,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "a":
 			m.startAddForm()
 			return m, m.formInitCmd()
+		case "left":
+			if tab := m.activeTab(); tab != nil {
+				tab.ColCursor--
+				if tab.ColCursor < 0 {
+					tab.ColCursor = len(tab.Specs) - 1
+				}
+			}
+			return m, nil
+		case "right":
+			if tab := m.activeTab(); tab != nil {
+				tab.ColCursor++
+				if tab.ColCursor >= len(tab.Specs) {
+					tab.ColCursor = 0
+				}
+			}
+			return m, nil
 		case "e", "enter":
-			if err := m.startEditForm(); err != nil {
+			if err := m.startCellOrFormEdit(); err != nil {
 				m.setStatusError(err.Error())
 				return m, nil
 			}
@@ -269,6 +304,29 @@ func (m *Model) startEditForm() error {
 	default:
 		return fmt.Errorf("unknown tab")
 	}
+}
+
+func (m *Model) startCellOrFormEdit() error {
+	tab := m.activeTab()
+	if tab == nil {
+		return fmt.Errorf("no active tab")
+	}
+	meta, ok := m.selectedRowMeta()
+	if !ok {
+		return fmt.Errorf("nothing selected")
+	}
+	if meta.Deleted {
+		return fmt.Errorf("cannot edit a deleted item")
+	}
+	col := tab.ColCursor
+	if col < 0 || col >= len(tab.Specs) {
+		col = 0
+	}
+	spec := tab.Specs[col]
+	if spec.Kind == cellReadonly {
+		return m.startEditForm()
+	}
+	return m.startInlineCellEdit(meta.ID, tab.Kind, col)
 }
 
 func (m *Model) deleteSelected() {
