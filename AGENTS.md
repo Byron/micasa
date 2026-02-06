@@ -553,7 +553,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [REDO] redo undone edits with r in Edit mode (c6b6739)
 - [COLWIDTH] stable column widths for fixed-option columns (c6b6739)
 - [TABHANDLER] TabHandler interface eliminates switch dispatch on TabKind/FormKind (67bfbe3)
-- [HIDECOLS] hide/show columns with candy stacks, ladle edges, sparse ellipsis
+- [HIDECOLS] hide/show columns with candy stacks, ladle edges, sparse ellipsis (7bf8835)
 - refactor forms.go and view.go: deduplicate submit/edit pairs, centering, inline edit boilerplate, form-data converters (9851c74)
 - scrap the log-on-dash-v approach, just enable logging dynamically (75b2c86)
 - remove the v1 in Logs; remove the forward slashes; ghost text reads type a Perl-compatible regex (1c623d4)
