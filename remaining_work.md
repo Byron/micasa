@@ -15,6 +15,13 @@
 
 ## Completed
 
+- [RW-ROWHL] soften table row highlight color -- textMid too close to white fg; use surface bg instead
+- [RW-DBPATH] move db path from status bar to help overlay
+- [RW-SELFG] drop fg override from selected row so status/money colors show through
+- [RW-CURSOR] replace orange-bg cell cursor with underline+bold; fix ANSI leak from nested lipgloss Render
+- [RW-ULLEN] underline matches text length, not full column width
+- [RW-CONSOLIDATE] merge LEARNINGS.md and AGENT_LOG.md into AGENTS.md sections
+
 - refactor forms.go and view.go: deduplicate submit/edit pairs, centering, inline edit boilerplate, form-data converters (9851c74)
 - scrap the log-on-dash-v approach, just enable logging dynamically (and allow changing log level) with a keyboard shortcut and bring up the logger ui component when that key is pressed (it's a toggle obviously) (75b2c86)
 

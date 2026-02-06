@@ -233,14 +233,32 @@ You're working on an application to manage home projects and home maintenance.
 
 It's very likely another agent has been working and just run out of context.
 
-## `AGENT_LOG.md` and `LEARNINGS.md`
+## Hard rules (non-negotiable)
 
-If a file doesn't exist add an `AGENT_LOG.md` to the repo.
+These have been repeatedly requested. Violating them wastes the user's time.
 
-If the user asks you learn something, long that in LEARNINGS.md as bullet
-point. Digest that file after this one.
+- **No `cd`**: You are already in the workspace directory. Never prepend `cd
+  /path && ...` to shell commands. Use the `working_directory` parameter if you
+  need a different directory.
+- **No `&&`**: Do not join shell commands with `&&`. Run them as separate tool
+  calls (parallel when independent, sequential when dependent).
+- **Run `go mod tidy` before committing** to keep `go.mod`/`go.sum` clean.
+- **Record every user request** in `remaining_work.md` (with a unique ID) if it
+  is not already there. Mark it done when complete. This includes small
+  one-liner asks.
+- **Colorblind-safe palette**: All colors must use the Wong palette with
+  `lipgloss.AdaptiveColor{Light, Dark}`. See `styles.go` for the existing
+  palette and roles. When adding or changing styles, always provide both Light
+  and Dark variants.
 
-If `AGENT_LOG.md` does exist, every time the users ask you to do something, record:
+If the user asks you to learn something, add it to this "Hard rules" section
+so it survives context resets. This file is always injected; external files
+like `LEARNINGS.md` are not.
+
+## Agent log
+
+Every time the user asks you to do something, append a record to the "Session
+log" section at the bottom of this file:
 
 1. What they asked
 2. A compact version of your thought processes
@@ -297,8 +315,86 @@ if you figure out that the task has already been done.
 
 Every time the user makes a request that is not in `remaining_work.md`, add it
 there as a new task with a unique ID. When you complete the task, mark it as
-done and add a note about the completion in the `AGENT_LOG.md` with the task ID
-and a brief description of what you did.
+done and add a note about the completion in the "Session log" section of this
+file with the task ID and a brief description of what you did.
 
 For big features, write down the plan in `PLANS.md` before doing anything, just
 in case things crash or otherwise go haywire, be diligent about this.
+
+# Session log
+
+## 2026-02-05 Session 1
+
+**Context**: Previous agent left build broken due to field/method name collision in `logState` (both `matches` field and `matches` method). Fixed by renaming method to `matchLine` and field to `highlights`.
+
+**State of remaining_work.md**: Multiple tasks listed. See git log for commit history from prior sessions. Working through remaining tasks sequentially.
+
+**Work done this session** (see git log for details):
+- Fixed build break: field/method name collision `matches` -> `matchLine`/`highlights`
+- Regex match highlighting in log lines with `findHighlights` + `applyHighlights`
+- Entry editing: Get/Update store methods, edit forms pre-populated, `e`/enter key, ctrl+s save, dirty indicator
+- Layout overhaul: anchored status bar, tab underline, section spacing
+- Dynamic logging: scrapped `-v` CLI flags, `l` toggles log pane, `L` cycles level (ERROR/INFO/DEBUG), always captures in background
+
+## 2026-02-05 Session 2
+
+**Work done** (see git log for details):
+- Reworked log mode to three-level interaction: `l` enters log, `/` focuses filter, `esc` backs up one level
+- Replaced `L` with `!` for level cycling to avoid keybinding confusion
+- Added `logOff` level so logging can be fully disabled
+- Added `--demo` flag with temp DB path and fictitious seed data (all 555 numbers, example.com)
+- DB path shown right-aligned in status bar
+- Replaced `deleted:on/off` with contextual `+ deleted` indicator
+- Added `?` help overlay (centered full-screen, lists all keybindings by section)
+- House profile form renders centered full-screen (no layout jank)
+- Inline cell editing: left/right arrows move column cursor, `e` on non-ID column edits just that cell, `e` on ID opens full form
+- Status bar shows contextual `e edit: FieldName`
+- Rewrote entire palette to Wong colorblind-safe colors with `lipgloss.AdaptiveColor` for auto light/dark detection
+
+**Codebase**: Bubbletea TUI for home project/maintenance management. Has house profile, projects, quotes, maintenance tabs with forms, search, and log pane. Data layer uses GORM+SQLite.
+
+## 2026-02-05 Session 3
+
+**Context**: Previous agent partially implemented the Appliances tab work item but left the build broken. The data model, store CRUD methods, table column specs, row rendering, form data structs, form builders, and form submit methods were all done. What was missing: wiring into the app layer switch statements.
+
+**Work done** (see git log for details):
+- Fixed build: added `applianceOptions()` helper (returns `huh.Option[uint]` list with "(none)" sentinel)
+- Added `inlineEditAppliance()` for per-cell editing (col mapping: 0=ID..8=Cost)
+- Wired `tabAppliances` into all switch statements in `model.go`: `startAddForm`, `startEditForm`, `deleteSelected`, `restoreByTab`, `deletionEntityForTab`, `reloadTab`
+- Wired `formAppliance` into `handleFormSubmit` in `forms.go`
+- Added `tabAppliances` case to `tabLabel` (view.go), `tabIndex` (search.go)
+- Added appliances to `buildSearchEntries` so they appear in global search
+- All tests pass, build clean
+- Cross-tab FK navigation: `navigateToLink()` + `selectedCell()` in model.go
+- Header shows relation type (e.g. "m:1") via `LinkIndicator` style on linked columns
+- Status bar `editHint` shows "follow m:1" when on a linked cell with a target
+- Created PLANS.md for tracking feature plans across agent sessions
+
+## 2026-02-06 Session 4
+
+**Work done** (see git log for details):
+- Retro pixel-art house: replaced line-drawing house art with DOS/BBS-style pixel art using shade characters (ec543e3)
+- Tried/reverted mini inline house art and "mi casa" retro wordmark for collapsed view (user didn't like either)
+- **Modal system**: vim-style Normal/Edit modes working with bubbles/table keybindings
+  - Normal mode: full table vim nav (j/k/d/u/g/G), h/l for columns, H for house, i to enter Edit, q to quit
+  - Edit mode: same nav but d/u rebound to delete/undo; a/e/p for add/edit/profile; esc returns to Normal
+  - Table KeyMap dynamically updated: d/u stripped in Edit mode, restored in Normal
+  - Mode badge in status bar (accent=NORMAL, orange=EDIT) with per-mode help items
+  - Updated help overlay with modal sections
+  - prevMode tracking: form exit returns to correct mode
+  - 17 unit tests for mode transitions, key dispatch, KeyMap switching
+- **Removed logging feature**: deleted logging.go, logging_test.go, all logState/logInfo/logDebug/logError references, log UI pane, log status bar items
+- **Removed search feature**: deleted search.go, all searchState/modeSearch references, search UI pane, search index builder
+- Removed log/search styles from styles.go; added ModeNormal/ModeEdit badge styles
+- Removed stale remaining_work.md item about log blocking other actions
+
+## 2026-02-06 Session 5
+
+**Work done** (see git log for details):
+- Softened table row highlight: textMid bg was too close to white foreground; switched to surface bg + bold for subtler selected row
+- Moved db path from status bar to help overlay; removed unused DBHint style
+- Dropped foreground override from TableSelected so per-cell colors (status, money, etc.) show through on selected row
+- Replaced orange-bg cell cursor with underline+bold; refactored renderRow/renderCell to merge highlight into cell style (avoids nested lipgloss Render which leaked ANSI codes); introduced cellHighlight enum
+- Sized underline to text length only (not full column width) by styling before padding
+- Removed unused CellActive style from Styles struct
+- Consolidated LEARNINGS.md and AGENT_LOG.md into AGENTS.md sections (hard rules + session log) so everything survives context resets

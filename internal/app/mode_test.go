@@ -1,10 +1,12 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // newTestModel creates a minimal Model for mode tests (no database).
@@ -256,6 +258,53 @@ func TestModeAfterFormExit(t *testing.T) {
 	m.exitForm()
 	if m.mode != modeNormal {
 		t.Fatalf("expected modeNormal after exitForm (was in normal before form), got %d", m.mode)
+	}
+}
+
+func TestTabSwitchBlockedInEditMode(t *testing.T) {
+	m := newTestModel()
+	m.enterEditMode()
+	// tab should not be handled by handleCommonKeys or handleEditKeys.
+	_, handled := m.handleCommonKeys(tea.KeyMsg{Type: tea.KeyTab})
+	if handled {
+		t.Fatal("tab should not be handled in edit mode (common keys)")
+	}
+	_, handled = m.handleEditKeys(tea.KeyMsg{Type: tea.KeyTab})
+	if handled {
+		t.Fatal("tab should not be handled in edit mode (edit keys)")
+	}
+}
+
+func TestModeBadgeFixedWidth(t *testing.T) {
+	styles := DefaultStyles()
+	normalBadge := styles.ModeNormal.Render("NORMAL")
+	normalWidth := lipgloss.Width(normalBadge)
+
+	editBadge := styles.ModeEdit.
+		Width(normalWidth).
+		Align(lipgloss.Center).
+		Render("EDIT")
+	editWidth := lipgloss.Width(editBadge)
+
+	if normalWidth != editWidth {
+		t.Fatalf(
+			"badge widths should match: NORMAL=%d, EDIT=%d",
+			normalWidth, editWidth,
+		)
+	}
+}
+
+func TestShiftPrefixOnUppercaseKeycap(t *testing.T) {
+	m := newTestModel()
+	// Uppercase "H" should produce a keycap containing "SHIFT+H".
+	rendered := m.keycap("H")
+	if !strings.Contains(rendered, "SHIFT+H") {
+		t.Fatalf("expected keycap to contain 'SHIFT+H', got %q", rendered)
+	}
+	// Lowercase "h" should produce "H" (uppercased), not "SHIFT+H".
+	rendered = m.keycap("h")
+	if strings.Contains(rendered, "SHIFT") {
+		t.Fatalf("lowercase keycap should not contain 'SHIFT', got %q", rendered)
 	}
 }
 

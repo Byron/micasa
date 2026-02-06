@@ -155,12 +155,6 @@ func (m *Model) handleCommonKeys(key tea.KeyMsg) (tea.Cmd, bool) {
 	case "?":
 		m.showHelp = true
 		return nil, true
-	case "tab":
-		m.nextTab()
-		return nil, true
-	case "shift+tab":
-		m.prevTab()
-		return nil, true
 	case "H":
 		m.showHouse = !m.showHouse
 		m.resizeTables()
@@ -191,6 +185,12 @@ func (m *Model) handleCommonKeys(key tea.KeyMsg) (tea.Cmd, bool) {
 // handleNormalKeys processes keys unique to Normal mode.
 func (m *Model) handleNormalKeys(key tea.KeyMsg) (tea.Cmd, bool) {
 	switch key.String() {
+	case "tab":
+		m.nextTab()
+		return nil, true
+	case "shift+tab":
+		m.prevTab()
+		return nil, true
 	case "i":
 		m.enterEditMode()
 		return nil, true

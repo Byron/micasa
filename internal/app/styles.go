@@ -14,11 +14,11 @@ type Styles struct {
 	Keycap          lipgloss.Style
 	TabActive       lipgloss.Style
 	TabInactive     lipgloss.Style
+	TabLocked       lipgloss.Style
 	TabUnderline    lipgloss.Style
 	TableHeader     lipgloss.Style
 	TableSelected   lipgloss.Style
 	TableSeparator  lipgloss.Style
-	CellActive      lipgloss.Style
 	ColActiveHeader lipgloss.Style
 	FormClean       lipgloss.Style
 	FormDirty       lipgloss.Style
@@ -31,7 +31,6 @@ type Styles struct {
 	Info            lipgloss.Style
 	Deleted         lipgloss.Style
 	DeletedLabel    lipgloss.Style
-	DBHint          lipgloss.Style
 	LinkIndicator   lipgloss.Style
 	StatusStyles    map[string]lipgloss.Style
 }
@@ -115,21 +114,20 @@ func DefaultStyles() Styles {
 		TabInactive: lipgloss.NewStyle().
 			Foreground(textMid).
 			Padding(0, 1),
+		TabLocked: lipgloss.NewStyle().
+			Foreground(textDim).
+			Padding(0, 1).
+			Strikethrough(true),
 		TabUnderline: lipgloss.NewStyle().
 			Foreground(accent),
 		TableHeader: lipgloss.NewStyle().
 			Foreground(textDim).
 			Bold(true),
 		TableSelected: lipgloss.NewStyle().
-			Foreground(onAccent).
-			Background(textBright).
+			Background(surface).
 			Bold(true),
 		TableSeparator: lipgloss.NewStyle().
 			Foreground(border),
-		CellActive: lipgloss.NewStyle().
-			Foreground(onAccent).
-			Background(secondary).
-			Bold(true),
 		ColActiveHeader: lipgloss.NewStyle().
 			Foreground(secondary).
 			Bold(true),
@@ -165,8 +163,6 @@ func DefaultStyles() Styles {
 			Strikethrough(true),
 		DeletedLabel: lipgloss.NewStyle().
 			Foreground(danger),
-		DBHint: lipgloss.NewStyle().
-			Foreground(textBright),
 		LinkIndicator: lipgloss.NewStyle().
 			Foreground(muted),
 		StatusStyles: map[string]lipgloss.Style{

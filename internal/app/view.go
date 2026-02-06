@@ -142,10 +142,13 @@ func (m *Model) houseExpanded() string {
 }
 
 func (m *Model) tabsView() string {
+	pinned := m.mode == modeEdit
 	tabs := make([]string, 0, len(m.tabs))
 	for i, tab := range m.tabs {
 		if i == m.active {
 			tabs = append(tabs, m.styles.TabActive.Render(tab.Name))
+		} else if pinned {
+			tabs = append(tabs, m.styles.TabLocked.Render(tab.Name))
 		} else {
 			tabs = append(tabs, m.styles.TabInactive.Render(tab.Name))
 		}
@@ -173,9 +176,14 @@ func (m *Model) statusView() string {
 		return m.withStatusMessage(help)
 	}
 
+	// Both badges render at the same width to prevent layout shift.
+	badgeWidth := lipgloss.Width(m.styles.ModeNormal.Render("NORMAL"))
 	modeBadge := m.styles.ModeNormal.Render("NORMAL")
 	if m.mode == modeEdit {
-		modeBadge = m.styles.ModeEdit.Render("EDIT")
+		modeBadge = m.styles.ModeEdit.
+			Width(badgeWidth).
+			Align(lipgloss.Center).
+			Render("EDIT")
 	}
 
 	var help string
@@ -183,6 +191,7 @@ func (m *Model) statusView() string {
 		help = joinWithSeparator(
 			m.helpSeparator(),
 			modeBadge,
+			m.helpItem("tab", "switch"),
 			m.helpItem("h/l", "col"),
 			m.helpItem("i", "edit mode"),
 			m.helpItem("enter", "edit"),
@@ -205,16 +214,7 @@ func (m *Model) statusView() string {
 		)
 	}
 
-	dbLabel := m.styles.DBHint.Render(m.dbPath)
-	leftWidth := ansi.StringWidth(help)
-	dbWidth := ansi.StringWidth(dbLabel)
-	width := m.effectiveWidth()
-	gap := width - leftWidth - dbWidth
-	if gap < 2 {
-		gap = 2
-	}
-	helpLine := help + strings.Repeat(" ", gap) + dbLabel
-	return m.withStatusMessage(helpLine)
+	return m.withStatusMessage(help)
 }
 
 func (m *Model) deletedHint(tab *Tab) string {
@@ -323,7 +323,7 @@ func (m *Model) helpView() string {
 				{"x", "Toggle showing deleted items"},
 				{"enter", "Edit current cell"},
 				{"i", "Enter Edit mode"},
-				{"?", "This help menu"},
+				{"?", "Help"},
 				{"q", "Quit"},
 			},
 		},
@@ -368,6 +368,12 @@ func (m *Model) helpView() string {
 	b.WriteString(m.styles.HeaderHint.Render(" or "))
 	b.WriteString(m.renderKeys("?"))
 	b.WriteString(m.styles.HeaderHint.Render(" to close"))
+	if m.dbPath != "" {
+		b.WriteString("\n\n")
+		b.WriteString(m.styles.HeaderLabel.Render("db"))
+		b.WriteString(" ")
+		b.WriteString(m.styles.HeaderHint.Render(m.dbPath))
+	}
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -473,6 +479,15 @@ func renderRows(
 	return rendered
 }
 
+// cellHighlight describes how a cell should be visually marked.
+type cellHighlight int
+
+const (
+	highlightNone   cellHighlight = iota
+	highlightRow                  // selected row, not the active column
+	highlightCursor               // selected row AND active column
+)
+
 func renderRow(
 	specs []columnSpec,
 	row []cell,
@@ -490,12 +505,13 @@ func renderRow(
 		if i < len(row) {
 			cellValue = row[i]
 		}
-		rendered := renderCell(cellValue, spec, width, styles)
+		hl := highlightNone
 		if selected && i == colCursor {
-			rendered = styles.CellActive.Render(rendered)
+			hl = highlightCursor
 		} else if selected {
-			rendered = styles.TableSelected.Render(rendered)
+			hl = highlightRow
 		}
+		rendered := renderCell(cellValue, spec, width, hl, styles)
 		cells = append(cells, rendered)
 	}
 	rendered := strings.Join(cells, separator)
@@ -509,6 +525,7 @@ func renderCell(
 	cellValue cell,
 	spec columnSpec,
 	width int,
+	hl cellHighlight,
 	styles Styles,
 ) string {
 	if width < 1 {
@@ -524,6 +541,25 @@ func renderCell(
 			style = s
 		}
 	}
+
+	switch hl {
+	case highlightCursor:
+		// Underline just the text, then pad to column width so the
+		// underline doesn't stretch across the whole cell.
+		truncated := ansi.Truncate(value, width, "…")
+		styled := style.Underline(true).Bold(true).Render(truncated)
+		textW := lipgloss.Width(truncated)
+		if pad := width - textW; pad > 0 {
+			if spec.Align == alignRight {
+				return strings.Repeat(" ", pad) + styled
+			}
+			return styled + strings.Repeat(" ", pad)
+		}
+		return styled
+	case highlightRow:
+		style = style.Background(surface).Bold(true)
+	}
+
 	aligned := formatCell(value, width, spec.Align)
 	return style.Render(aligned)
 }
@@ -775,6 +811,10 @@ func (m *Model) renderKeys(keys string) string {
 }
 
 func (m *Model) keycap(value string) string {
+	// Detect bare uppercase letters and render as SHIFT+X.
+	if len(value) == 1 && value[0] >= 'A' && value[0] <= 'Z' {
+		return m.styles.Keycap.Render("SHIFT+" + value)
+	}
 	return m.styles.Keycap.Render(strings.ToUpper(value))
 }
 
