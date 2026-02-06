@@ -393,16 +393,7 @@ func (m *Model) reloadDetailTab() error {
 	if m.detail == nil || m.store == nil {
 		return nil
 	}
-	tab := &m.detail.Tab
-	rows, meta, cellRows, err := tab.Handler.Load(m.store, tab.ShowDeleted)
-	if err != nil {
-		return err
-	}
-	tab.CellRows = cellRows
-	tab.Table.SetRows(rows)
-	tab.Rows = meta
-	applySorts(tab)
-	return nil
+	return m.reloadTab(&m.detail.Tab)
 }
 
 func (m *Model) nextTab() {
