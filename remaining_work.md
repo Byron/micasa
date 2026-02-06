@@ -11,10 +11,9 @@
 - for maintenance items, compute the default ghost text for next due date from
   the last serviced date + the maintenance interval and default to that
 
-- [RW-REFACTOR-1] refactor forms.go and view.go: deduplicate submit/edit pairs, centering, inline edit boilerplate, form-data converters
-
 ## Completed
 
+- refactor forms.go and view.go: deduplicate submit/edit pairs, centering, inline edit boilerplate, form-data converters (9851c74)
 - scrap the log-on-dash-v approach, just enable logging dynamically (and allow changing log level) with a keyboard shortcut and bring up the logger ui component when that key is pressed (it's a toggle obviously) (75b2c86)
 
 - remove the v1 in Logs; remove the forward slashes; the ghost text should read type a Perl-compatible regex; put the log lines themselves in visually separate components (1c623d4)
