@@ -29,7 +29,6 @@
           ldflags = [
             "-X main.version=${version}" # Set a variable in the main package
           ];
-          env.CGO_ENABLED = "0"; # Disable CGO for static linking
         };
 
         preCommit = git-hooks.lib.${system}.run {
@@ -67,7 +66,6 @@
               pkgs.git
             ]
             ++ enabledPackages;
-            CGO_ENABLED = "0"; # Disable CGO for static linking
           };
 
         packages = {
