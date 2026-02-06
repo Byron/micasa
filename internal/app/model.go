@@ -191,6 +191,18 @@ func (m *Model) handleNormalKeys(key tea.KeyMsg) (tea.Cmd, bool) {
 	case "shift+tab":
 		m.prevTab()
 		return nil, true
+	case "s":
+		if tab := m.activeTab(); tab != nil {
+			toggleSort(tab, tab.ColCursor)
+			applySorts(tab)
+		}
+		return nil, true
+	case "S":
+		if tab := m.activeTab(); tab != nil {
+			clearSorts(tab)
+			applySorts(tab)
+		}
+		return nil, true
 	case "i":
 		m.enterEditMode()
 		return nil, true
@@ -585,6 +597,7 @@ func (m *Model) reloadTab(tab *Tab) error {
 	}
 	tab.Table.SetRows(rows)
 	tab.Rows = meta
+	applySorts(tab)
 	return nil
 }
 

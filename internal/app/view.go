@@ -193,8 +193,8 @@ func (m *Model) statusView() string {
 			modeBadge,
 			m.helpItem("tab", "switch"),
 			m.helpItem("h/l", "col"),
-			m.helpItem("i", "edit mode"),
-			m.helpItem("enter", "edit"),
+			m.helpItem("s", "sort"),
+			m.helpItem("i", "edit"),
 			m.deletedHint(m.activeTab()),
 			m.helpItem("H", "house"),
 			m.helpItem("?", "help"),
@@ -321,6 +321,8 @@ func (m *Model) helpView() string {
 				{"tab/shift+tab", "Switch tabs"},
 				{"H", "Toggle house profile"},
 				{"x", "Toggle showing deleted items"},
+				{"s", "Sort by column (cycle asc/desc/off)"},
+				{"S", "Clear all sorts"},
 				{"enter", "Edit current cell"},
 				{"i", "Enter Edit mode"},
 				{"?", "Help"},
@@ -391,7 +393,7 @@ func (m *Model) tableView(tab *Tab) string {
 	separator := m.styles.TableSeparator.Render(" │ ")
 	dividerSep := m.styles.TableSeparator.Render("─┼─")
 	widths := columnWidths(tab.Specs, tab.CellRows, width, lipgloss.Width(separator))
-	header := renderHeaderRow(tab.Specs, widths, separator, tab.ColCursor, m.styles)
+	header := renderHeaderRow(tab.Specs, widths, separator, tab.ColCursor, tab.Sorts, m.styles)
 	divider := renderDivider(widths, dividerSep, m.styles.TableSeparator)
 	rows := renderRows(
 		tab.Specs,
@@ -416,6 +418,7 @@ func renderHeaderRow(
 	widths []int,
 	separator string,
 	colCursor int,
+	sorts []sortEntry,
 	styles Styles,
 ) string {
 	cells := make([]string, 0, len(specs))
@@ -425,7 +428,8 @@ func renderHeaderRow(
 		if spec.Link != nil {
 			title = title + " " + styles.LinkIndicator.Render(spec.Link.Relation)
 		}
-		text := formatCell(title, width, spec.Align)
+		indicator := sortIndicator(sorts, i)
+		text := formatHeaderCell(title, indicator, width)
 		if i == colCursor {
 			cells = append(cells, styles.ColActiveHeader.Render(text))
 		} else {
@@ -433,6 +437,58 @@ func renderHeaderRow(
 		}
 	}
 	return strings.Join(cells, separator)
+}
+
+// formatHeaderCell renders a header cell with the title left-aligned and
+// the sort indicator right-aligned within the given width. If there's no
+// indicator, it falls back to plain left-aligned formatting.
+func formatHeaderCell(title, indicator string, width int) string {
+	if indicator == "" {
+		return formatCell(title, width, alignLeft)
+	}
+	titleW := lipgloss.Width(title)
+	indW := lipgloss.Width(indicator)
+	gap := width - titleW - indW
+	if gap < 0 {
+		// Not enough room; truncate title to make space.
+		available := width - indW
+		if available < 1 {
+			return formatCell(title, width, alignLeft)
+		}
+		title = ansi.Truncate(title, available, "")
+		titleW = lipgloss.Width(title)
+		gap = width - titleW - indW
+	}
+	return title + strings.Repeat(" ", gap) + indicator
+}
+
+// sortIndicator returns a string like "▲1" or "▼2" for the column's
+// position in the sort stack, or "" if the column is not sorted.
+// headerTitleWidth returns the rendered width of a column header including
+// any link relation suffix. Sort indicators are rendered within the
+// existing column width so toggling sorts never changes the layout.
+func headerTitleWidth(spec columnSpec) int {
+	w := lipgloss.Width(spec.Title)
+	if spec.Link != nil {
+		w += 1 + lipgloss.Width(spec.Link.Relation) // " m:1"
+	}
+	return w
+}
+
+func sortIndicator(sorts []sortEntry, col int) string {
+	for i, entry := range sorts {
+		if entry.Col == col {
+			arrow := "\u25b2" // ▲
+			if entry.Dir == sortDesc {
+				arrow = "\u25bc" // ▼
+			}
+			if len(sorts) == 1 {
+				return arrow
+			}
+			return fmt.Sprintf("%s%d", arrow, i+1)
+		}
+	}
+	return ""
 }
 
 func renderDivider(
@@ -511,14 +567,10 @@ func renderRow(
 		} else if selected {
 			hl = highlightRow
 		}
-		rendered := renderCell(cellValue, spec, width, hl, styles)
+		rendered := renderCell(cellValue, spec, width, hl, deleted, styles)
 		cells = append(cells, rendered)
 	}
-	rendered := strings.Join(cells, separator)
-	if deleted {
-		rendered = styles.Deleted.Render(rendered)
-	}
-	return rendered
+	return strings.Join(cells, separator)
 }
 
 func renderCell(
@@ -526,6 +578,7 @@ func renderCell(
 	spec columnSpec,
 	width int,
 	hl cellHighlight,
+	deleted bool,
 	styles Styles,
 ) string {
 	if width < 1 {
@@ -540,6 +593,10 @@ func renderCell(
 		if s, ok := styles.StatusStyles[value]; ok {
 			style = s
 		}
+	}
+
+	if deleted {
+		style = style.Foreground(danger).Strikethrough(true)
 	}
 
 	switch hl {
@@ -634,7 +691,7 @@ func columnWidths(
 	}
 	widths := make([]int, columnCount)
 	for i, spec := range specs {
-		maxWidth := lipgloss.Width(spec.Title)
+		maxWidth := headerTitleWidth(spec)
 		if spec.Max > 0 && maxWidth > spec.Max {
 			maxWidth = spec.Max
 		}

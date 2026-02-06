@@ -29,7 +29,6 @@ type Styles struct {
 	Empty           lipgloss.Style
 	Error           lipgloss.Style
 	Info            lipgloss.Style
-	Deleted         lipgloss.Style
 	DeletedLabel    lipgloss.Style
 	LinkIndicator   lipgloss.Style
 	StatusStyles    map[string]lipgloss.Style
@@ -158,9 +157,6 @@ func DefaultStyles() Styles {
 		Info: lipgloss.NewStyle().
 			Foreground(success).
 			Bold(true),
-		Deleted: lipgloss.NewStyle().
-			Foreground(danger).
-			Strikethrough(true),
 		DeletedLabel: lipgloss.NewStyle().
 			Foreground(danger),
 		LinkIndicator: lipgloss.NewStyle().

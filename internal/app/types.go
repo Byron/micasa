@@ -52,6 +52,18 @@ type rowMeta struct {
 	Deleted bool
 }
 
+type sortDir int
+
+const (
+	sortAsc sortDir = iota
+	sortDesc
+)
+
+type sortEntry struct {
+	Col int
+	Dir sortDir
+}
+
 type Tab struct {
 	Kind        TabKind
 	Name        string
@@ -62,6 +74,7 @@ type Tab struct {
 	ColCursor   int
 	LastDeleted *uint
 	ShowDeleted bool
+	Sorts       []sortEntry
 }
 
 type statusKind int
