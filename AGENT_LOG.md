@@ -46,6 +46,7 @@
 - Used `ft²` instead of `sqft` in house profile labels
 - Removed `db:` prefix from status bar path display
 - Added `LEARNINGS.md` for cross-session notes (no-cd rule, colorblind/adaptive palette constraint)
+- Fixed `/` keycap not rendering in status bar: `renderKeys("/")` was splitting on `/` as delimiter, producing empty parts; added bare `/` check
 
 ## 2026-02-05 Session 3
 

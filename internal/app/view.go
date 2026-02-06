@@ -976,6 +976,10 @@ func (m *Model) helpSeparator() string {
 }
 
 func (m *Model) renderKeys(keys string) string {
+	// A bare "/" is a single key, not a separator between two keys.
+	if strings.TrimSpace(keys) == "/" {
+		return m.keycap("/")
+	}
 	parts := strings.Split(keys, "/")
 	rendered := make([]string, 0, len(parts))
 	for _, part := range parts {
