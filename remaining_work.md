@@ -18,9 +18,10 @@
 
 ## Completed
 
-- [RW-SERVICELOG] maintenance log feature: service history sub-table per maintenance item (PENDING_SHA)
-- [RW-VENDOR-SERVICE] vendor tracking in service log entries (PENDING_SHA)
-- [RW-APPLIANCE-MAINT] Maint count column on appliances tab (PENDING_SHA)
+- [RW-SERVICELOG] maintenance log feature: service history sub-table per maintenance item (89eefaa)
+- [RW-VENDOR-SERVICE] vendor tracking in service log entries (89eefaa)
+- [RW-APPLIANCE-MAINT] Maint count column on appliances tab (89eefaa)
+- [RW-NOTRUNC] avoid truncating cell text when terminal is wide enough (1379865)
 
 - [RW-ROWHL] soften table row highlight color -- textMid too close to white fg; use surface bg instead (5406579)
 - [RW-DBPATH] move db path from status bar to help overlay (5406579)
