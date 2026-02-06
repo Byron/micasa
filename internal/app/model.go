@@ -240,7 +240,7 @@ func (m *Model) handleNormalKeys(key tea.KeyMsg) (tea.Cmd, bool) {
 }
 
 // handleNormalEnter handles enter in Normal mode: drill into detail views
-// on maintenance rows, follow FK links, or fall through to cell edit.
+// on drilldown columns, follow FK links, or fall through to cell edit.
 func (m *Model) handleNormalEnter() error {
 	tab := m.effectiveTab()
 	if tab == nil {
@@ -251,13 +251,16 @@ func (m *Model) handleNormalEnter() error {
 		return fmt.Errorf("nothing selected")
 	}
 
-	// On the maintenance tab (not already in detail), open service log.
-	if m.detail == nil && tab.Kind == tabMaintenance {
-		item, err := m.store.GetMaintenance(meta.ID)
-		if err != nil {
-			return fmt.Errorf("load maintenance item: %w", err)
+	// On a drilldown column, open the service log for that row.
+	col := tab.ColCursor
+	if col >= 0 && col < len(tab.Specs) && tab.Specs[col].Kind == cellDrilldown {
+		if m.detail == nil && tab.Kind == tabMaintenance {
+			item, err := m.store.GetMaintenance(meta.ID)
+			if err != nil {
+				return fmt.Errorf("load maintenance item: %w", err)
+			}
+			return m.openDetail(meta.ID, item.Name)
 		}
-		return m.openDetail(meta.ID, item.Name)
 	}
 
 	// Otherwise: follow FK link or fall through to edit.
@@ -467,7 +470,7 @@ func (m *Model) startCellOrFormEdit() error {
 		}
 	}
 
-	if spec.Kind == cellReadonly {
+	if spec.Kind == cellReadonly || spec.Kind == cellDrilldown {
 		return m.startEditForm()
 	}
 	return tab.Handler.InlineEdit(m, meta.ID, col)

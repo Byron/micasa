@@ -216,9 +216,9 @@ func (m *Model) statusView() string {
 	var help string
 	if m.mode == modeNormal {
 		enterHint := "enter"
-		if m.detail == nil {
-			tab := m.activeTab()
-			if tab != nil && tab.Kind == tabMaintenance {
+		if tab := m.effectiveTab(); tab != nil {
+			col := tab.ColCursor
+			if col >= 0 && col < len(tab.Specs) && tab.Specs[col].Kind == cellDrilldown {
 				enterHint = "service log"
 			}
 		}
