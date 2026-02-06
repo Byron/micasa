@@ -145,7 +145,12 @@ func (m *Model) houseExpanded() string {
 	)
 	financial := m.houseSection("Financial", finLine1, finLine2)
 
-	return joinVerticalNonEmpty(titleLine, "", structure, utilities, financial)
+	content := joinVerticalNonEmpty(titleLine, "", structure, utilities, financial)
+	art := m.houseArt()
+	if art == "" {
+		return content
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, content, "   ", art)
 }
 
 func (m *Model) tabsView() string {
@@ -923,6 +928,29 @@ func safeWidth(widths []int, idx int) int {
 
 func (m *Model) headerBox(content string) string {
 	return m.styles.HeaderBox.Render(content)
+}
+
+// houseArt renders a retro pixel-art house for the expanded profile.
+// Uses shade characters (░▒▓█) for a classic DOS/BBS aesthetic.
+// Returns "" if the terminal is too narrow.
+func (m *Model) houseArt() string {
+	if m.effectiveWidth() < 80 {
+		return ""
+	}
+	rf := lipgloss.NewStyle().Foreground(accent)    // roof
+	wl := lipgloss.NewStyle().Foreground(textMid)   // walls
+	wn := lipgloss.NewStyle().Foreground(warning)   // windows (lit)
+	dr := lipgloss.NewStyle().Foreground(secondary) // door
+	lines := []string{
+		rf.Render("      ▄▓▄"),
+		rf.Render("    ▄▓▓▓▓▓▄"),
+		rf.Render("  ▄▓▓▓▓▓▓▓▓▓▄"),
+		wl.Render("  ██ ") + wn.Render("░░") + wl.Render(" ") + wn.Render("░░") + wl.Render(" ██"),
+		wl.Render("  ██  ") + dr.Render("████") + wl.Render(" ██"),
+		wl.Render("  ██  ") + dr.Render("█  █") + wl.Render(" ██"),
+		wl.Render("  ▀▀▀▀▀▀▀▀▀▀▀"),
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (m *Model) helpItem(keys, label string) string {
