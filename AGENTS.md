@@ -244,8 +244,10 @@ These have been repeatedly requested. Violating them wastes the user's time.
   calls (parallel when independent, sequential when dependent).
 - **Run `go mod tidy` before committing** to keep `go.mod`/`go.sum` clean.
 - **Record every user request** in `remaining_work.md` (with a unique ID) if it
-  is not already there. Mark it done when complete. This includes small
-  one-liner asks.
+  is not already there. Mark it done when complete. **This includes small
+  one-liner asks and micro UI tweaks.** Do this immediately when the request
+  is made, not later in a batch. If you catch yourself having completed
+  something without recording it, add it retroactively right away.
 - **Colorblind-safe palette**: All colors must use the Wong palette with
   `lipgloss.AdaptiveColor{Light, Dark}`. See `styles.go` for the existing
   palette and roles. When adding or changing styles, always provide both Light
@@ -398,3 +400,4 @@ in case things crash or otherwise go haywire, be diligent about this.
 - Sized underline to text length only (not full column width) by styling before padding
 - Removed unused CellActive style from Styles struct
 - Consolidated LEARNINGS.md and AGENT_LOG.md into AGENTS.md sections (hard rules + session log) so everything survives context resets
+- **Multi-column sorting** [RW-SORT]: `s` cycles asc/desc/none per column, `S` clears all; priority = insertion order; header indicators (`^1`, `v2`); cell-kind-aware comparators (money, date, numeric, string); empty values always last; default PK asc when no sorts active; Normal mode only; 13 unit tests

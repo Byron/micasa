@@ -110,8 +110,47 @@ HalfPageDown/HalfPageUp (keeps `ctrl+d`/`ctrl+u`). Returning to Normal restores 
 - Mode indicator badge in status bar (accent for Normal, secondary for Edit)
 - Per-mode help items in status bar
 
+## Multi-Column Sort (Option 1: Simple Stack)
+
+**UX**:
+- `s` on current column in Normal mode cycles: none -> asc -> desc -> none
+- Multiple columns sortable; priority = insertion order
+- Column headers show direction + priority: `Name ^1`, `Cost v2`
+- `S` (shift+s) clears all sorts, back to default PK asc
+- Normal mode only (ignored in Edit mode)
+
+**Data model**:
+- New types in `types.go`: `sortDir` (asc/desc), `sortEntry` (col index + dir)
+- New field on `Tab`: `Sorts []sortEntry`
+
+**Sort logic** (new file `sort.go`):
+- `toggleSort(tab, colIdx)`: find col in tab.Sorts; cycle none->asc->desc->none; append if new, update if exists, remove if cycling to none
+- `clearSorts(tab)`: empty the slice
+- `applySorts(tab)`: sort tab.CellRows, tab.Rows (meta), and tab.Table rows in sync using `sort.SliceStable` with a multi-key comparator
+- Comparator is cell-kind-aware: numeric for cellMoney (parse cents), date-aware for cellDate (parse date string), lexicographic for everything else
+- Called from `reloadTab` after rows are loaded, and from `toggleSort`/`clearSorts`
+
+**Header rendering**:
+- `renderHeaderRow` gets the tab's `Sorts` slice
+- After title text, append sort indicator: `^1` or `v2` (using arrow chars)
+- Indicator styled with accent color so it pops
+
+**Key handling**:
+- `s` in `handleNormalKeys`: call `toggleSort` on current column, re-render
+- `S` in `handleNormalKeys`: call `clearSorts`, re-render
+
+**Help overlay**:
+- Add `s` / `S` to Normal mode section
+
+**Tests**:
+- `toggleSort` cycling: none->asc->desc->none
+- Multi-column: add col 0 asc, add col 2 desc, verify both present with correct priority
+- `clearSorts`: empties slice
+- Comparator: numeric, date, string ordering
+- `S` key ignored in Edit mode
+
 ## Remaining Work Items (from remaining_work.md)
 
 1. **Appliance tab + cross-tab FK navigation** -- tab done, navigation TBD
-2. **Column sorting** -- toggle asc/desc/none with keystroke, default PK sort
+2. **Column sorting** -- ACTIVE, see plan below
 3. **Maintenance ghost text** -- compute next_due from last_serviced + interval as default
