@@ -1,0 +1,604 @@
+// Copyright 2026 Phillip Cloud
+// Licensed under the Apache License, Version 2.0
+
+package app
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+)
+
+// visibleProjection computes the visible-only view of a tab's columns and data.
+// It returns projected specs, cell rows, the translated column cursor (-1 if
+// the real cursor is hidden), remapped sort entries, and the vis-to-full index map.
+func visibleProjection(tab *Tab) (
+	specs []columnSpec,
+	cellRows [][]cell,
+	colCursor int,
+	sorts []sortEntry,
+	visToFull []int,
+) {
+	fullToVis := make(map[int]int, len(tab.Specs))
+	for i, spec := range tab.Specs {
+		if spec.HideOrder > 0 {
+			continue
+		}
+		fullToVis[i] = len(visToFull)
+		visToFull = append(visToFull, i)
+		specs = append(specs, spec)
+	}
+
+	colCursor = -1
+	if vis, ok := fullToVis[tab.ColCursor]; ok {
+		colCursor = vis
+	}
+
+	cellRows = make([][]cell, len(tab.CellRows))
+	for r, row := range tab.CellRows {
+		projected := make([]cell, 0, len(visToFull))
+		for _, fi := range visToFull {
+			if fi < len(row) {
+				projected = append(projected, row[fi])
+			}
+		}
+		cellRows[r] = projected
+	}
+
+	for _, se := range tab.Sorts {
+		if vis, ok := fullToVis[se.Col]; ok {
+			sorts = append(sorts, sortEntry{Col: vis, Dir: se.Dir})
+		}
+	}
+	return
+}
+
+func renderHeaderRow(
+	specs []columnSpec,
+	widths []int,
+	separators []string,
+	colCursor int,
+	sorts []sortEntry,
+	styles Styles,
+) string {
+	cells := make([]string, 0, len(specs))
+	for i, spec := range specs {
+		width := safeWidth(widths, i)
+		title := spec.Title
+		if spec.Link != nil {
+			title = title + " " + styles.LinkIndicator.Render(spec.Link.Relation)
+		}
+		indicator := sortIndicator(sorts, i)
+		text := formatHeaderCell(title, indicator, width)
+		if i == colCursor {
+			cells = append(cells, styles.ColActiveHeader.Render(text))
+		} else {
+			cells = append(cells, styles.TableHeader.Render(text))
+		}
+	}
+	return joinCells(cells, separators)
+}
+
+// formatHeaderCell renders a header cell with the title left-aligned and
+// the sort indicator right-aligned within the given width. If there's no
+// indicator, it falls back to plain left-aligned formatting.
+func formatHeaderCell(title, indicator string, width int) string {
+	if indicator == "" {
+		return formatCell(title, width, alignLeft)
+	}
+	titleW := lipgloss.Width(title)
+	indW := lipgloss.Width(indicator)
+	gap := width - titleW - indW
+	if gap < 0 {
+		// Not enough room; truncate title to make space.
+		available := width - indW
+		if available < 1 {
+			return formatCell(title, width, alignLeft)
+		}
+		title = ansi.Truncate(title, available, "")
+		titleW = lipgloss.Width(title)
+		gap = width - titleW - indW
+	}
+	return title + strings.Repeat(" ", gap) + indicator
+}
+
+// headerTitleWidth returns the rendered width of a column header including
+// any link relation suffix. Sort indicators are rendered within the
+// existing column width so toggling sorts never changes the layout.
+func headerTitleWidth(spec columnSpec) int {
+	w := lipgloss.Width(spec.Title)
+	if spec.Link != nil {
+		w += 1 + lipgloss.Width(spec.Link.Relation) // " m:1"
+	}
+	return w
+}
+
+func sortIndicator(sorts []sortEntry, col int) string {
+	for i, entry := range sorts {
+		if entry.Col == col {
+			arrow := "\u25b2" // ▲
+			if entry.Dir == sortDesc {
+				arrow = "\u25bc" // ▼
+			}
+			if len(sorts) == 1 {
+				return arrow
+			}
+			return fmt.Sprintf("%s%d", arrow, i+1)
+		}
+	}
+	return ""
+}
+
+func renderDivider(
+	widths []int,
+	separators []string,
+	divSep string,
+	style lipgloss.Style,
+) string {
+	parts := make([]string, 0, len(widths))
+	for _, width := range widths {
+		if width < 1 {
+			width = 1
+		}
+		parts = append(parts, style.Render(strings.Repeat("─", width)))
+	}
+	// Uniform divider separator for all gaps (no ⋯ on the divider line).
+	if len(separators) > 0 {
+		uniform := make([]string, len(separators))
+		for i := range uniform {
+			uniform[i] = divSep
+		}
+		separators = uniform
+	}
+	return joinCells(parts, separators)
+}
+
+func renderRows(
+	specs []columnSpec,
+	rows [][]cell,
+	meta []rowMeta,
+	widths []int,
+	plainSeps []string,
+	collapsedSeps []string,
+	cursor int,
+	colCursor int,
+	height int,
+	styles Styles,
+) []string {
+	total := len(rows)
+	if total == 0 {
+		return nil
+	}
+	if height <= 0 {
+		height = total
+	}
+	start, end := visibleRange(total, height, cursor)
+	count := end - start
+	mid := start + count/2
+	rendered := make([]string, 0, count)
+	for i := start; i < end; i++ {
+		selected := i == cursor
+		deleted := i < len(meta) && meta[i].Deleted
+		// Show ⋯ on first, middle, and last visible rows only.
+		seps := plainSeps
+		if i == start || i == mid || i == end-1 {
+			seps = collapsedSeps
+		}
+		row := renderRow(specs, rows[i], widths, seps, selected, deleted, colCursor, styles)
+		rendered = append(rendered, row)
+	}
+	return rendered
+}
+
+// cellHighlight describes how a cell should be visually marked.
+type cellHighlight int
+
+const (
+	highlightNone   cellHighlight = iota
+	highlightRow                  // selected row, not the active column
+	highlightCursor               // selected row AND active column
+)
+
+func renderRow(
+	specs []columnSpec,
+	row []cell,
+	widths []int,
+	separators []string,
+	selected bool,
+	deleted bool,
+	colCursor int,
+	styles Styles,
+) string {
+	cells := make([]string, 0, len(specs))
+	for i, spec := range specs {
+		width := safeWidth(widths, i)
+		var cellValue cell
+		if i < len(row) {
+			cellValue = row[i]
+		}
+		hl := highlightNone
+		if selected && i == colCursor {
+			hl = highlightCursor
+		} else if selected {
+			hl = highlightRow
+		}
+		rendered := renderCell(cellValue, spec, width, hl, deleted, styles)
+		cells = append(cells, rendered)
+	}
+	return joinCells(cells, separators)
+}
+
+func renderCell(
+	cellValue cell,
+	spec columnSpec,
+	width int,
+	hl cellHighlight,
+	deleted bool,
+	styles Styles,
+) string {
+	if width < 1 {
+		width = 1
+	}
+	value := strings.TrimSpace(cellValue.Value)
+	style := cellStyle(cellValue.Kind, styles)
+	if value == "" {
+		value = "—"
+		style = styles.Empty
+	} else if cellValue.Kind == cellDrilldown {
+		return renderPillCell(value, spec, width, hl, deleted, styles)
+	} else if cellValue.Kind == cellStatus {
+		if s, ok := styles.StatusStyles[value]; ok {
+			style = s
+		}
+	}
+
+	if deleted {
+		style = style.Foreground(textDim).Strikethrough(true).Italic(true)
+	}
+
+	// For cursor underline and deleted strikethrough, style just the
+	// text and pad separately so the decoration matches text length.
+	if hl == highlightCursor || deleted {
+		cursorStyle := style
+		if hl == highlightCursor {
+			cursorStyle = cursorStyle.Underline(true).Bold(true)
+		}
+		if hl == highlightRow {
+			cursorStyle = cursorStyle.Background(surface).Bold(true)
+		}
+		truncated := ansi.Truncate(value, width, "…")
+		styled := cursorStyle.Render(truncated)
+		textW := lipgloss.Width(truncated)
+		if pad := width - textW; pad > 0 {
+			if spec.Align == alignRight {
+				return strings.Repeat(" ", pad) + styled
+			}
+			return styled + strings.Repeat(" ", pad)
+		}
+		return styled
+	}
+
+	if hl == highlightRow {
+		style = style.Background(surface).Bold(true)
+	}
+
+	aligned := formatCell(value, width, spec.Align)
+	return style.Render(aligned)
+}
+
+// renderPillCell renders a drilldown value as a compact pill badge,
+// right-aligned within the column width.
+func renderPillCell(
+	value string,
+	spec columnSpec,
+	width int,
+	hl cellHighlight,
+	deleted bool,
+	styles Styles,
+) string {
+	style := styles.Drilldown
+	if deleted {
+		style = lipgloss.NewStyle().
+			Foreground(textDim).
+			Strikethrough(true).
+			Italic(true)
+		pill := style.Render(value)
+		pillW := lipgloss.Width(pill)
+		if pad := width - pillW; pad > 0 {
+			return strings.Repeat(" ", pad) + pill
+		}
+		return pill
+	}
+
+	if hl == highlightCursor {
+		style = style.Underline(true)
+	}
+
+	pill := style.Render(value)
+	pillW := lipgloss.Width(pill)
+
+	// Pad to fill the column; pill is always right-aligned.
+	if pad := width - pillW; pad > 0 {
+		padStyle := lipgloss.NewStyle()
+		if hl == highlightRow {
+			padStyle = padStyle.Background(surface)
+		}
+		return padStyle.Render(strings.Repeat(" ", pad)) + pill
+	}
+	return pill
+}
+
+// joinCells joins rendered cell strings using per-gap separators.
+// If separators is shorter than needed, falls back to the last separator.
+func joinCells(cells []string, separators []string) string {
+	if len(cells) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, c := range cells {
+		if i > 0 {
+			idx := i - 1
+			if idx < len(separators) {
+				b.WriteString(separators[idx])
+			} else if len(separators) > 0 {
+				b.WriteString(separators[len(separators)-1])
+			}
+		}
+		b.WriteString(c)
+	}
+	return b.String()
+}
+
+func cellStyle(kind cellKind, styles Styles) lipgloss.Style {
+	switch kind {
+	case cellMoney:
+		return styles.Money
+	case cellReadonly:
+		return styles.Readonly
+	case cellDrilldown:
+		return styles.Drilldown
+	default:
+		return lipgloss.NewStyle()
+	}
+}
+
+func formatCell(value string, width int, align alignKind) string {
+	if width < 1 {
+		return ""
+	}
+	truncated := ansi.Truncate(value, width, "…")
+	current := lipgloss.Width(truncated)
+	if current >= width {
+		return truncated
+	}
+	padding := width - current
+	switch align {
+	case alignRight:
+		return strings.Repeat(" ", padding) + truncated
+	default:
+		return truncated + strings.Repeat(" ", padding)
+	}
+}
+
+func visibleRange(total, height, cursor int) (int, int) {
+	if total <= height {
+		return 0, total
+	}
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor >= total {
+		cursor = total - 1
+	}
+	start := cursor - height/2
+	if start < 0 {
+		start = 0
+	}
+	end := start + height
+	if end > total {
+		end = total
+		start = end - height
+		if start < 0 {
+			start = 0
+		}
+	}
+	return start, end
+}
+
+func columnWidths(
+	specs []columnSpec,
+	rows [][]cell,
+	width int,
+	separatorWidth int,
+) []int {
+	columnCount := len(specs)
+	if columnCount == 0 {
+		return nil
+	}
+	available := width - separatorWidth*(columnCount-1)
+	if available < columnCount {
+		available = columnCount
+	}
+
+	natural := naturalWidths(specs, rows)
+
+	// If content-driven widths fit, use them — no truncation.
+	if sumInts(natural) <= available {
+		widths := make([]int, columnCount)
+		copy(widths, natural)
+		extra := available - sumInts(widths)
+		if extra > 0 {
+			flex := flexColumns(specs)
+			if len(flex) == 0 {
+				flex = allColumns(specs)
+			}
+			distribute(widths, specs, flex, extra, true)
+		}
+		return widths
+	}
+
+	// Content exceeds terminal width — apply Max constraints.
+	widths := make([]int, columnCount)
+	for i, w := range natural {
+		if specs[i].Max > 0 && w > specs[i].Max {
+			w = specs[i].Max
+		}
+		widths[i] = w
+	}
+
+	total := sumInts(widths)
+	if total <= available {
+		// Max-capped fits. Give extra space to truncated columns first
+		// so they can show their full content before flex columns grow.
+		extra := available - total
+		extra = widenTruncated(widths, natural, extra)
+		if extra > 0 {
+			flex := flexColumns(specs)
+			if len(flex) == 0 {
+				flex = allColumns(specs)
+			}
+			distribute(widths, specs, flex, extra, true)
+		}
+		return widths
+	}
+
+	// Still too wide — shrink flex columns.
+	deficit := total - available
+	flex := flexColumns(specs)
+	if len(flex) == 0 {
+		flex = allColumns(specs)
+	}
+	distribute(widths, specs, flex, deficit, false)
+	return widths
+}
+
+// naturalWidths returns the content-driven width for each column (header,
+// fixed values, and actual cell values) floored by Min but NOT capped by Max.
+func naturalWidths(specs []columnSpec, rows [][]cell) []int {
+	widths := make([]int, len(specs))
+	for i, spec := range specs {
+		w := headerTitleWidth(spec)
+		for _, fv := range spec.FixedValues {
+			if fw := lipgloss.Width(fv); fw > w {
+				w = fw
+			}
+		}
+		for _, row := range rows {
+			if i >= len(row) {
+				continue
+			}
+			value := strings.TrimSpace(row[i].Value)
+			if value == "" {
+				continue
+			}
+			if cw := lipgloss.Width(value); cw > w {
+				w = cw
+			}
+		}
+		if w < spec.Min {
+			w = spec.Min
+		}
+		widths[i] = w
+	}
+	return widths
+}
+
+// widenTruncated gives extra space to columns whose current width is less than
+// their natural (content-driven) width, eliminating truncation where possible.
+// Returns the remaining unused extra.
+func widenTruncated(widths, natural []int, extra int) int {
+	for extra > 0 {
+		changed := false
+		for i := range widths {
+			if extra == 0 {
+				break
+			}
+			if widths[i] < natural[i] {
+				widths[i]++
+				extra--
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+	return extra
+}
+
+func distribute(
+	widths []int,
+	specs []columnSpec,
+	indices []int,
+	amount int,
+	grow bool,
+) {
+	if amount <= 0 || len(indices) == 0 {
+		return
+	}
+	for amount > 0 {
+		changed := false
+		for _, idx := range indices {
+			if idx >= len(widths) {
+				continue
+			}
+			if grow {
+				if specs[idx].Max > 0 && widths[idx] >= specs[idx].Max {
+					continue
+				}
+				widths[idx]++
+			} else {
+				if widths[idx] <= specs[idx].Min {
+					continue
+				}
+				widths[idx]--
+			}
+			amount--
+			changed = true
+			if amount == 0 {
+				break
+			}
+		}
+		if !changed {
+			return
+		}
+	}
+}
+
+func flexColumns(specs []columnSpec) []int {
+	indices := make([]int, 0, len(specs))
+	for i, spec := range specs {
+		if spec.Flex {
+			indices = append(indices, i)
+		}
+	}
+	return indices
+}
+
+func allColumns(specs []columnSpec) []int {
+	indices := make([]int, len(specs))
+	for i := range specs {
+		indices[i] = i
+	}
+	return indices
+}
+
+func sumInts(values []int) int {
+	total := 0
+	for _, v := range values {
+		total += v
+	}
+	return total
+}
+
+func safeWidth(widths []int, idx int) int {
+	if idx >= len(widths) {
+		return 1
+	}
+	if widths[idx] < 1 {
+		return 1
+	}
+	return widths[idx]
+}

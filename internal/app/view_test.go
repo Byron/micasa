@@ -4,10 +4,31 @@
 package app
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/micasa/micasa/internal/data"
 )
+
+func TestBuildViewShowsFullHouseBox(t *testing.T) {
+	m := newTestModel()
+	m.width = 120
+	m.height = 40
+	m.hasHouse = true
+	m.house = data.HouseProfile{Nickname: "Test House"}
+
+	output := m.buildView()
+	lines := strings.Split(output, "\n")
+
+	// The rounded border top-left corner must be on the first line.
+	if len(lines) == 0 {
+		t.Fatal("buildView returned empty output")
+	}
+	if !strings.Contains(lines[0], "╭") {
+		t.Fatalf("first line should contain the top border (╭), got: %q", lines[0])
+	}
+}
 
 func TestNaturalWidthsIgnoreMax(t *testing.T) {
 	specs := []columnSpec{
