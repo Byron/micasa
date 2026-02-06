@@ -34,7 +34,10 @@
 - [RW-ORDINAL] press 1-9 to jump to Nth option in select fields (60ec495)
 - [RW-ORDINAL-LABEL] show ordinal numbers next to select options (60ec495)
 - [RW-UNDERWAY] rename "in_progress" status to "underway" (ef87b74)
-- [RW-SELECTCOLOR] color status labels in select menus to match table cell colors (PENDING)
+- [RW-SELECTCOLOR] color status labels in select menus to match table cell colors (d05836d)
+- [RW-UNDO] undo cell/form edits with u in Edit mode (PENDING)
+- [RW-REDO] redo undone edits with r in Edit mode (PENDING)
+- [RW-COLWIDTH] stable column widths for fixed-option columns (PENDING)
 
 - refactor forms.go and view.go: deduplicate submit/edit pairs, centering, inline edit boilerplate, form-data converters (9851c74)
 - scrap the log-on-dash-v approach, just enable logging dynamically (and allow changing log level) with a keyboard shortcut and bring up the logger ui component when that key is pressed (it's a toggle obviously) (75b2c86)

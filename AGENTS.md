@@ -422,3 +422,8 @@ in case things crash or otherwise go haywire, be diligent about this.
 - Added ordinal intercept in `updateForm` (model.go)
 - Added "1-9: Jump to Nth option" hint in help view Forms section
 - [RW-ORDINAL-LABEL] Added `withOrdinals[T]` generic helper that prefixes option labels with `N. ` (1-based); applied to all 5 option-building functions (`statusOptions`, `projectTypeOptions`, `maintenanceOptions`, `projectOptions`, `applianceOptions`)
+- [RW-UNDERWAY] Renamed `"in_progress"` status to `"underway"` across data constant, form label, style map key
+- [RW-SELECTCOLOR] Pre-rendered status option labels with semantic lipgloss colors so select menus match table cell coloring
+- [RW-UNDO] Multi-level undo for cell/form edits: `snapshotForUndo()` captures entity from DB before save, closure-based restore, `u` in Edit mode pops LIFO stack (cap 50)
+- [RW-REDO] Redo support: `r` in Edit mode re-applies undone changes. Undo snapshots current state to redo stack before restoring; redo snapshots current state back to undo stack. New edits clear redo stack. Refactored `undoEntry` to carry `FormKind`/`EntityID` for cross-stack snapshotting via `snapshotEntity()`. 15 unit tests total
+- [RW-COLWIDTH] Stable column widths for fixed-option columns: added `FixedValues []string` to `columnSpec`; `columnWidths` accounts for all possible values, not just displayed ones. Status column uses `data.ProjectStatuses()`. Dynamic FK columns (Type, Category) synced via `syncFixedValues()` after `loadLookups()`

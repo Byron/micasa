@@ -206,6 +206,8 @@ func (m *Model) statusView() string {
 			m.helpItem("a", "add"),
 			m.helpItem("e", m.editHint()),
 			m.helpItem("d", "del/restore"),
+			m.helpItem("u", "undo"),
+			m.helpItem("r", "redo"),
 			m.deletedHint(m.activeTab()),
 			m.helpItem("p", "profile"),
 			m.helpItem("esc", "normal"),
@@ -332,6 +334,8 @@ func (m *Model) helpView() string {
 				{"a", "Add new entry"},
 				{"e / enter", "Edit cell (or full row on ID column)"},
 				{"d", "Toggle delete/restore"},
+				{"u", "Undo last edit"},
+				{"r", "Redo last undo"},
 				{"x", "Toggle showing deleted items"},
 				{"p", "Edit house profile"},
 				{"esc", "Back to Normal mode"},
@@ -700,6 +704,13 @@ func columnWidths(
 		maxWidth := headerTitleWidth(spec)
 		if spec.Max > 0 && maxWidth > spec.Max {
 			maxWidth = spec.Max
+		}
+		// Account for all possible values so columns with fixed option
+		// sets don't shift width when the displayed value changes.
+		for _, fv := range spec.FixedValues {
+			if w := lipgloss.Width(fv); w > maxWidth {
+				maxWidth = w
+			}
 		}
 		for _, row := range rows {
 			if i >= len(row) {

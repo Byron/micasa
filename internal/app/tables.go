@@ -69,7 +69,7 @@ func projectColumnSpecs() []columnSpec {
 		{Title: "ID", Min: 4, Max: 6, Align: alignRight, Kind: cellReadonly},
 		{Title: "Type", Min: 8, Max: 14, Flex: true},
 		{Title: "Title", Min: 14, Max: 32, Flex: true},
-		{Title: "Status", Min: 8, Max: 12, Kind: cellStatus},
+		{Title: "Status", Min: 8, Max: 12, Kind: cellStatus, FixedValues: data.ProjectStatuses()},
 		{Title: "Budget", Min: 10, Max: 14, Align: alignRight, Kind: cellMoney},
 		{Title: "Actual", Min: 10, Max: 14, Align: alignRight, Kind: cellMoney},
 		{Title: "Start", Min: 10, Max: 12, Kind: cellDate},

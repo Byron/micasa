@@ -123,11 +123,12 @@ type columnLink struct {
 }
 
 type columnSpec struct {
-	Title string
-	Min   int
-	Max   int
-	Flex  bool
-	Align alignKind
-	Kind  cellKind
-	Link  *columnLink // non-nil if this column references another tab
+	Title       string
+	Min         int
+	Max         int
+	Flex        bool
+	Align       alignKind
+	Kind        cellKind
+	Link        *columnLink // non-nil if this column references another tab
+	FixedValues []string    // all possible values; used to stabilize column width
 }

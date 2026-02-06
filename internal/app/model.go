@@ -32,6 +32,8 @@ type Model struct {
 	formSnapshot          string
 	formDirty             bool
 	editID                *uint
+	undoStack             []undoEntry
+	redoStack             []undoEntry
 	status                statusMsg
 	projectTypes          []data.ProjectType
 	maintenanceCategories []data.MaintenanceCategory
@@ -239,6 +241,24 @@ func (m *Model) handleEditKeys(key tea.KeyMsg) (tea.Cmd, bool) {
 		return m.formInitCmd(), true
 	case "d":
 		m.toggleDeleteSelected()
+		return nil, true
+	case "u":
+		if err := m.popUndo(); err != nil {
+			m.setStatusError(err.Error())
+		} else if m.store != nil {
+			_ = m.loadLookups()
+			_ = m.loadHouse()
+			_ = m.reloadAllTabs()
+		}
+		return nil, true
+	case "r":
+		if err := m.popRedo(); err != nil {
+			m.setStatusError(err.Error())
+		} else if m.store != nil {
+			_ = m.loadLookups()
+			_ = m.loadHouse()
+			_ = m.reloadAllTabs()
+		}
 		return nil, true
 	case "x":
 		m.toggleShowDeleted()
@@ -572,7 +592,40 @@ func (m *Model) loadLookups() error {
 	if err != nil {
 		return err
 	}
+	m.syncFixedValues()
 	return nil
+}
+
+// syncFixedValues updates FixedValues on columns that reference dynamic lookup
+// tables so columnWidths stays stable regardless of which values are displayed.
+func (m *Model) syncFixedValues() {
+	for i := range m.tabs {
+		tab := &m.tabs[i]
+		switch tab.Kind {
+		case tabProjects:
+			typeNames := make([]string, len(m.projectTypes))
+			for j, pt := range m.projectTypes {
+				typeNames[j] = pt.Name
+			}
+			setFixedValues(tab.Specs, "Type", typeNames)
+
+		case tabMaintenance:
+			catNames := make([]string, len(m.maintenanceCategories))
+			for j, c := range m.maintenanceCategories {
+				catNames[j] = c.Name
+			}
+			setFixedValues(tab.Specs, "Category", catNames)
+		}
+	}
+}
+
+func setFixedValues(specs []columnSpec, title string, values []string) {
+	for i := range specs {
+		if specs[i].Title == title {
+			specs[i].FixedValues = values
+			return
+		}
+	}
 }
 
 func (m *Model) resizeTables() {
@@ -603,6 +656,7 @@ func (m *Model) statusLines() int {
 }
 
 func (m *Model) saveForm() tea.Cmd {
+	m.snapshotForUndo()
 	err := m.handleFormSubmit()
 	if err != nil {
 		m.setStatusError(err.Error())
