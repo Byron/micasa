@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -199,16 +198,7 @@ func (m *Model) startEditProjectForm(id uint) error {
 	if err != nil {
 		return fmt.Errorf("load project: %w", err)
 	}
-	values := &projectFormData{
-		Title:         project.Title,
-		ProjectTypeID: project.ProjectTypeID,
-		Status:        project.Status,
-		Budget:        data.FormatOptionalCents(project.BudgetCents),
-		Actual:        data.FormatOptionalCents(project.ActualCents),
-		StartDate:     data.FormatDate(project.StartDate),
-		EndDate:       data.FormatDate(project.EndDate),
-		Description:   project.Description,
-	}
+	values := projectFormValues(project)
 	options := projectTypeOptions(m.projectTypes)
 	m.logDebug(fmt.Sprintf("Editing project %d.", id))
 	m.editID = &id
@@ -292,20 +282,7 @@ func (m *Model) startEditQuoteForm(id uint) error {
 	if len(projects) == 0 {
 		return fmt.Errorf("no projects available")
 	}
-	values := &quoteFormData{
-		ProjectID:    quote.ProjectID,
-		VendorName:   quote.Vendor.Name,
-		ContactName:  quote.Vendor.ContactName,
-		Email:        quote.Vendor.Email,
-		Phone:        quote.Vendor.Phone,
-		Website:      quote.Vendor.Website,
-		Total:        data.FormatCents(quote.TotalCents),
-		Labor:        data.FormatOptionalCents(quote.LaborCents),
-		Materials:    data.FormatOptionalCents(quote.MaterialsCents),
-		Other:        data.FormatOptionalCents(quote.OtherCents),
-		ReceivedDate: data.FormatDate(quote.ReceivedDate),
-		Notes:        quote.Notes,
-	}
+	values := quoteFormValues(quote)
 	options := projectOptions(projects)
 	m.logDebug(fmt.Sprintf("Editing quote %d.", id))
 	m.editID = &id
@@ -382,22 +359,7 @@ func (m *Model) startEditMaintenanceForm(id uint) error {
 	if err != nil {
 		return fmt.Errorf("load maintenance item: %w", err)
 	}
-	var appID uint
-	if item.ApplianceID != nil {
-		appID = *item.ApplianceID
-	}
-	values := &maintenanceFormData{
-		Name:           item.Name,
-		CategoryID:     item.CategoryID,
-		ApplianceID:    appID,
-		LastServiced:   data.FormatDate(item.LastServicedAt),
-		NextDue:        data.FormatDate(item.NextDueAt),
-		IntervalMonths: intToString(item.IntervalMonths),
-		ManualURL:      item.ManualURL,
-		ManualText:     item.ManualText,
-		Cost:           data.FormatOptionalCents(item.CostCents),
-		Notes:          item.Notes,
-	}
+	values := maintenanceFormValues(item)
 	options := maintenanceOptions(m.maintenanceCategories)
 	appliances, _ := m.store.ListAppliances(false)
 	appOpts := applianceOptions(appliances)
@@ -470,17 +432,7 @@ func (m *Model) startEditApplianceForm(id uint) error {
 	if err != nil {
 		return fmt.Errorf("load appliance: %w", err)
 	}
-	values := &applianceFormData{
-		Name:           item.Name,
-		Brand:          item.Brand,
-		ModelNumber:    item.ModelNumber,
-		SerialNumber:   item.SerialNumber,
-		PurchaseDate:   data.FormatDate(item.PurchaseDate),
-		WarrantyExpiry: data.FormatDate(item.WarrantyExpiry),
-		Location:       item.Location,
-		Cost:           data.FormatOptionalCents(item.CostCents),
-		Notes:          item.Notes,
-	}
+	values := applianceFormValues(item)
 	m.logDebug(fmt.Sprintf("Editing appliance %d.", id))
 	m.editID = &id
 	m.openApplianceForm(values)
@@ -526,55 +478,40 @@ func (m *Model) openApplianceForm(values *applianceFormData) {
 }
 
 func (m *Model) submitApplianceForm() error {
-	values, ok := m.formData.(*applianceFormData)
-	if !ok {
-		return fmt.Errorf("unexpected appliance form data")
-	}
-	purchaseDate, err := data.ParseOptionalDate(values.PurchaseDate)
+	item, err := m.parseApplianceFormData()
 	if err != nil {
 		return err
-	}
-	warrantyExpiry, err := data.ParseOptionalDate(values.WarrantyExpiry)
-	if err != nil {
-		return err
-	}
-	cost, err := data.ParseOptionalCents(values.Cost)
-	if err != nil {
-		return err
-	}
-	item := data.Appliance{
-		Name:           strings.TrimSpace(values.Name),
-		Brand:          strings.TrimSpace(values.Brand),
-		ModelNumber:    strings.TrimSpace(values.ModelNumber),
-		SerialNumber:   strings.TrimSpace(values.SerialNumber),
-		PurchaseDate:   purchaseDate,
-		WarrantyExpiry: warrantyExpiry,
-		Location:       strings.TrimSpace(values.Location),
-		CostCents:      cost,
-		Notes:          strings.TrimSpace(values.Notes),
 	}
 	return m.store.CreateAppliance(item)
 }
 
 func (m *Model) submitEditApplianceForm(id uint) error {
+	item, err := m.parseApplianceFormData()
+	if err != nil {
+		return err
+	}
+	item.ID = id
+	return m.store.UpdateAppliance(item)
+}
+
+func (m *Model) parseApplianceFormData() (data.Appliance, error) {
 	values, ok := m.formData.(*applianceFormData)
 	if !ok {
-		return fmt.Errorf("unexpected appliance form data")
+		return data.Appliance{}, fmt.Errorf("unexpected appliance form data")
 	}
 	purchaseDate, err := data.ParseOptionalDate(values.PurchaseDate)
 	if err != nil {
-		return err
+		return data.Appliance{}, err
 	}
 	warrantyExpiry, err := data.ParseOptionalDate(values.WarrantyExpiry)
 	if err != nil {
-		return err
+		return data.Appliance{}, err
 	}
 	cost, err := data.ParseOptionalCents(values.Cost)
 	if err != nil {
-		return err
+		return data.Appliance{}, err
 	}
-	item := data.Appliance{
-		ID:             id,
+	return data.Appliance{
 		Name:           strings.TrimSpace(values.Name),
 		Brand:          strings.TrimSpace(values.Brand),
 		ModelNumber:    strings.TrimSpace(values.ModelNumber),
@@ -584,8 +521,7 @@ func (m *Model) submitEditApplianceForm(id uint) error {
 		Location:       strings.TrimSpace(values.Location),
 		CostCents:      cost,
 		Notes:          strings.TrimSpace(values.Notes),
-	}
-	return m.store.UpdateAppliance(item)
+	}, nil
 }
 
 // startInlineCellEdit opens a single-field form for the given column.
@@ -609,16 +545,7 @@ func (m *Model) inlineEditProject(id uint, col int) error {
 	if err != nil {
 		return fmt.Errorf("load project: %w", err)
 	}
-	values := &projectFormData{
-		Title:         project.Title,
-		ProjectTypeID: project.ProjectTypeID,
-		Status:        project.Status,
-		Budget:        data.FormatOptionalCents(project.BudgetCents),
-		Actual:        data.FormatOptionalCents(project.ActualCents),
-		StartDate:     data.FormatDate(project.StartDate),
-		EndDate:       data.FormatDate(project.EndDate),
-		Description:   project.Description,
-	}
+	values := projectFormValues(project)
 	options := projectTypeOptions(m.projectTypes)
 	// Column mapping: 0=ID, 1=Type, 2=Title, 3=Status, 4=Budget, 5=Actual, 6=Start, 7=End
 	var field huh.Field
@@ -658,14 +585,7 @@ func (m *Model) inlineEditProject(id uint, col int) error {
 	default:
 		return m.startEditProjectForm(id)
 	}
-	m.editID = &id
-	form := huh.NewForm(huh.NewGroup(field))
-	applyFormDefaults(form)
-	m.mode = modeForm
-	m.formKind = formProject
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.openInlineEdit(id, formProject, field, values)
 	return nil
 }
 
@@ -678,20 +598,7 @@ func (m *Model) inlineEditQuote(id uint, col int) error {
 	if err != nil {
 		return err
 	}
-	values := &quoteFormData{
-		ProjectID:    quote.ProjectID,
-		VendorName:   quote.Vendor.Name,
-		ContactName:  quote.Vendor.ContactName,
-		Email:        quote.Vendor.Email,
-		Phone:        quote.Vendor.Phone,
-		Website:      quote.Vendor.Website,
-		Total:        data.FormatCents(quote.TotalCents),
-		Labor:        data.FormatOptionalCents(quote.LaborCents),
-		Materials:    data.FormatOptionalCents(quote.MaterialsCents),
-		Other:        data.FormatOptionalCents(quote.OtherCents),
-		ReceivedDate: data.FormatDate(quote.ReceivedDate),
-		Notes:        quote.Notes,
-	}
+	values := quoteFormValues(quote)
 	projectOpts := projectOptions(projects)
 	// Column mapping: 0=ID, 1=Project, 2=Vendor, 3=Total, 4=Labor, 5=Mat, 6=Other, 7=Recv
 	var field huh.Field
@@ -737,14 +644,7 @@ func (m *Model) inlineEditQuote(id uint, col int) error {
 	default:
 		return m.startEditQuoteForm(id)
 	}
-	m.editID = &id
-	form := huh.NewForm(huh.NewGroup(field))
-	applyFormDefaults(form)
-	m.mode = modeForm
-	m.formKind = formQuote
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.openInlineEdit(id, formQuote, field, values)
 	return nil
 }
 
@@ -753,22 +653,7 @@ func (m *Model) inlineEditMaintenance(id uint, col int) error {
 	if err != nil {
 		return fmt.Errorf("load maintenance item: %w", err)
 	}
-	var appID uint
-	if item.ApplianceID != nil {
-		appID = *item.ApplianceID
-	}
-	values := &maintenanceFormData{
-		Name:           item.Name,
-		CategoryID:     item.CategoryID,
-		ApplianceID:    appID,
-		LastServiced:   data.FormatDate(item.LastServicedAt),
-		NextDue:        data.FormatDate(item.NextDueAt),
-		IntervalMonths: intToString(item.IntervalMonths),
-		ManualURL:      item.ManualURL,
-		ManualText:     item.ManualText,
-		Cost:           data.FormatOptionalCents(item.CostCents),
-		Notes:          item.Notes,
-	}
+	values := maintenanceFormValues(item)
 	catOptions := maintenanceOptions(m.maintenanceCategories)
 	// Column mapping: 0=ID, 1=Item, 2=Category, 3=Appliance, 4=Last, 5=Next, 6=Every, 7=Manual
 	var field huh.Field
@@ -809,14 +694,7 @@ func (m *Model) inlineEditMaintenance(id uint, col int) error {
 	default:
 		return m.startEditMaintenanceForm(id)
 	}
-	m.editID = &id
-	form := huh.NewForm(huh.NewGroup(field))
-	applyFormDefaults(form)
-	m.mode = modeForm
-	m.formKind = formMaintenance
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.openInlineEdit(id, formMaintenance, field, values)
 	return nil
 }
 
@@ -825,17 +703,7 @@ func (m *Model) inlineEditAppliance(id uint, col int) error {
 	if err != nil {
 		return fmt.Errorf("load appliance: %w", err)
 	}
-	values := &applianceFormData{
-		Name:           item.Name,
-		Brand:          item.Brand,
-		ModelNumber:    item.ModelNumber,
-		SerialNumber:   item.SerialNumber,
-		PurchaseDate:   data.FormatDate(item.PurchaseDate),
-		WarrantyExpiry: data.FormatDate(item.WarrantyExpiry),
-		Location:       item.Location,
-		Cost:           data.FormatOptionalCents(item.CostCents),
-		Notes:          item.Notes,
-	}
+	values := applianceFormValues(item)
 	// Column mapping: 0=ID, 1=Name, 2=Brand, 3=Model, 4=Serial, 5=Location, 6=Purchased, 7=Warranty, 8=Cost
 	var field huh.Field
 	switch col {
@@ -868,14 +736,7 @@ func (m *Model) inlineEditAppliance(id uint, col int) error {
 	default:
 		return m.startEditApplianceForm(id)
 	}
-	m.editID = &id
-	form := huh.NewForm(huh.NewGroup(field))
-	applyFormDefaults(form)
-	m.mode = modeForm
-	m.formKind = formAppliance
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.openInlineEdit(id, formAppliance, field, values)
 	return nil
 }
 
@@ -890,6 +751,18 @@ func applianceOptions(appliances []data.Appliance) []huh.Option[uint] {
 		options = append(options, huh.NewOption(label, appliance.ID))
 	}
 	return options
+}
+
+// openInlineEdit sets up a single-field inline edit form.
+func (m *Model) openInlineEdit(id uint, kind FormKind, field huh.Field, values any) {
+	m.editID = &id
+	form := huh.NewForm(huh.NewGroup(field))
+	applyFormDefaults(form)
+	m.mode = modeForm
+	m.formKind = kind
+	m.form = form
+	m.formData = values
+	m.snapshotForm()
 }
 
 func applyFormDefaults(form *huh.Form) {
@@ -1014,62 +887,44 @@ func (m *Model) submitHouseForm() error {
 }
 
 func (m *Model) submitEditProjectForm(id uint) error {
-	values, ok := m.formData.(*projectFormData)
-	if !ok {
-		return fmt.Errorf("unexpected project form data")
-	}
-	budget, err := data.ParseOptionalCents(values.Budget)
+	project, err := m.parseProjectFormData()
 	if err != nil {
 		return err
 	}
-	actual, err := data.ParseOptionalCents(values.Actual)
-	if err != nil {
-		return err
-	}
-	startDate, err := data.ParseOptionalDate(values.StartDate)
-	if err != nil {
-		return err
-	}
-	endDate, err := data.ParseOptionalDate(values.EndDate)
-	if err != nil {
-		return err
-	}
-	project := data.Project{
-		ID:            id,
-		Title:         strings.TrimSpace(values.Title),
-		ProjectTypeID: values.ProjectTypeID,
-		Status:        values.Status,
-		Description:   strings.TrimSpace(values.Description),
-		StartDate:     startDate,
-		EndDate:       endDate,
-		BudgetCents:   budget,
-		ActualCents:   actual,
-	}
+	project.ID = id
 	return m.store.UpdateProject(project)
 }
 
 func (m *Model) submitProjectForm() error {
+	project, err := m.parseProjectFormData()
+	if err != nil {
+		return err
+	}
+	return m.store.CreateProject(project)
+}
+
+func (m *Model) parseProjectFormData() (data.Project, error) {
 	values, ok := m.formData.(*projectFormData)
 	if !ok {
-		return fmt.Errorf("unexpected project form data")
+		return data.Project{}, fmt.Errorf("unexpected project form data")
 	}
 	budget, err := data.ParseOptionalCents(values.Budget)
 	if err != nil {
-		return err
+		return data.Project{}, err
 	}
 	actual, err := data.ParseOptionalCents(values.Actual)
 	if err != nil {
-		return err
+		return data.Project{}, err
 	}
 	startDate, err := data.ParseOptionalDate(values.StartDate)
 	if err != nil {
-		return err
+		return data.Project{}, err
 	}
 	endDate, err := data.ParseOptionalDate(values.EndDate)
 	if err != nil {
-		return err
+		return data.Project{}, err
 	}
-	project := data.Project{
+	return data.Project{
 		Title:         strings.TrimSpace(values.Title),
 		ProjectTypeID: values.ProjectTypeID,
 		Status:        values.Status,
@@ -1078,79 +933,50 @@ func (m *Model) submitProjectForm() error {
 		EndDate:       endDate,
 		BudgetCents:   budget,
 		ActualCents:   actual,
-	}
-	return m.store.CreateProject(project)
+	}, nil
 }
 
 func (m *Model) submitEditQuoteForm(id uint) error {
-	values, ok := m.formData.(*quoteFormData)
-	if !ok {
-		return fmt.Errorf("unexpected quote form data")
-	}
-	total, err := data.ParseRequiredCents(values.Total)
+	quote, vendor, err := m.parseQuoteFormData()
 	if err != nil {
 		return err
 	}
-	labor, err := data.ParseOptionalCents(values.Labor)
-	if err != nil {
-		return err
-	}
-	materials, err := data.ParseOptionalCents(values.Materials)
-	if err != nil {
-		return err
-	}
-	other, err := data.ParseOptionalCents(values.Other)
-	if err != nil {
-		return err
-	}
-	received, err := data.ParseOptionalDate(values.ReceivedDate)
-	if err != nil {
-		return err
-	}
-	quote := data.Quote{
-		ID:             id,
-		ProjectID:      values.ProjectID,
-		TotalCents:     total,
-		LaborCents:     labor,
-		MaterialsCents: materials,
-		OtherCents:     other,
-		ReceivedDate:   received,
-		Notes:          strings.TrimSpace(values.Notes),
-	}
-	vendor := data.Vendor{
-		Name:        strings.TrimSpace(values.VendorName),
-		ContactName: strings.TrimSpace(values.ContactName),
-		Email:       strings.TrimSpace(values.Email),
-		Phone:       strings.TrimSpace(values.Phone),
-		Website:     strings.TrimSpace(values.Website),
-	}
+	quote.ID = id
 	return m.store.UpdateQuote(quote, vendor)
 }
 
 func (m *Model) submitQuoteForm() error {
+	quote, vendor, err := m.parseQuoteFormData()
+	if err != nil {
+		return err
+	}
+	return m.store.CreateQuote(quote, vendor)
+}
+
+func (m *Model) parseQuoteFormData() (data.Quote, data.Vendor, error) {
 	values, ok := m.formData.(*quoteFormData)
 	if !ok {
-		return fmt.Errorf("unexpected quote form data")
+		return data.Quote{}, data.Vendor{}, fmt.Errorf("unexpected quote form data")
 	}
 	total, err := data.ParseRequiredCents(values.Total)
 	if err != nil {
-		return err
+		return data.Quote{}, data.Vendor{}, err
 	}
 	labor, err := data.ParseOptionalCents(values.Labor)
 	if err != nil {
-		return err
+		return data.Quote{}, data.Vendor{}, err
 	}
 	materials, err := data.ParseOptionalCents(values.Materials)
 	if err != nil {
-		return err
+		return data.Quote{}, data.Vendor{}, err
 	}
 	other, err := data.ParseOptionalCents(values.Other)
 	if err != nil {
-		return err
+		return data.Quote{}, data.Vendor{}, err
 	}
 	received, err := data.ParseOptionalDate(values.ReceivedDate)
 	if err != nil {
-		return err
+		return data.Quote{}, data.Vendor{}, err
 	}
 	quote := data.Quote{
 		ProjectID:      values.ProjectID,
@@ -1168,75 +994,58 @@ func (m *Model) submitQuoteForm() error {
 		Phone:       strings.TrimSpace(values.Phone),
 		Website:     strings.TrimSpace(values.Website),
 	}
-	return m.store.CreateQuote(quote, vendor)
+	return quote, vendor, nil
 }
 
 func (m *Model) submitEditMaintenanceForm(id uint) error {
-	values, ok := m.formData.(*maintenanceFormData)
-	if !ok {
-		return fmt.Errorf("unexpected maintenance form data")
-	}
-	lastServiced, err := data.ParseOptionalDate(values.LastServiced)
+	item, err := m.parseMaintenanceFormData()
 	if err != nil {
 		return err
 	}
-	nextDue, err := data.ParseOptionalDate(values.NextDue)
-	if err != nil {
-		return err
-	}
-	interval, err := data.ParseOptionalInt(values.IntervalMonths)
-	if err != nil {
-		return err
-	}
-	if nextDue == nil {
-		nextDue = data.ComputeNextDue(lastServiced, interval)
-	}
-	cost, err := data.ParseOptionalCents(values.Cost)
-	if err != nil {
-		return err
-	}
-	item := data.MaintenanceItem{
-		ID:             id,
-		Name:           strings.TrimSpace(values.Name),
-		CategoryID:     values.CategoryID,
-		LastServicedAt: lastServiced,
-		NextDueAt:      nextDue,
-		IntervalMonths: interval,
-		ManualURL:      strings.TrimSpace(values.ManualURL),
-		ManualText:     strings.TrimSpace(values.ManualText),
-		CostCents:      cost,
-		Notes:          strings.TrimSpace(values.Notes),
-	}
+	item.ID = id
 	return m.store.UpdateMaintenance(item)
 }
 
 func (m *Model) submitMaintenanceForm() error {
+	item, err := m.parseMaintenanceFormData()
+	if err != nil {
+		return err
+	}
+	return m.store.CreateMaintenance(item)
+}
+
+func (m *Model) parseMaintenanceFormData() (data.MaintenanceItem, error) {
 	values, ok := m.formData.(*maintenanceFormData)
 	if !ok {
-		return fmt.Errorf("unexpected maintenance form data")
+		return data.MaintenanceItem{}, fmt.Errorf("unexpected maintenance form data")
 	}
 	lastServiced, err := data.ParseOptionalDate(values.LastServiced)
 	if err != nil {
-		return err
+		return data.MaintenanceItem{}, err
 	}
 	nextDue, err := data.ParseOptionalDate(values.NextDue)
 	if err != nil {
-		return err
+		return data.MaintenanceItem{}, err
 	}
 	interval, err := data.ParseOptionalInt(values.IntervalMonths)
 	if err != nil {
-		return err
+		return data.MaintenanceItem{}, err
 	}
 	if nextDue == nil {
 		nextDue = data.ComputeNextDue(lastServiced, interval)
 	}
 	cost, err := data.ParseOptionalCents(values.Cost)
 	if err != nil {
-		return err
+		return data.MaintenanceItem{}, err
 	}
-	item := data.MaintenanceItem{
+	var appID *uint
+	if values.ApplianceID > 0 {
+		appID = &values.ApplianceID
+	}
+	return data.MaintenanceItem{
 		Name:           strings.TrimSpace(values.Name),
 		CategoryID:     values.CategoryID,
+		ApplianceID:    appID,
 		LastServicedAt: lastServiced,
 		NextDueAt:      nextDue,
 		IntervalMonths: interval,
@@ -1244,8 +1053,7 @@ func (m *Model) submitMaintenanceForm() error {
 		ManualText:     strings.TrimSpace(values.ManualText),
 		CostCents:      cost,
 		Notes:          strings.TrimSpace(values.Notes),
-	}
-	return m.store.CreateMaintenance(item)
+	}, nil
 }
 
 func projectTypeOptions(types []data.ProjectType) []huh.Option[uint] {
@@ -1341,6 +1149,69 @@ func requiredMoney(label string) func(string) error {
 	}
 }
 
+func projectFormValues(project data.Project) *projectFormData {
+	return &projectFormData{
+		Title:         project.Title,
+		ProjectTypeID: project.ProjectTypeID,
+		Status:        project.Status,
+		Budget:        data.FormatOptionalCents(project.BudgetCents),
+		Actual:        data.FormatOptionalCents(project.ActualCents),
+		StartDate:     data.FormatDate(project.StartDate),
+		EndDate:       data.FormatDate(project.EndDate),
+		Description:   project.Description,
+	}
+}
+
+func quoteFormValues(quote data.Quote) *quoteFormData {
+	return &quoteFormData{
+		ProjectID:    quote.ProjectID,
+		VendorName:   quote.Vendor.Name,
+		ContactName:  quote.Vendor.ContactName,
+		Email:        quote.Vendor.Email,
+		Phone:        quote.Vendor.Phone,
+		Website:      quote.Vendor.Website,
+		Total:        data.FormatCents(quote.TotalCents),
+		Labor:        data.FormatOptionalCents(quote.LaborCents),
+		Materials:    data.FormatOptionalCents(quote.MaterialsCents),
+		Other:        data.FormatOptionalCents(quote.OtherCents),
+		ReceivedDate: data.FormatDate(quote.ReceivedDate),
+		Notes:        quote.Notes,
+	}
+}
+
+func maintenanceFormValues(item data.MaintenanceItem) *maintenanceFormData {
+	var appID uint
+	if item.ApplianceID != nil {
+		appID = *item.ApplianceID
+	}
+	return &maintenanceFormData{
+		Name:           item.Name,
+		CategoryID:     item.CategoryID,
+		ApplianceID:    appID,
+		LastServiced:   data.FormatDate(item.LastServicedAt),
+		NextDue:        data.FormatDate(item.NextDueAt),
+		IntervalMonths: intToString(item.IntervalMonths),
+		ManualURL:      item.ManualURL,
+		ManualText:     item.ManualText,
+		Cost:           data.FormatOptionalCents(item.CostCents),
+		Notes:          item.Notes,
+	}
+}
+
+func applianceFormValues(item data.Appliance) *applianceFormData {
+	return &applianceFormData{
+		Name:           item.Name,
+		Brand:          item.Brand,
+		ModelNumber:    item.ModelNumber,
+		SerialNumber:   item.SerialNumber,
+		PurchaseDate:   data.FormatDate(item.PurchaseDate),
+		WarrantyExpiry: data.FormatDate(item.WarrantyExpiry),
+		Location:       item.Location,
+		Cost:           data.FormatOptionalCents(item.CostCents),
+		Notes:          item.Notes,
+	}
+}
+
 func houseFormValues(profile data.HouseProfile) *houseFormData {
 	return &houseFormData{
 		Nickname:         profile.Nickname,
@@ -1381,11 +1252,5 @@ func intToString(value int) string {
 }
 
 func floatToString(value float64) string {
-	if value == 0 {
-		return ""
-	}
-	if value == math.Trunc(value) {
-		return fmt.Sprintf("%.0f", value)
-	}
-	return fmt.Sprintf("%.1f", value)
+	return formatFloat(value)
 }

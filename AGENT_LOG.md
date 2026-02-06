@@ -30,6 +30,19 @@
 
 **Codebase**: Bubbletea TUI for home project/maintenance management. Has house profile, projects, quotes, maintenance tabs with forms, search, and log pane. Data layer uses GORM+SQLite.
 
+## 2026-02-06 Session
+
+**Context**: User asked to review codebase for refactoring opportunities before starting remaining_work.md items.
+
+**Work done** (see git log for details):
+- Read entire codebase (15 Go files) and identified 6 refactoring opportunities
+- Extracted `parseProjectFormData`, `parseQuoteFormData`, `parseMaintenanceFormData`, `parseApplianceFormData` -- each deduplicated submit/submitEdit pairs that shared 90% parsing code
+- Extracted `projectFormValues`, `quoteFormValues`, `maintenanceFormValues`, `applianceFormValues` -- each deduplicated model-to-formdata conversion used by both full-form and inline-edit flows
+- Extracted `openInlineEdit` helper -- deduplicated 7-line tail from all 4 inline edit functions
+- Extracted `centerPanel` -- deduplicated `formFullScreen`/`helpFullScreen` centering logic
+- Made `floatToString` delegate to `formatFloat` (was identical copy), removed unused `math` import
+- All existing tests pass, build clean
+
 ## 2026-02-05 Session 3
 
 **Context**: Previous agent partially implemented the Appliances tab work item but left the build broken. The data model, store CRUD methods, table column specs, row rendering, form data structs, form builders, and form submit methods were all done. What was missing: wiring into the app layer switch statements.

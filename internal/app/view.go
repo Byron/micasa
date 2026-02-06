@@ -281,49 +281,16 @@ func (m *Model) formFullScreen() string {
 	formContent := m.form.View()
 	status := m.statusView()
 	panel := lipgloss.JoinVertical(lipgloss.Left, formContent, "", status)
-
-	panelH := lipgloss.Height(panel)
-	panelW := lipgloss.Width(panel)
-
-	width := m.width
-	if width <= 0 {
-		width = 80
-	}
-	height := m.height
-	if height <= 0 {
-		height = 24
-	}
-
-	padTop := (height - panelH) / 2
-	if padTop < 1 {
-		padTop = 1
-	}
-	padLeft := (width - panelW) / 2
-	if padLeft < 0 {
-		padLeft = 0
-	}
-
-	lines := strings.Split(panel, "\n")
-	var b strings.Builder
-	for i := 0; i < padTop; i++ {
-		b.WriteString("\n")
-	}
-	indent := strings.Repeat(" ", padLeft)
-	for i, line := range lines {
-		b.WriteString(indent)
-		b.WriteString(line)
-		if i < len(lines)-1 {
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
+	return m.centerPanel(panel, 1)
 }
 
 func (m *Model) helpFullScreen() string {
-	panel := m.helpView()
-	panelH := lipgloss.Height(panel)
-	panelW := lipgloss.Width(panel)
+	return m.centerPanel(m.helpView(), 0)
+}
 
+// centerPanel centers a rendered panel within the terminal dimensions.
+// minPadTop sets the minimum top padding (e.g. 1 to keep a gap above forms).
+func (m *Model) centerPanel(panel string, minPadTop int) string {
 	width := m.width
 	if width <= 0 {
 		width = 80
@@ -332,16 +299,16 @@ func (m *Model) helpFullScreen() string {
 	if height <= 0 {
 		height = 24
 	}
-
+	panelH := lipgloss.Height(panel)
+	panelW := lipgloss.Width(panel)
 	padTop := (height - panelH) / 2
-	if padTop < 0 {
-		padTop = 0
+	if padTop < minPadTop {
+		padTop = minPadTop
 	}
 	padLeft := (width - panelW) / 2
 	if padLeft < 0 {
 		padLeft = 0
 	}
-
 	lines := strings.Split(panel, "\n")
 	var b strings.Builder
 	for i := 0; i < padTop; i++ {
