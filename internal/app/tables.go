@@ -38,28 +38,32 @@ func NewTabs(styles Styles) []Tab {
 	applianceSpecs := applianceColumnSpecs()
 	return []Tab{
 		{
-			Kind:  tabProjects,
-			Name:  "Projects",
-			Specs: projectSpecs,
-			Table: newTable(specsToColumns(projectSpecs), styles),
+			Kind:    tabProjects,
+			Name:    "Projects",
+			Handler: projectHandler{},
+			Specs:   projectSpecs,
+			Table:   newTable(specsToColumns(projectSpecs), styles),
 		},
 		{
-			Kind:  tabQuotes,
-			Name:  "Quotes",
-			Specs: quoteSpecs,
-			Table: newTable(specsToColumns(quoteSpecs), styles),
+			Kind:    tabQuotes,
+			Name:    "Quotes",
+			Handler: quoteHandler{},
+			Specs:   quoteSpecs,
+			Table:   newTable(specsToColumns(quoteSpecs), styles),
 		},
 		{
-			Kind:  tabMaintenance,
-			Name:  "Maintenance",
-			Specs: maintenanceSpecs,
-			Table: newTable(specsToColumns(maintenanceSpecs), styles),
+			Kind:    tabMaintenance,
+			Name:    "Maintenance",
+			Handler: maintenanceHandler{},
+			Specs:   maintenanceSpecs,
+			Table:   newTable(specsToColumns(maintenanceSpecs), styles),
 		},
 		{
-			Kind:  tabAppliances,
-			Name:  "Appliances",
-			Specs: applianceSpecs,
-			Table: newTable(specsToColumns(applianceSpecs), styles),
+			Kind:    tabAppliances,
+			Name:    "Appliances",
+			Handler: applianceHandler{},
+			Specs:   applianceSpecs,
+			Table:   newTable(specsToColumns(applianceSpecs), styles),
 		},
 	}
 }

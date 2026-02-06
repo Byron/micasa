@@ -149,8 +149,28 @@ HalfPageDown/HalfPageUp (keeps `ctrl+d`/`ctrl+u`). Returning to Normal restores 
 - Comparator: numeric, date, string ordering
 - `S` key ignored in Edit mode
 
+## TabHandler Interface Refactoring -- DONE
+
+**Problem**: Entity-specific logic was scattered across 9+ `switch tab.Kind` /
+`switch m.formKind` dispatch sites in model.go, forms.go, and undo.go.
+Adding a new entity type required touching every dispatch site ("shotgun surgery").
+
+**Solution**: `TabHandler` interface with 10 methods encapsulating all entity-specific
+operations. Each entity type implements the interface as a stateless struct.
+The `Tab` struct embeds the handler. Dispatch sites replaced with single
+`tab.Handler.Method(...)` calls.
+
+**Interface**: `FormKind`, `Load`, `Delete`, `Restore`, `StartAddForm`,
+`StartEditForm`, `InlineEdit`, `SubmitForm`, `Snapshot`, `SyncFixedValues`
+
+**Special case**: House form (formHouse) has no tab. It stays as explicit
+special-case code in `handleFormSubmit` and `snapshotEntity`.
+
+**Removed dead code**: `restoreByTab`, `startInlineCellEdit` (dispatch wrapper),
+unused `table` import from model.go.
+
 ## Remaining Work Items (from remaining_work.md)
 
 1. **Appliance tab + cross-tab FK navigation** -- tab done, navigation TBD
-2. **Column sorting** -- ACTIVE, see plan below
+2. **Column sorting** -- DONE
 3. **Maintenance ghost text** -- compute next_due from last_serviced + interval as default

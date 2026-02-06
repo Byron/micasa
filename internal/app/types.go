@@ -67,6 +67,7 @@ type sortEntry struct {
 type Tab struct {
 	Kind        TabKind
 	Name        string
+	Handler     TabHandler
 	Table       table.Model
 	Rows        []rowMeta
 	Specs       []columnSpec

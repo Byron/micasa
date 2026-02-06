@@ -429,3 +429,16 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [RW-UNDO] Multi-level undo for cell/form edits: `snapshotForUndo()` captures entity from DB before save, closure-based restore, `u` in Edit mode pops LIFO stack (cap 50)
 - [RW-REDO] Redo support: `r` in Edit mode re-applies undone changes. Undo snapshots current state to redo stack before restoring; redo snapshots current state back to undo stack. New edits clear redo stack. Refactored `undoEntry` to carry `FormKind`/`EntityID` for cross-stack snapshotting via `snapshotEntity()`. 15 unit tests total
 - [RW-COLWIDTH] Stable column widths for fixed-option columns: added `FixedValues []string` to `columnSpec`; `columnWidths` accounts for all possible values, not just displayed ones. Status column uses `data.ProjectStatuses()`. Dynamic FK columns (Type, Category) synced via `syncFixedValues()` after `loadLookups()`
+
+## 2026-02-06 Session 7
+
+**User request**: Architectural refactoring -- introduce `TabHandler` interface to eliminate scattered `switch tab.Kind` / `switch m.formKind` dispatch.
+
+**Approach**: Identified 9 switch dispatch sites across model.go, forms.go, and undo.go. Designed `TabHandler` interface with 10 methods covering all entity-specific operations. Created 4 handler structs (projectHandler, quoteHandler, maintenanceHandler, applianceHandler) that delegate to existing form/data methods. House form stays as special case since it has no tab.
+
+**Work done**:
+- [RW-TABHANDLER] New `handlers.go`: `TabHandler` interface + 4 implementations + `handlerForFormKind` lookup
+- Added `Handler TabHandler` field to `Tab` struct, wired in `NewTabs`
+- Replaced dispatches: `reloadTab`, `toggleDeleteSelected`/`restoreByTab`, `startAddForm`, `startEditForm`, `startCellOrFormEdit`, `handleFormSubmit`, `snapshotEntity`, `syncFixedValues`
+- Removed dead code: `restoreByTab`, `startInlineCellEdit` (dispatch wrapper), unused `table` import from model.go
+- 5 new handler tests; all 68 tests passing

@@ -521,22 +521,6 @@ func (m *Model) parseApplianceFormData() (data.Appliance, error) {
 	}, nil
 }
 
-// startInlineCellEdit opens a single-field form for the given column.
-func (m *Model) startInlineCellEdit(id uint, tabKind TabKind, col int) error {
-	switch tabKind {
-	case tabProjects:
-		return m.inlineEditProject(id, col)
-	case tabQuotes:
-		return m.inlineEditQuote(id, col)
-	case tabMaintenance:
-		return m.inlineEditMaintenance(id, col)
-	case tabAppliances:
-		return m.inlineEditAppliance(id, col)
-	default:
-		return fmt.Errorf("unknown tab")
-	}
-}
-
 func (m *Model) inlineEditProject(id uint, col int) error {
 	project, err := m.store.GetProject(id)
 	if err != nil {
@@ -776,32 +760,14 @@ func formKeyMap() *huh.KeyMap {
 }
 
 func (m *Model) handleFormSubmit() error {
-	switch m.formKind {
-	case formHouse:
+	if m.formKind == formHouse {
 		return m.submitHouseForm()
-	case formProject:
-		if m.editID != nil {
-			return m.submitEditProjectForm(*m.editID)
-		}
-		return m.submitProjectForm()
-	case formQuote:
-		if m.editID != nil {
-			return m.submitEditQuoteForm(*m.editID)
-		}
-		return m.submitQuoteForm()
-	case formMaintenance:
-		if m.editID != nil {
-			return m.submitEditMaintenanceForm(*m.editID)
-		}
-		return m.submitMaintenanceForm()
-	case formAppliance:
-		if m.editID != nil {
-			return m.submitEditApplianceForm(*m.editID)
-		}
-		return m.submitApplianceForm()
-	default:
+	}
+	handler := m.handlerForFormKind(m.formKind)
+	if handler == nil {
 		return nil
 	}
+	return handler.SubmitForm(m)
 }
 
 func (m *Model) submitHouseForm() error {

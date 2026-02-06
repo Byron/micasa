@@ -42,67 +42,10 @@ func (m *Model) snapshotForUndo() {
 }
 
 // snapshotEntity captures the current DB state of an entity and returns an
-// undoEntry that can restore it.
+// undoEntry that can restore it. The house form is handled as a special case;
+// all other entity types delegate to their TabHandler.
 func (m *Model) snapshotEntity(kind FormKind, id uint) (undoEntry, bool) {
-	switch kind {
-	case formProject:
-		project, err := m.store.GetProject(id)
-		if err != nil {
-			return undoEntry{}, false
-		}
-		return undoEntry{
-			Description: fmt.Sprintf("project %q", project.Title),
-			FormKind:    formProject,
-			EntityID:    id,
-			Restore: func() error {
-				return m.store.UpdateProject(project)
-			},
-		}, true
-
-	case formQuote:
-		quote, err := m.store.GetQuote(id)
-		if err != nil {
-			return undoEntry{}, false
-		}
-		vendor := quote.Vendor
-		return undoEntry{
-			Description: fmt.Sprintf("quote from %s", vendor.Name),
-			FormKind:    formQuote,
-			EntityID:    id,
-			Restore: func() error {
-				return m.store.UpdateQuote(quote, vendor)
-			},
-		}, true
-
-	case formMaintenance:
-		item, err := m.store.GetMaintenance(id)
-		if err != nil {
-			return undoEntry{}, false
-		}
-		return undoEntry{
-			Description: fmt.Sprintf("maintenance %q", item.Name),
-			FormKind:    formMaintenance,
-			EntityID:    id,
-			Restore: func() error {
-				return m.store.UpdateMaintenance(item)
-			},
-		}, true
-
-	case formAppliance:
-		item, err := m.store.GetAppliance(id)
-		if err != nil {
-			return undoEntry{}, false
-		}
-		return undoEntry{
-			Description: fmt.Sprintf("appliance %q", item.Name),
-			FormKind:    formAppliance,
-			EntityID:    id,
-			Restore: func() error {
-				return m.store.UpdateAppliance(item)
-			},
-		}, true
-
-	case formHouse:
+	if kind == formHouse {
 		if !m.hasHouse {
 			return undoEntry{}, false
 		}
@@ -116,8 +59,11 @@ func (m *Model) snapshotEntity(kind FormKind, id uint) (undoEntry, bool) {
 			},
 		}, true
 	}
-
-	return undoEntry{}, false
+	handler := m.handlerForFormKind(kind)
+	if handler == nil {
+		return undoEntry{}, false
+	}
+	return handler.Snapshot(m.store, id)
 }
 
 func (m *Model) pushUndo(entry undoEntry) {

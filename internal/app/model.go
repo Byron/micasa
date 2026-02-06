@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -320,17 +319,8 @@ func (m *Model) startAddForm() {
 	if tab == nil {
 		return
 	}
-	switch tab.Kind {
-	case tabProjects:
-		m.startProjectForm()
-	case tabQuotes:
-		if err := m.startQuoteForm(); err != nil {
-			m.setStatusError(err.Error())
-		}
-	case tabMaintenance:
-		m.startMaintenanceForm()
-	case tabAppliances:
-		m.startApplianceForm()
+	if err := tab.Handler.StartAddForm(m); err != nil {
+		m.setStatusError(err.Error())
 	}
 }
 
@@ -346,18 +336,7 @@ func (m *Model) startEditForm() error {
 	if meta.Deleted {
 		return fmt.Errorf("cannot edit a deleted item")
 	}
-	switch tab.Kind {
-	case tabProjects:
-		return m.startEditProjectForm(meta.ID)
-	case tabQuotes:
-		return m.startEditQuoteForm(meta.ID)
-	case tabMaintenance:
-		return m.startEditMaintenanceForm(meta.ID)
-	case tabAppliances:
-		return m.startEditApplianceForm(meta.ID)
-	default:
-		return fmt.Errorf("unknown tab")
-	}
+	return tab.Handler.StartEditForm(m, meta.ID)
 }
 
 func (m *Model) startCellOrFormEdit() error {
@@ -388,7 +367,7 @@ func (m *Model) startCellOrFormEdit() error {
 	if spec.Kind == cellReadonly {
 		return m.startEditForm()
 	}
-	return m.startInlineCellEdit(meta.ID, tab.Kind, col)
+	return tab.Handler.InlineEdit(m, meta.ID, col)
 }
 
 // navigateToLink switches to the target tab and selects the row matching the FK.
@@ -436,7 +415,7 @@ func (m *Model) toggleDeleteSelected() {
 		return
 	}
 	if meta.Deleted {
-		if err := m.restoreByTab(tab.Kind, meta.ID); err != nil {
+		if err := tab.Handler.Restore(m.store, meta.ID); err != nil {
 			m.setStatusError(err.Error())
 			return
 		}
@@ -447,39 +426,13 @@ func (m *Model) toggleDeleteSelected() {
 		_ = m.reloadActiveTab()
 		return
 	}
-	var err error
-	switch tab.Kind {
-	case tabProjects:
-		err = m.store.DeleteProject(meta.ID)
-	case tabQuotes:
-		err = m.store.DeleteQuote(meta.ID)
-	case tabMaintenance:
-		err = m.store.DeleteMaintenance(meta.ID)
-	case tabAppliances:
-		err = m.store.DeleteAppliance(meta.ID)
-	}
-	if err != nil {
+	if err := tab.Handler.Delete(m.store, meta.ID); err != nil {
 		m.setStatusError(err.Error())
 		return
 	}
 	tab.LastDeleted = &meta.ID
 	m.setStatusInfo("Deleted. Press d to restore.")
 	_ = m.reloadActiveTab()
-}
-
-func (m *Model) restoreByTab(kind TabKind, id uint) error {
-	switch kind {
-	case tabProjects:
-		return m.store.RestoreProject(id)
-	case tabQuotes:
-		return m.store.RestoreQuote(id)
-	case tabMaintenance:
-		return m.store.RestoreMaintenance(id)
-	case tabAppliances:
-		return m.store.RestoreAppliance(id)
-	default:
-		return nil
-	}
 }
 
 func (m *Model) toggleShowDeleted() {
@@ -521,47 +474,11 @@ func (m *Model) reloadAllTabs() error {
 }
 
 func (m *Model) reloadTab(tab *Tab) error {
-	var rows []table.Row
-	var meta []rowMeta
-	var err error
-	switch tab.Kind {
-	case tabProjects:
-		var projects []data.Project
-		projects, err = m.store.ListProjects(tab.ShowDeleted)
-		if err != nil {
-			return err
-		}
-		var cellRows [][]cell
-		rows, meta, cellRows = projectRows(projects)
-		tab.CellRows = cellRows
-	case tabQuotes:
-		var quotes []data.Quote
-		quotes, err = m.store.ListQuotes(tab.ShowDeleted)
-		if err != nil {
-			return err
-		}
-		var cellRows [][]cell
-		rows, meta, cellRows = quoteRows(quotes)
-		tab.CellRows = cellRows
-	case tabMaintenance:
-		var items []data.MaintenanceItem
-		items, err = m.store.ListMaintenance(tab.ShowDeleted)
-		if err != nil {
-			return err
-		}
-		var cellRows [][]cell
-		rows, meta, cellRows = maintenanceRows(items)
-		tab.CellRows = cellRows
-	case tabAppliances:
-		var appliances []data.Appliance
-		appliances, err = m.store.ListAppliances(tab.ShowDeleted)
-		if err != nil {
-			return err
-		}
-		var cellRows [][]cell
-		rows, meta, cellRows = applianceRows(appliances)
-		tab.CellRows = cellRows
+	rows, meta, cellRows, err := tab.Handler.Load(m.store, tab.ShowDeleted)
+	if err != nil {
+		return err
 	}
+	tab.CellRows = cellRows
 	tab.Table.SetRows(rows)
 	tab.Rows = meta
 	applySorts(tab)
@@ -601,21 +518,7 @@ func (m *Model) loadLookups() error {
 func (m *Model) syncFixedValues() {
 	for i := range m.tabs {
 		tab := &m.tabs[i]
-		switch tab.Kind {
-		case tabProjects:
-			typeNames := make([]string, len(m.projectTypes))
-			for j, pt := range m.projectTypes {
-				typeNames[j] = pt.Name
-			}
-			setFixedValues(tab.Specs, "Type", typeNames)
-
-		case tabMaintenance:
-			catNames := make([]string, len(m.maintenanceCategories))
-			for j, c := range m.maintenanceCategories {
-				catNames[j] = c.Name
-			}
-			setFixedValues(tab.Specs, "Category", catNames)
-		}
+		tab.Handler.SyncFixedValues(m, tab.Specs)
 	}
 }
 
