@@ -6,6 +6,8 @@
   │ be fuckin' dope]) that will move you to that cell in the other tab (if it's
   1:1 of course. if 1:m go to the first match, if m:1, there's only a single
   match, if m:n not sure, help me   figure out the ux for that )
+- [RW-HOUSE-UX] redesign house profile collapsed/expanded views: remove chip borders,
+  use middot-separated inline text, cleaner section layout in expanded view
 - add the ability to sort by a column with a key stroke, it should toggle
   ascending, descending, and no sort. sort by primary key by default
 - for maintenance items, compute the default ghost text for next due date from

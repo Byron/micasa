@@ -27,6 +27,42 @@ The first work item is a multi-part feature. Prior agent did most of the data + 
 - Works for Quotes.Project (m:1 -> Projects) and Maintenance.Appliance (m:1 -> Appliances)
 - For empty links (e.g. maintenance with no appliance), falls through to normal edit
 
+## House Profile UX Redesign (RW-HOUSE-UX)
+
+**Problem**: Collapsed and expanded house profile views feel like a "wall of text tags." Every key-value pair is wrapped in a `RoundedBorder` chip box, creating dense visual noise.
+
+**Collapsed (before)**: Title row + row of 6 bordered chip boxes (House, Loc, Yr, Sq Ft, Beds, Baths)
+**Expanded (before)**: Title row + 2 chip rows + 3 section rows each packed with bordered chips
+
+**Design**:
+
+Collapsed -- single clean middot-separated line, no borders:
+```
+House Profile ▸  h toggle
+Elm Street · Springfield, IL · 4bd / 2.5ba · 2,400 sqft · 1987
+```
+Nickname pops in orange (HeaderValue), stats in subdued gray (HeaderHint).
+
+Expanded -- section headers with inline middot-separated values, no chip borders:
+```
+House Profile ▾  h toggle
+Elm Street · 742 Elm Street, Springfield, IL 62704
+
+ Structure  1987 · 2,400 sqft · 8,500 lot · 4bd / 2.5ba
+            fnd Poured Concrete · wir Copper · roof Asphalt Shingle
+            ext Vinyl Siding · bsmt Finished
+ Utilities  heat Forced Air Gas · cool Central AC · water Municipal
+            sewer Municipal · park Attached 2-Car
+ Financial  ins Acme Insurance · policy HO-00-0000000 · renew 2026-08-15
+            tax $4,850.00 · hoa Elm Street HOA ($150.00/mo)
+```
+Section headers use existing HeaderSection style. Values use dim label + bright value (`hlv` helper). Continuation lines indent to align with values.
+
+**Implementation**:
+1. Add helpers: `styledPart`, `bedBathLabel`, `sqftLabel`, `lotLabel`, `hlv`, `houseSection`
+2. Rewrite `houseCollapsed` and `houseExpanded`
+3. Remove now-unused `chip`, `sectionLine`, `renderHouseValue`, `HeaderChip` style
+
 ## Remaining Work Items (from remaining_work.md)
 
 1. **Appliance tab + cross-tab FK navigation** -- tab done, navigation TBD

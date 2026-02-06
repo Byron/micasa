@@ -8,7 +8,6 @@ type Styles struct {
 	HeaderTitle     lipgloss.Style
 	HeaderHint      lipgloss.Style
 	HeaderBadge     lipgloss.Style
-	HeaderChip      lipgloss.Style
 	HeaderSection   lipgloss.Style
 	HeaderLabel     lipgloss.Style
 	HeaderValue     lipgloss.Style
@@ -79,13 +78,12 @@ var (
 	danger    = lipgloss.AdaptiveColor{Light: "#CC3311", Dark: "#D55E00"}
 	muted     = lipgloss.AdaptiveColor{Light: "#AA4499", Dark: "#CC79A7"}
 
-	textBright  = lipgloss.AdaptiveColor{Light: "#1F2937", Dark: "#E5E7EB"}
-	textMid     = lipgloss.AdaptiveColor{Light: "#4B5563", Dark: "#9CA3AF"}
-	textDim     = lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#6B7280"}
-	surface     = lipgloss.AdaptiveColor{Light: "#F3F4F6", Dark: "#1F2937"}
-	surfaceDeep = lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#111827"}
-	onAccent    = lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#0F172A"}
-	border      = lipgloss.AdaptiveColor{Light: "#D1D5DB", Dark: "#374151"}
+	textBright = lipgloss.AdaptiveColor{Light: "#1F2937", Dark: "#E5E7EB"}
+	textMid    = lipgloss.AdaptiveColor{Light: "#4B5563", Dark: "#9CA3AF"}
+	textDim    = lipgloss.AdaptiveColor{Light: "#6B7280", Dark: "#6B7280"}
+	surface    = lipgloss.AdaptiveColor{Light: "#F3F4F6", Dark: "#1F2937"}
+	onAccent   = lipgloss.AdaptiveColor{Light: "#FFFFFF", Dark: "#0F172A"}
+	border     = lipgloss.AdaptiveColor{Light: "#D1D5DB", Dark: "#374151"}
 )
 
 func DefaultStyles() Styles {
@@ -105,11 +103,6 @@ func DefaultStyles() Styles {
 		HeaderBadge: lipgloss.NewStyle().
 			Foreground(textBright).
 			Background(surface).
-			Padding(0, 1),
-		HeaderChip: lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(border).
-			Background(surfaceDeep).
 			Padding(0, 1),
 		HeaderSection: lipgloss.NewStyle().
 			Foreground(textBright).

@@ -78,55 +78,67 @@ func (m *Model) houseView() string {
 }
 
 func (m *Model) houseCollapsed() string {
-	line1 := m.houseTitleLine("▸")
-	line2 := joinInline(
-		m.chip("House", m.house.Nickname),
-		m.chip("Loc", formatCityState(m.house)),
-		m.chip("Yr", formatInt(m.house.YearBuilt)),
-		m.chip("Sq Ft", formatInt(m.house.SquareFeet)),
-		m.chip("Beds", formatInt(m.house.Bedrooms)),
-		m.chip("Baths", formatFloat(m.house.Bathrooms)),
+	title := m.houseTitleLine("▸")
+	sep := m.styles.HeaderHint.Render(" · ")
+	hint := m.styles.HeaderHint
+	val := m.styles.HeaderValue
+	stats := joinStyledParts(sep,
+		styledPart(val, m.house.Nickname),
+		styledPart(hint, formatCityState(m.house)),
+		styledPart(hint, bedBathLabel(m.house)),
+		styledPart(hint, sqftLabel(m.house.SquareFeet)),
+		styledPart(hint, formatInt(m.house.YearBuilt)),
 	)
-	return joinVerticalNonEmpty(line1, line2)
+	return joinVerticalNonEmpty(title, stats)
 }
 
 func (m *Model) houseExpanded() string {
-	address := formatAddress(m.house)
-	line1 := m.houseTitleLine("▾")
-	line2 := joinInline(
-		m.chip("House", m.house.Nickname),
-		m.chip("Addr", address),
+	title := m.houseTitleLine("▾")
+	hint := m.styles.HeaderHint
+	val := m.styles.HeaderValue
+	sep := hint.Render(" · ")
+
+	identity := joinStyledParts(sep,
+		styledPart(val, m.house.Nickname),
+		styledPart(hint, formatAddress(m.house)),
 	)
-	line3 := m.sectionLine(
-		"Structure",
-		m.chip("Yr", formatInt(m.house.YearBuilt)),
-		m.chip("Sq Ft", formatInt(m.house.SquareFeet)),
-		m.chip("Lot", formatInt(m.house.LotSquareFeet)),
-		m.chip("Beds", formatInt(m.house.Bedrooms)),
-		m.chip("Baths", formatFloat(m.house.Bathrooms)),
-		m.chip("Fnd", m.house.FoundationType),
-		m.chip("Wir", m.house.WiringType),
-		m.chip("Roof", m.house.RoofType),
-		m.chip("Ext", m.house.ExteriorType),
-		m.chip("Base", m.house.BasementType),
+
+	structNums := joinStyledParts(sep,
+		styledPart(val, formatInt(m.house.YearBuilt)),
+		styledPart(val, sqftLabel(m.house.SquareFeet)),
+		styledPart(val, lotLabel(m.house.LotSquareFeet)),
+		styledPart(val, bedBathLabel(m.house)),
 	)
-	line4 := m.sectionLine(
-		"Utilities",
-		m.chip("Heat", m.house.HeatingType),
-		m.chip("Cool", m.house.CoolingType),
-		m.chip("Water", m.house.WaterSource),
-		m.chip("Sewer", m.house.SewerType),
-		m.chip("Park", m.house.ParkingType),
+	structMaterials := joinStyledParts(sep,
+		m.hlv("fnd", m.house.FoundationType),
+		m.hlv("wir", m.house.WiringType),
+		m.hlv("roof", m.house.RoofType),
+		m.hlv("ext", m.house.ExteriorType),
+		m.hlv("bsmt", m.house.BasementType),
 	)
-	line5 := m.sectionLine(
-		"Financial",
-		m.chip("Ins", m.house.InsuranceCarrier),
-		m.chip("Policy", m.house.InsurancePolicy),
-		m.chip("Renew", data.FormatDate(m.house.InsuranceRenewal)),
-		m.chip("Tax", data.FormatOptionalCents(m.house.PropertyTaxCents)),
-		m.chip("HOA", hoaSummary(m.house)),
+	structure := m.houseSection("Structure", structNums, structMaterials)
+
+	utilLine := joinStyledParts(sep,
+		m.hlv("heat", m.house.HeatingType),
+		m.hlv("cool", m.house.CoolingType),
+		m.hlv("water", m.house.WaterSource),
+		m.hlv("sewer", m.house.SewerType),
+		m.hlv("park", m.house.ParkingType),
 	)
-	return joinVerticalNonEmpty(line1, line2, line3, line4, line5)
+	utilities := m.houseSection("Utilities", utilLine)
+
+	finLine1 := joinStyledParts(sep,
+		m.hlv("ins", m.house.InsuranceCarrier),
+		m.hlv("policy", m.house.InsurancePolicy),
+		m.hlv("renew", data.FormatDate(m.house.InsuranceRenewal)),
+	)
+	finLine2 := joinStyledParts(sep,
+		m.hlv("tax", data.FormatOptionalCents(m.house.PropertyTaxCents)),
+		m.hlv("hoa", hoaSummary(m.house)),
+	)
+	financial := m.houseSection("Financial", finLine1, finLine2)
+
+	return joinVerticalNonEmpty(title, identity, "", structure, utilities, financial)
 }
 
 func (m *Model) tabsView() string {
@@ -991,35 +1003,87 @@ func (m *Model) houseTitleLine(state string) string {
 	return joinInline(title, badge, hint)
 }
 
-func (m *Model) chip(label, value string) string {
+// styledPart returns a styled value, or "" if the underlying value is blank.
+func styledPart(style lipgloss.Style, value string) string {
 	if strings.TrimSpace(value) == "" {
 		return ""
 	}
-	labelText := m.styles.HeaderLabel.Render(label)
-	valueText := m.renderHouseValue(value)
-	return m.styles.HeaderChip.Render(fmt.Sprintf("%s %s", labelText, valueText))
+	return style.Render(value)
 }
 
-func (m *Model) sectionLine(label string, chips ...string) string {
-	section := m.styles.HeaderSection.Render(label)
-	parts := make([]string, 0, len(chips)+1)
-	for _, chip := range chips {
-		if strings.TrimSpace(chip) != "" {
-			parts = append(parts, chip)
+// joinStyledParts joins pre-styled parts with a separator, skipping empty ones.
+func joinStyledParts(sep string, parts ...string) string {
+	filtered := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			filtered = append(filtered, p)
 		}
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+	return strings.Join(filtered, sep)
+}
+
+// hlv renders a dim label followed by a bright value, or "" if the value is blank.
+func (m *Model) hlv(label, value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return m.styles.HeaderLabel.Render(label) + " " + m.styles.HeaderValue.Render(value)
+}
+
+// houseSection renders a section header with values, indenting continuation lines.
+func (m *Model) houseSection(header string, lines ...string) string {
+	label := m.styles.HeaderSection.Render(header)
+	labelWidth := lipgloss.Width(label)
+	indent := strings.Repeat(" ", labelWidth+1)
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			filtered = append(filtered, line)
+		}
+	}
+	if len(filtered) == 0 {
+		return ""
+	}
+	result := make([]string, len(filtered))
+	for i, line := range filtered {
+		if i == 0 {
+			result[i] = label + " " + line
+		} else {
+			result[i] = indent + line
+		}
+	}
+	return strings.Join(result, "\n")
+}
+
+func bedBathLabel(profile data.HouseProfile) string {
+	var parts []string
+	if profile.Bedrooms > 0 {
+		parts = append(parts, fmt.Sprintf("%dbd", profile.Bedrooms))
+	}
+	if profile.Bathrooms > 0 {
+		parts = append(parts, fmt.Sprintf("%sba", formatFloat(profile.Bathrooms)))
 	}
 	if len(parts) == 0 {
 		return ""
 	}
-	parts = append([]string{section}, parts...)
-	return joinInline(parts...)
+	return strings.Join(parts, " / ")
 }
 
-func (m *Model) renderHouseValue(value string) string {
-	if strings.TrimSpace(value) == "" {
-		return m.styles.Empty.Render("n/a")
+func sqftLabel(sqft int) string {
+	if sqft == 0 {
+		return ""
 	}
-	return m.styles.HeaderValue.Render(value)
+	return fmt.Sprintf("%d sqft", sqft)
+}
+
+func lotLabel(sqft int) string {
+	if sqft == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d lot", sqft)
 }
 
 func formatInt(value int) string {
