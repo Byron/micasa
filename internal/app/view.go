@@ -226,7 +226,6 @@ func (m *Model) statusView() string {
 		m.helpItem("u", "undo"),
 		m.helpItem("x", "deleted"),
 		m.helpItem("p", "profile"),
-		m.helpItem("h", "\U0001F3E0"),
 		m.helpItem("/", "\U0001F50D"),
 		m.helpItem("q", "quit"),
 	)
@@ -1002,7 +1001,7 @@ func (m *Model) houseTitleLine(state string) string {
 	if strings.TrimSpace(state) != "" {
 		badge = m.styles.HeaderBadge.Render(state)
 	}
-	hint := m.styles.HeaderHint.Render("h toggle")
+	hint := m.helpItem("h", "\U0001F3E0")
 	return joinInline(title, badge, hint)
 }
 
