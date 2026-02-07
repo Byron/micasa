@@ -606,11 +606,13 @@ in case things crash or otherwise go haywire, be diligent about this.
 
 **User request**: Binaries and container workflows never triggered despite semantic-release creating a release -- `GITHUB_TOKEN`-triggered events don't fire other workflows.
 
-**Work done**:
-- [RELEASE-CONSOLIDATE] Consolidated release.yml, binaries.yml, container.yml into single release.yml; semantic-release outputs gate downstream binaries/container jobs via `if: needs.semantic-release.outputs.published == 'true'`; deleted standalone binaries.yml and container.yml
-- [MAINT-GHOST] Made Next Due autocomputed instead of stored: removed `NextDueAt` from `MaintenanceItem` model, seed data, forms, inline edit; `maintenanceRows`/`applianceMaintenanceRows` now call `data.ComputeNextDue` at render time; col 5 (Next) falls through to full edit form on inline edit attempt; removed ghost text helpers and tests
-- [DEMO-MEM] `--demo` now uses in-memory SQLite by default; pass a db-path alongside `--demo` to persist; removed `--memory` flag
-- [MAINT-GHOST] Next Due is now autocomputed (LastServiced + IntervalMonths), not stored; removed NextDueAt from model, forms, seed data; column is read-only in table
+**Work done** (see git log for details):
+- [RELEASE-CONSOLIDATE] Consolidated release.yml, binaries.yml, container.yml into single release.yml; semantic-release outputs gate downstream jobs (b29b8bf)
+- [MAINT-GHOST] Next Due autocomputed from LastServiced + IntervalMonths at render time; removed from model/forms/seed (8a8ccc0)
+- [DEMO-MEM] `--demo` uses in-memory SQLite; pass db-path to persist demo data (bce212f, 77ad102 squashed)
+- [CTRL-C-EXIT] ctrl+c exits 130 via `tea.Interrupt`; `q` stays 0 (bb59c6a)
+- [CONTAINER-TAGS] Dropped SHA tags from container image (d8f8f7d)
+- [OCI-LABELS] Added description/source/license OCI labels to Nix container image (865174f)
 
 # Remaining work
 
@@ -644,3 +646,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [NESTED-DRILL] Stack-based nested drilldown: push current detail onto a stack
   when drilling deeper (e.g. Appliances > Dishwasher > Filter Replacement service
   log), esc pops back one level, breadcrumb grows with each level.
+- [REPLACEMENT] let's add a feature to track replacing appliances based on age
+  and ideally we can gather some data to get a rough idea of when a thing is
+  due for replacement; would be sweet if we could pull that data based on the
+  model number; doesn't need to be super sophisticated, just plausible
