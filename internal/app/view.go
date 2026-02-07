@@ -386,7 +386,7 @@ func (m *Model) helpView() string {
 }
 
 // tableView orchestrates the full table rendering: visible projection,
-// column sizing, header/divider/rows, collapsed stacks, and ladle borders.
+// column sizing, header/divider/rows, and hidden-column badge line.
 func (m *Model) tableView(tab *Tab) string {
 	if tab == nil || len(tab.Specs) == 0 {
 		return ""
@@ -396,12 +396,7 @@ func (m *Model) tableView(tab *Tab) string {
 		return ""
 	}
 
-	// Edge ladles: smooth L-shaped borders that cradle the candy pills.
-	hasLeading := len(visToFull) > 0 && visToFull[0] > 0
-	hasTrailing := len(visToFull) > 0 && visToFull[len(visToFull)-1] < len(tab.Specs)-1
-	ladle := ladleChrome(hasLeading, hasTrailing)
-
-	width := m.effectiveWidth() - ladle.width
+	width := m.effectiveWidth()
 	normalSep := m.styles.TableSeparator.Render(" │ ")
 	normalDiv := m.styles.TableSeparator.Render("─┼─")
 	plainSeps, collapsedSeps := gapSeparators(visToFull, len(tab.Specs), normalSep, m.styles)
@@ -409,35 +404,14 @@ func (m *Model) tableView(tab *Tab) string {
 	header := renderHeaderRow(visSpecs, widths, collapsedSeps, visColCursor, visSorts, m.styles)
 	divider := renderDivider(widths, plainSeps, normalDiv, m.styles.TableSeparator)
 
-	sepWidth := lipgloss.Width(normalSep)
-	stacks := computeCollapsedStacks(tab.Specs, visToFull, widths, sepWidth)
-	stackLines := renderCollapsedStacks(stacks)
-	connector := renderStackConnector(stacks)
+	// Badge line accounts for 1 row of vertical space when visible.
+	badges := renderHiddenBadges(tab.Specs, tab.ColCursor, width, m.styles)
+	badgeChrome := 0
+	if badges != "" {
+		badgeChrome = 1
+	}
 
-	// Column-space width for the ladle bottom curve.
-	colSpaceWidth := sumInts(widths)
-	if len(widths) > 1 {
-		colSpaceWidth += (len(widths) - 1) * sepWidth
-	}
-	leftWidth := 0
-	if hasLeading {
-		leftWidth = 2
-	}
-	bottom := renderLadleBottom(stacks, hasLeading, hasTrailing, leftWidth, colSpaceWidth)
-
-	// Blank spacer for edge stacks when no middle connector already provides
-	// breathing room between the table body and the pills.
-	needsSpacer := ladle.width > 0 && len(stackLines) > 0 && connector == ""
-
-	// Height accounting: stack lines + connector/spacer + bottom curve.
-	stackChrome := len(stackLines)
-	if connector != "" || needsSpacer {
-		stackChrome++
-	}
-	if bottom != "" {
-		stackChrome++
-	}
-	effectiveHeight := tab.Table.Height() - stackChrome
+	effectiveHeight := tab.Table.Height() - badgeChrome
 	if effectiveHeight < 2 {
 		effectiveHeight = 2
 	}
@@ -454,41 +428,17 @@ func (m *Model) tableView(tab *Tab) string {
 		m.styles,
 	)
 
-	// Assemble body (header + divider + data).
+	// Assemble body (header + divider + data rows).
 	bodyParts := []string{header, divider}
 	if len(rows) == 0 {
 		bodyParts = append(bodyParts, m.styles.Empty.Render("No entries yet."))
 	} else {
 		bodyParts = append(bodyParts, strings.Join(rows, "\n"))
 	}
-	body := joinVerticalNonEmpty(bodyParts...)
-
-	// Right-pad a line to colSpaceWidth so the right │ border aligns.
-	padToCol := func(s string) string {
-		if ladle.right == "" {
-			return s
-		}
-		gap := colSpaceWidth - lipgloss.Width(s)
-		if gap > 0 {
-			return s + strings.Repeat(" ", gap)
-		}
-		return s
+	if badges != "" {
+		bodyParts = append(bodyParts, badges)
 	}
-
-	// All wrapped lines share the same ladle border (│) for continuity.
-	parts := []string{wrapLines(body, ladle.left, ladle.right)}
-	if connector != "" {
-		parts = append(parts, ladle.left+padToCol(connector)+ladle.right)
-	} else if needsSpacer {
-		parts = append(parts, ladle.left+strings.Repeat(" ", colSpaceWidth)+ladle.right)
-	}
-	for _, sl := range stackLines {
-		parts = append(parts, ladle.left+padToCol(sl)+ladle.right)
-	}
-	if bottom != "" {
-		parts = append(parts, bottom)
-	}
-	return joinVerticalNonEmpty(parts...)
+	return joinVerticalNonEmpty(bodyParts...)
 }
 
 // --- Keycap rendering ---

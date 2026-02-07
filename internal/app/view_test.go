@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/micasa/micasa/internal/data"
 )
 
@@ -350,101 +349,6 @@ func TestHiddenColumnNamesNoneHidden(t *testing.T) {
 	}
 }
 
-func TestCollapsedStacksColumnOrder(t *testing.T) {
-	specs := []columnSpec{
-		{Title: "ID"},
-		{Title: "Brand", HideOrder: 3},  // hidden last
-		{Title: "Model", HideOrder: 1},  // hidden first
-		{Title: "Serial", HideOrder: 2}, // hidden second
-		{Title: "Location"},
-	}
-	visToFull := []int{0, 4}
-	widths := []int{4, 10}
-	stacks := computeCollapsedStacks(specs, visToFull, widths, 3)
-	if len(stacks) != 1 {
-		t.Fatalf("expected 1 stack, got %d", len(stacks))
-	}
-	s := stacks[0]
-	if len(s.entries) != 3 {
-		t.Fatalf("expected 3 entries, got %d", len(s.entries))
-	}
-	// Top of stack (depth 0, closest to data) = rightmost column (Serial)
-	if s.entries[0].name != "Serial" {
-		t.Fatalf("expected rightmost (Serial) on top, got %s", s.entries[0].name)
-	}
-	// Bottom of stack (depth 2, furthest from data) = leftmost column (Brand)
-	if s.entries[2].name != "Brand" {
-		t.Fatalf("expected leftmost (Brand) on bottom, got %s", s.entries[2].name)
-	}
-}
-
-func TestCollapsedStacksMultipleGaps(t *testing.T) {
-	specs := []columnSpec{
-		{Title: "ID"},
-		{Title: "A", HideOrder: 1},
-		{Title: "Name"},
-		{Title: "B", HideOrder: 2},
-		{Title: "Status"},
-	}
-	visToFull := []int{0, 2, 4}
-	widths := []int{4, 8, 8}
-	stacks := computeCollapsedStacks(specs, visToFull, widths, 3)
-	if len(stacks) != 2 {
-		t.Fatalf("expected 2 stacks (one per gap), got %d", len(stacks))
-	}
-	if stacks[0].entries[0].name != "A" {
-		t.Fatalf("first stack should contain A, got %s", stacks[0].entries[0].name)
-	}
-	if stacks[1].entries[0].name != "B" {
-		t.Fatalf("second stack should contain B, got %s", stacks[1].entries[0].name)
-	}
-}
-
-func TestCollapsedStacksMergeWhenNarrow(t *testing.T) {
-	// Only Budget (col 4) visible; everything else hidden.
-	// Leading: ID, Type, Title, Status. Trailing: Actual, Start, End.
-	specs := []columnSpec{
-		{Title: "ID", HideOrder: 1},
-		{Title: "Type", HideOrder: 2},
-		{Title: "Title", HideOrder: 3},
-		{Title: "Status", HideOrder: 4},
-		{Title: "Budget"},
-		{Title: "Actual", HideOrder: 5},
-		{Title: "Start", HideOrder: 6},
-		{Title: "End", HideOrder: 7},
-	}
-	visToFull := []int{4}
-	widths := []int{12} // narrow single column
-	stacks := computeCollapsedStacks(specs, visToFull, widths, 3)
-	// Leading + trailing stacks overlap: should merge into one.
-	if len(stacks) != 1 {
-		t.Fatalf("expected 1 merged stack, got %d", len(stacks))
-	}
-	if stacks[0].width > 12 {
-		t.Fatalf("merged stack width %d exceeds column space 12", stacks[0].width)
-	}
-	if len(stacks[0].entries) != 7 {
-		t.Fatalf("expected 7 entries in merged stack, got %d", len(stacks[0].entries))
-	}
-}
-
-func TestCollapsedStacksNoHidden(t *testing.T) {
-	specs := []columnSpec{{Title: "ID"}, {Title: "Name"}}
-	visToFull := []int{0, 1}
-	widths := []int{4, 8}
-	stacks := computeCollapsedStacks(specs, visToFull, widths, 3)
-	if len(stacks) != 0 {
-		t.Fatalf("expected 0 stacks, got %d", len(stacks))
-	}
-}
-
-func TestRenderCollapsedStacksEmpty(t *testing.T) {
-	lines := renderCollapsedStacks(nil)
-	if len(lines) != 0 {
-		t.Fatalf("expected no lines for nil stacks, got %d", len(lines))
-	}
-}
-
 func TestNextHideOrder(t *testing.T) {
 	specs := []columnSpec{
 		{Title: "A", HideOrder: 3},
@@ -457,79 +361,47 @@ func TestNextHideOrder(t *testing.T) {
 	}
 }
 
-func TestLadleChromeWidth(t *testing.T) {
-	l := ladleChrome(false, false)
-	if l.width != 0 {
-		t.Fatalf("no edges: expected width 0, got %d", l.width)
-	}
-	l = ladleChrome(true, false)
-	if l.width != 2 {
-		t.Fatalf("leading only: expected width 2, got %d", l.width)
-	}
-	l = ladleChrome(false, true)
-	if l.width != 2 {
-		t.Fatalf("trailing only: expected width 2, got %d", l.width)
-	}
-	l = ladleChrome(true, true)
-	if l.width != 4 {
-		t.Fatalf("both edges: expected width 4, got %d", l.width)
-	}
-}
-
-func TestRenderLadleBottomEmpty(t *testing.T) {
-	out := renderLadleBottom(nil, false, false, 0, 40)
+func TestRenderHiddenBadgesEmpty(t *testing.T) {
+	specs := []columnSpec{{Title: "A"}, {Title: "B"}}
+	out := renderHiddenBadges(specs, 0, 80, DefaultStyles())
 	if out != "" {
-		t.Fatalf("expected empty, got %q", out)
+		t.Fatalf("expected empty when nothing hidden, got %q", out)
 	}
 }
 
-func TestRenderLadleBottomLeading(t *testing.T) {
-	stacks := []collapsedStack{
-		{entries: []stackEntry{{name: "ID"}}, offset: 0, width: 6, edge: true},
+func TestRenderHiddenBadgesLeftOnly(t *testing.T) {
+	specs := []columnSpec{
+		{Title: "ID", HideOrder: 1},
+		{Title: "Name"},
+		{Title: "Status"},
 	}
-	out := renderLadleBottom(stacks, true, false, 2, 40)
-	w := lipgloss.Width(out)
-	// ╰ (1) + dashes covering space+pill (1+6=7) = 8 visual chars
-	if w != 8 {
-		t.Fatalf("expected visual width 8, got %d", w)
-	}
-}
-
-func TestRenderLadleBottomTrailing(t *testing.T) {
-	stacks := []collapsedStack{
-		{entries: []stackEntry{{name: "Cost"}}, offset: 34, width: 6, edge: true},
-	}
-	out := renderLadleBottom(stacks, false, true, 0, 40)
-	w := lipgloss.Width(out)
-	// Should reach to position 34 + (40-34+1=7) + 1(╯) = 42
-	if w != 42 {
-		t.Fatalf("expected visual width 42, got %d", w)
+	out := renderHiddenBadges(specs, 2, 80, DefaultStyles())
+	if !strings.Contains(out, "ID") {
+		t.Fatalf("expected 'ID' in left badges, got %q", out)
 	}
 }
 
-func TestRenderLadleBottomBothEdges(t *testing.T) {
-	stacks := []collapsedStack{
-		{entries: []stackEntry{{name: "ID"}}, offset: 0, width: 6, edge: true},
-		{entries: []stackEntry{{name: "Cost"}}, offset: 34, width: 6, edge: true},
+func TestRenderHiddenBadgesRightOnly(t *testing.T) {
+	specs := []columnSpec{
+		{Title: "ID"},
+		{Title: "Name"},
+		{Title: "Cost", HideOrder: 1},
 	}
-	out := renderLadleBottom(stacks, true, true, 2, 40)
-	w := lipgloss.Width(out)
-	// Both edges: full-width ╰──...──╯ = leftWidth(2) + colSpace(40) + rightWidth(2) = 44
-	if w != 44 {
-		t.Fatalf("expected visual width 44, got %d", w)
+	out := renderHiddenBadges(specs, 0, 80, DefaultStyles())
+	if !strings.Contains(out, "Cost") {
+		t.Fatalf("expected 'Cost' in right badges, got %q", out)
 	}
 }
 
-func TestRenderLadleBottomBothEdgesMerged(t *testing.T) {
-	// Merged stack: only one stack at offset 0 covering both edges.
-	stacks := []collapsedStack{
-		{entries: []stackEntry{{name: "ID"}, {name: "End"}}, offset: 0, width: 12, edge: true},
+func TestRenderHiddenBadgesBothSides(t *testing.T) {
+	specs := []columnSpec{
+		{Title: "ID", HideOrder: 1},
+		{Title: "Name"},
+		{Title: "Cost", HideOrder: 2},
 	}
-	out := renderLadleBottom(stacks, true, true, 2, 12)
-	w := lipgloss.Width(out)
-	// fullWidth = 2 + 12 + 2 = 16; curve = ╰ + 14 dashes + ╯ = 16
-	if w != 16 {
-		t.Fatalf("expected visual width 16, got %d", w)
+	out := renderHiddenBadges(specs, 1, 80, DefaultStyles())
+	if !strings.Contains(out, "ID") || !strings.Contains(out, "Cost") {
+		t.Fatalf("expected both 'ID' and 'Cost', got %q", out)
 	}
 }
 

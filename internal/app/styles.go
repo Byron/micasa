@@ -37,6 +37,8 @@ type Styles struct {
 	LinkIndicator   lipgloss.Style
 	Breadcrumb      lipgloss.Style
 	BreadcrumbArrow lipgloss.Style
+	HiddenLeft      lipgloss.Style // hidden cols to the left of cursor
+	HiddenRight     lipgloss.Style // hidden cols to the right of cursor
 	StatusStyles    map[string]lipgloss.Style
 }
 
@@ -177,6 +179,12 @@ func DefaultStyles() Styles {
 			Bold(true),
 		BreadcrumbArrow: lipgloss.NewStyle().
 			Foreground(accent),
+		HiddenLeft: lipgloss.NewStyle().
+			Foreground(secondary).
+			Italic(true),
+		HiddenRight: lipgloss.NewStyle().
+			Foreground(accent).
+			Italic(true),
 		StatusStyles: map[string]lipgloss.Style{
 			"ideating":  lipgloss.NewStyle().Foreground(muted),
 			"planned":   lipgloss.NewStyle().Foreground(accent),

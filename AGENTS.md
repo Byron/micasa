@@ -517,6 +517,8 @@ in case things crash or otherwise go haywire, be diligent about this.
 - Status bar lists hidden column names; help overlay documents `c`/`C`
 - 15+ new tests: ladle chrome, bottom curves, stack merging, gap separators, join cells, hidden column names
 - Added `-shuffle=$RANDOM` to hard rules for `go test`
+- Refactored view.go (1784→564 lines): extracted `table.go` (604), `collapse.go` (385), `house.go` (264)
+- Fixed gap calculation regression (used `m.effectiveHeight()` instead of `m.height`); added `TestBuildViewShowsFullHouseBox` regression test
 
 # Completed work
 
