@@ -51,9 +51,9 @@ func hiddenColumnNames(specs []columnSpec) []string {
 }
 
 // renderHiddenBadges renders a single left-aligned line of hidden column
-// names. Color indicates position relative to the cursor: HiddenLeft for
-// columns to the left (with a trailing left-arrow), HiddenRight for columns
-// to the right (with a leading right-arrow).
+// names. Color indicates position relative to the cursor. The first
+// left-of-cursor badge gets a leading leftward triangle; the last
+// right-of-cursor badge gets a trailing rightward triangle.
 func renderHiddenBadges(
 	specs []columnSpec,
 	colCursor int,
@@ -61,19 +61,33 @@ func renderHiddenBadges(
 ) string {
 	sep := styles.HeaderHint.Render(" · ")
 
-	var parts []string
+	var leftParts, rightParts []string
 	for i, spec := range specs {
 		if spec.HideOrder == 0 {
 			continue
 		}
 		if i < colCursor {
-			parts = append(parts, styles.HiddenLeft.Render(spec.Title+" <"))
+			leftParts = append(leftParts, spec.Title)
 		} else {
-			parts = append(parts, styles.HiddenRight.Render("> "+spec.Title))
+			rightParts = append(rightParts, spec.Title)
 		}
 	}
-	if len(parts) == 0 {
+	if len(leftParts) == 0 && len(rightParts) == 0 {
 		return ""
 	}
-	return strings.Join(parts, sep)
+
+	var allParts []string
+	for i, name := range leftParts {
+		if i == 0 {
+			name = "\u25c0 " + name // leading ◀
+		}
+		allParts = append(allParts, styles.HiddenLeft.Render(name))
+	}
+	for i, name := range rightParts {
+		if i == len(rightParts)-1 {
+			name = name + " \u25b6" // trailing ▶
+		}
+		allParts = append(allParts, styles.HiddenRight.Render(name))
+	}
+	return strings.Join(allParts, sep)
 }
