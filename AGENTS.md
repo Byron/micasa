@@ -581,6 +581,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [CGO-OFF] CGO_ENABLED=0 everywhere: nix, dev shell, CI (a173788, bae0824, efe06d2)
 - [WIN-TEMPDIR] Store.Close() for Windows temp dir cleanup (2c132df)
 - [CI-PRECOMMIT] nix pre-commit hooks replace manual lint/tidy CI jobs (9479cce)
+- [RELEASE-CONSOLIDATE] consolidated binaries+container into release workflow to fix GITHUB_TOKEN event limitation
 
 ## 2026-02-07 Session 12
 
@@ -600,6 +601,13 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [CGO-OFF] CGO_ENABLED=0 in nix buildGoModule, dev shell, and CI binaries (a173788, bae0824, efe06d2)
 - [WIN-TEMPDIR] Store.Close() + t.Cleanup to fix Windows test temp dir cleanup (2c132df)
 - [CI-PRECOMMIT] Replaced lint/tidy CI jobs with nix pre-commit hooks (9479cce)
+
+## 2026-02-07 Session 13
+
+**User request**: Binaries and container workflows never triggered despite semantic-release creating a release -- `GITHUB_TOKEN`-triggered events don't fire other workflows.
+
+**Work done**:
+- [RELEASE-CONSOLIDATE] Consolidated release.yml, binaries.yml, container.yml into single release.yml; semantic-release outputs gate downstream binaries/container jobs via `if: needs.semantic-release.outputs.published == 'true'`; deleted standalone binaries.yml and container.yml
 
 # Remaining work
 
