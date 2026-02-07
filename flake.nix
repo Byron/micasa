@@ -102,7 +102,6 @@
               settings.flags = "--base-formatter=${pkgs.gofumpt}/bin/gofumpt " + "--max-len=100";
             };
             golangci-lint.enable = true;
-            gotest.enable = true;
             license-header = {
               enable = true;
               name = "license-header";
