@@ -28,7 +28,7 @@
           inherit version;
           src = ./.;
           subPackages = [ "cmd/micasa" ];
-          vendorHash = "sha256-0GfnvE7YqlD3CIwXvE2DYriSLgnskB94++MMGYiG4j4=";
+          vendorHash = "sha256-m7+UP6UEOYrLz4xz0YAVvzVieGFOpibPx9UEKT9roDk=";
           ldflags = [
             "-X main.version=${version}" # Set a variable in the main package
           ];
