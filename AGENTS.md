@@ -596,6 +596,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [WEBSITE-BUG] fix GitHub links on website: micasa/micasa -> cpcloud/micasa (3500195)
 - [WEBSITE-MAIN] move website from gh-pages branch to website/ on main with Actions deploy workflow (343e35a, 3c9bed3)
 - [WEBSITE-VIBES] typewriter heading, aspirational content, pitch tightening, polish (413e24a, b0bb6d9, cc0a955)
+- [MODULE-RENAME] Go module path corrected from micasa/micasa to cpcloud/micasa (f2fc33d)
 
 ## 2026-02-07 Session 12
 
@@ -657,6 +658,14 @@ in case things crash or otherwise go haywire, be diligent about this.
 **Work done**:
 - [CURSOR-CLEAN] `git filter-branch --index-filter` removed `.cursor/cli.json` from all 182 commits; `--prune-empty` dropped pure-cli.json chore commits; cleaned up backup refs, expired reflogs, GC'd unreachable objects
 - Added `.cursor/` to `.gitignore`
+
+## 2026-02-08 Session 16
+
+**User request**: Update `vendorHash` in `flake.nix` if needed after Go module rename; commit the module rename as a bugfix.
+
+**Work done**:
+- `nix build` succeeded without vendorHash change (deps unchanged, only module name moved)
+- [MODULE-RENAME] Go module `github.com/micasa/micasa` -> `github.com/cpcloud/micasa` in go.mod, all imports, flake.nix OCI label; fixed `.gitignore` binary pattern that blocked `cmd/micasa/` (f2fc33d)
 
 # Remaining work
 
