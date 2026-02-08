@@ -35,45 +35,6 @@ micasa          # start fresh with your own house
 
 > Your data stays yours. `~/.local/share/micasa/micasa.db`. One file. Back it up with `cp`.
 
-## Keybindings
-
-No mouse required.
-
-<details>
-<summary>Show all keybindings</summary>
-
-### Normal mode
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Row up / down |
-| `h` / `l` | Column left / right |
-| `g` / `G` | First / last row |
-| `d` / `u` | Half-page down / up |
-| `tab` / `shift+tab` | Next / previous tab |
-| `s` / `S` | Cycle sort / clear all sorts |
-| `enter` | Drilldown or follow link |
-| `c` / `C` | Hide / show columns |
-| `i` | Enter Edit mode |
-| `H` | Toggle house profile |
-| `?` | Help |
-| `q` | Quit |
-
-### Edit mode
-
-| Key | Action |
-|-----|--------|
-| `a` | Add entry |
-| `e` | Edit cell (full form on ID) |
-| `d` | Delete / restore |
-| `x` | Show / hide deleted |
-| `p` | Edit house profile |
-| `u` / `r` | Undo / redo |
-| `1`-`9` | Jump to Nth select option |
-| `esc` | Back to Normal |
-
-</details>
-
 ## Development
 
 Built with the [Charmbracelet](https://github.com/charmbracelet) TUI toolkit, [GORM](https://gorm.io), and [SQLite](https://sqlite.org). [Pure Go](https://go.dev), zero CGO.
