@@ -640,6 +640,9 @@ in case things crash or otherwise go haywire, be diligent about this.
   - Removed pitch border-top, simplified feature grid CSS, added inline SVG favicon
   - prefers-reduced-motion support, JS-disabled fallback
   - Added hard rule: website commits use `docs(website):` not `feat(website):`
+- README synced with website content: matching features, pitch, install (fixed stale CGO claim + go install URL), tech prose, keybindings
+- README house art: pixel-art SVG with dark terminal background, terracotta blocks at 3 opacity levels, 6x10 cell grid, centered via `<div align="center"><img>`
+- Added hard rule: keep README and website in sync
 
 # Remaining work
 
