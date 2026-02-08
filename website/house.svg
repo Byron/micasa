@@ -1,18 +1,58 @@
 <!-- Copyright 2026 Phillip Cloud -->
 <!-- Licensed under the Apache License, Version 2.0 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 120" width="200" height="120">
-  <style>
-    text {
-      font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
-      font-size: 14px;
-      fill: #c05e3c;
-    }
-  </style>
-  <text x="100" y="16" text-anchor="middle" xml:space="preserve">    „“„</text>
-  <text x="100" y="30" text-anchor="middle" xml:space="preserve">  „“““““„</text>
-  <text x="100" y="44" text-anchor="middle" xml:space="preserve">„“““““““““„</text>
-  <text x="100" y="58" text-anchor="middle" xml:space="preserve">ˆˆ ‘‘ ‘‘ ˆˆ</text>
-  <text x="100" y="72" text-anchor="middle" xml:space="preserve">ˆˆ  ˆˆˆˆ ˆˆ</text>
-  <text x="100" y="86" text-anchor="middle" xml:space="preserve">ˆˆ  ˆ  ˆ ˆˆ</text>
-  <text x="100" y="100" text-anchor="middle" xml:space="preserve">€€€€€€€€€€€</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 108" width="264" height="216">
+  <!-- Terminal background with rounded corners -->
+  <rect x="0" y="0" width="132" height="108" rx="6" fill="#2d2a26"/>
+  <!-- Grid: 11 cols x 7 rows, cell=10x10, offset=(11,12) for padding -->
+  <!-- Row 0: ??? (half-blocks + full shade) -->
+  <rect x="51" y="17" width="10" height="5" fill="#c05e3c"/>
+  <rect x="61" y="12" width="10" height="10" fill="#c05e3c" opacity="0.75"/>
+  <rect x="71" y="17" width="10" height="5" fill="#c05e3c"/>
+  <!-- Row 1: ??????? -->
+  <rect x="31" y="27" width="10" height="5" fill="#c05e3c"/>
+  <rect x="41" y="22" width="10" height="10" fill="#c05e3c" opacity="0.75"/>
+  <rect x="51" y="22" width="10" height="10" fill="#c05e3c" opacity="0.75"/>
+  <rect x="61" y="22" width="10" height="10" fill="#c05e3c" opacity="0.75"/>
+  <rect x="71" y="22" width="10" height="10" fill="#c05e3c" opacity="0.75"/>
+  <rect x="81" y="22" width="10" height="10" fill="#c05e3c" opacity="0.75"/>
+  <rect x="91" y="27" width="10" height="5" fill="#c05e3c"/>
+  <!-- Row 2: ??????????? -->
+  <rect x="11" y="37" width="10" height="5" fill="#c05e3c"/>
+  <rect x="21" y="32" width="90" height="10" fill="#c05e3c" opacity="0.75"/>
+  <rect x="111" y="37" width="10" height="5" fill="#c05e3c"/>
+  <!-- Row 3: ?? ?? ?? ?? -->
+  <rect x="11" y="42" width="10" height="10" fill="#c05e3c"/>
+  <rect x="21" y="42" width="10" height="10" fill="#c05e3c"/>
+  <rect x="41" y="42" width="10" height="10" fill="#c05e3c" opacity="0.3"/>
+  <rect x="51" y="42" width="10" height="10" fill="#c05e3c" opacity="0.3"/>
+  <rect x="71" y="42" width="10" height="10" fill="#c05e3c" opacity="0.3"/>
+  <rect x="81" y="42" width="10" height="10" fill="#c05e3c" opacity="0.3"/>
+  <rect x="101" y="42" width="10" height="10" fill="#c05e3c"/>
+  <rect x="111" y="42" width="10" height="10" fill="#c05e3c"/>
+  <!-- Row 4: ??  ???? ?? -->
+  <rect x="11" y="52" width="10" height="10" fill="#c05e3c"/>
+  <rect x="21" y="52" width="10" height="10" fill="#c05e3c"/>
+  <rect x="51" y="52" width="10" height="10" fill="#c05e3c"/>
+  <rect x="61" y="52" width="10" height="10" fill="#c05e3c"/>
+  <rect x="71" y="52" width="10" height="10" fill="#c05e3c"/>
+  <rect x="81" y="52" width="10" height="10" fill="#c05e3c"/>
+  <rect x="101" y="52" width="10" height="10" fill="#c05e3c"/>
+  <rect x="111" y="52" width="10" height="10" fill="#c05e3c"/>
+  <!-- Row 5: ??  ?  ? ?? -->
+  <rect x="11" y="62" width="10" height="10" fill="#c05e3c"/>
+  <rect x="21" y="62" width="10" height="10" fill="#c05e3c"/>
+  <rect x="51" y="62" width="10" height="10" fill="#c05e3c"/>
+  <rect x="81" y="62" width="10" height="10" fill="#c05e3c"/>
+  <rect x="101" y="62" width="10" height="10" fill="#c05e3c"/>
+  <rect x="111" y="62" width="10" height="10" fill="#c05e3c"/>
+  <!-- Row 6: ??????????? (top-half blocks) -->
+  <rect x="11" y="72" width="110" height="5" fill="#c05e3c"/>
+  <!-- Subtle scanlines for terminal feel -->
+  <rect x="0" y="11" width="132" height="1" fill="#faf6f1" opacity="0.03"/>
+  <rect x="0" y="21" width="132" height="1" fill="#faf6f1" opacity="0.03"/>
+  <rect x="0" y="31" width="132" height="1" fill="#faf6f1" opacity="0.03"/>
+  <rect x="0" y="41" width="132" height="1" fill="#faf6f1" opacity="0.03"/>
+  <rect x="0" y="51" width="132" height="1" fill="#faf6f1" opacity="0.03"/>
+  <rect x="0" y="61" width="132" height="1" fill="#faf6f1" opacity="0.03"/>
+  <rect x="0" y="71" width="132" height="1" fill="#faf6f1" opacity="0.03"/>
 </svg>
