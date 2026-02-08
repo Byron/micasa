@@ -585,7 +585,8 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [CI-PRECOMMIT] nix pre-commit hooks replace manual lint/tidy CI jobs (9479cce)
 - [RELEASE-CONSOLIDATE] consolidated binaries+container into release workflow to fix GITHUB_TOKEN event limitation
 - [WEBSITE-BUG] fix GitHub links on website: micasa/micasa -> cpcloud/micasa (3500195)
-- [WEBSITE-MAIN] move website from gh-pages branch to website/ on main with Actions deploy workflow
+- [WEBSITE-MAIN] move website from gh-pages branch to website/ on main with Actions deploy workflow (343e35a, 3c9bed3)
+- [WEBSITE-VIBES] typewriter heading, aspirational content, pitch tightening, polish (413e24a, b0bb6d9, cc0a955)
 
 ## 2026-02-07 Session 12
 
@@ -626,13 +627,16 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [WEBSITE-BUG] Replaced all 6 `github.com/micasa/micasa` refs in `index.html` on `gh-pages` branch with `github.com/cpcloud/micasa` (hero CTA, install go-install, install release link, footer x3) (3500195)
 - [WEBSITE-MAIN] Moved website from `gh-pages` branch to `website/` on `main`; added `pages.yml` workflow (deploy-pages action, triggers on `website/**` changes, workflow_dispatch); copied `index.html`, `style.css`, `CNAME` (343e35a, 3c9bed3)
 - Deleted `gh-pages` branch (local + remote)
-- [WEBSITE-VIBES] Typewriter heading + aspirational content overhaul (413e24a):
-  - Replaced carousel with typewriter effect cycling: asked (seed) -> panicked, daydreamed, avoided, workshopped, entertained
+- [WEBSITE-VIBES] Typewriter heading + aspirational content overhaul (413e24a, b0bb6d9, cc0a955):
+  - Replaced carousel with typewriter effect: JS types/erases/cycles words (panicked, daydreamed, avoided, workshopped, entertained); seeded with "asked" so first paint reads "Frequently asked questions"
   - Merged panicked/daydreamed Q&A into one unified section, trimmed to 4 punchy house questions
-  - Updated pitch to balance disasters + daydreams
-  - Pulled "no mouse" into keyboard section subtitle, data note into install section
+  - Pitch rewritten: "quietly plotting" joke + "micasa tracks both" product line, split into two visual paragraphs
+  - "micasa" brand treatment: monospace pill (JetBrains Mono, linen bg, 4px radius, non-italic)
+  - Replaced badge-wall tech list with single prose sentence
+  - Pulled "no mouse" into keyboard section subtitle, data note into install footer
   - Removed pitch border-top, simplified feature grid CSS, added inline SVG favicon
   - prefers-reduced-motion support, JS-disabled fallback
+  - Added hard rule: website commits use `docs(website):` not `feat(website):`
 
 # Remaining work
 
