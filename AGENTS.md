@@ -680,6 +680,25 @@ in case things crash or otherwise go haywire, be diligent about this.
   - **Tests**: 6 data-layer tests (schedule, active projects, warranties, recent logs, spending) + 12 app-layer tests (daysUntil, daysLabel, sort, cap, toggle, dismiss, blocking, empty/populated views, tab bar, status bar) -- 154 total tests passing
   - Added nil guards on `reloadActiveTab`/`reloadAllTabs` for store-less test models
 
+## 2026-02-09 Session 18
+
+**User requests**: Fix dashboard overlay dim bleed-through; dashboard cleanup (remove q hint, strip emoji); move db path from help to tab row; fix terminal right-edge bleed with line clamping + horizontal scroll viewport.
+
+**Work done** (see git log for details):
+- [DASH-OVERLAY] Fixed ANSI faint bleed: `cancelFaint()` prepends `\033[22m` per foreground line
+- [DASH-CLEANUP] Removed `q`/quit hint from dashboard overlay; stripped all emoji from section headers and empty-state messages (Overdue, Upcoming, Active Projects, Expiring Soon, Recent Activity, Spending)
+- [DBPATH-MOVE] Removed db path from help overlay; added to tab row right-aligned with `truncateLeft()` for left-ellipsis when path is long
+- [WIDTH-CLAMP] `clampLines()` utility truncates every rendered line to `effectiveWidth()` with ANSI-safe `ansi.Truncate`; applied as safety net at end of `buildBaseView()`
+- [HSCROLL] Horizontal scroll viewport for tables:
+  - `ViewOffset int` on `Tab` tracks first visible column
+  - `ensureCursorVisible()` adjusts offset when cursor moves past edges
+  - `viewportRange()` computes which columns fit on screen, accounts for scroll indicator space
+  - `tableView()` slices visible projection to viewport window, recalculates widths for viewport columns
+  - `viewportSorts()` adjusts sort column indices relative to viewport start
+  - Scroll indicators (`◀ more` / `more ▶`) shown below table when columns are off-screen
+  - 14 new tests: clamp lines, truncate left, viewport range, cursor visibility, sort adjustment
+- [HELP-OVERLAY] Help as stacking overlay via `overlay.Composite()`
+
 ## 2026-02-09 Session 17
 
 **User request**: Implement [WEBSITE-CHIMNEY] -- animated chimney smoke with random zig-zag particles on the website hero house.
@@ -711,6 +730,9 @@ in case things crash or otherwise go haywire, be diligent about this.
   - `cancelFaint()` prepends `\033[22m` (normal intensity) to each foreground line so ANSI faint from dimmed background doesn't bleed into overlay content
   - `buildHelpOverlay()` delegates to existing `helpView()` which already renders bordered box
   - Stacking works: `?` on dashboard shows help over dimmed dashboard over dimmed table
+- [WIDTH-CLAMP] Line clamping + horizontal scroll viewport for table
+- [DASH-CLEANUP] Removed q hint from dashboard overlay, stripped emoji from section headers/empty states
+- [DBPATH-MOVE] Moved db path from help overlay to right-aligned tab row with left-ellipsis truncation
 
 # Remaining work
 

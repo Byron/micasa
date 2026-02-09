@@ -421,6 +421,72 @@ dashboard is opened.
 - `TestDashboardToggle` -- D key toggles, tab dismisses
 - `TestDashboardRefresh` -- data changes reflected after re-opening
 
+## Horizontal Scroll + Line Clamping (WIDTH-CLAMP)
+
+**Problem**: Content bleeds off the right edge of the terminal. The table,
+house profile, tab row (with db path), and status bar can all exceed
+`effectiveWidth()`.
+
+**Two-part solution**:
+
+### Part 1: Chrome clamping (house, tabs, status, overlays)
+
+These are fixed UI chrome -- they should never scroll, just truncate.
+
+- **`clampLine(s string, maxW int) string`** utility in `view.go`: splits string
+  by `\n`, applies `ansi.Truncate(line, maxW, "...")` to each line, rejoins.
+  Uses `charmbracelet/x/ansi` which is already in the dep tree.
+- **Apply at assembly point**: in `buildBaseView()`, clamp the final assembled
+  string before returning. This is a safety net that catches everything.
+- **DB path**: left-ellipsis truncation -- show `...path/data.db` when the full
+  path doesn't fit. Truncate the path portion, not the `db` label.
+- **Status bar**: already fits most of the time, but `clampLine` catches edge
+  cases at very narrow terminals.
+
+### Part 2: Table horizontal scroll viewport
+
+The table is the one component where content legitimately exceeds terminal
+width and truncation loses information. Instead of truncating, we scroll.
+
+**New state on `Tab`**:
+- `ViewOffset int` -- index of the first visible column (0-based into the
+  visible projection). Default 0.
+
+**Viewport logic** (`table.go`):
+- After `visibleProjection`, compute which columns fit in the terminal width
+  starting from `ViewOffset`. Call this the "viewport window."
+- When `ColCursor` moves past the right edge of the viewport, advance
+  `ViewOffset` to keep cursor visible (scroll right).
+- When `ColCursor` moves before `ViewOffset`, pull `ViewOffset` back
+  (scroll left).
+- `g` (first row) and `G` (last row) don't change horizontal position.
+- `^` (first col) resets `ViewOffset` to 0; `$` (last col) scrolls to
+  show the last column.
+
+**Rendering**:
+- `tableView()` slices the post-projection specs/cells/widths to the
+  viewport window before passing to `renderHeaderRow`, `renderDivider`,
+  `renderRows`.
+- When `ViewOffset > 0`, render a left-scroll indicator (e.g. `<` or `...`)
+  in place of the first separator.
+- When there are columns past the right edge, render a right-scroll
+  indicator.
+- Hidden-column badges: only show badges for columns in or near the
+  viewport. Or just keep current behavior (they're below the table).
+
+**Interaction with column hiding**:
+- Hidden columns are already filtered out by `visibleProjection`.
+  `ViewOffset` indexes into the visible projection, so hiding a column
+  before the offset may shift things. After hiding, clamp `ViewOffset`
+  to valid range.
+
+**Tests**:
+- `TestClampLine`: basic truncation, ANSI-safe, multiline
+- `TestViewportFollowsCursor`: move right past edge -> offset advances
+- `TestViewportScrollsLeft`: move left past offset -> offset retreats
+- `TestViewportResetOnFirstCol`: `^` resets to 0
+- `TestViewportNarrowTerminal`: very small width, single column visible
+
 ## Hide/Show Columns (HIDECOLS)
 
 **Goal**: Let users hide columns per-tab to reduce noise. Session-only (not persisted).

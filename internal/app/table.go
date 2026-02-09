@@ -602,3 +602,140 @@ func safeWidth(widths []int, idx int) int {
 	}
 	return widths[idx]
 }
+
+// ---------------------------------------------------------------------------
+// Horizontal scroll viewport
+// ---------------------------------------------------------------------------
+
+// scrollIndicatorWidth is the visual width reserved for the "< " / " >" gutter
+// arrows that signal off-screen columns.
+const scrollIndicatorWidth = 2
+
+// ensureCursorVisible adjusts tab.ViewOffset so that the column cursor is
+// within the viewport. Call after any ColCursor change. visCursor is the
+// cursor index in the visible projection (post-hidden-column filter).
+func ensureCursorVisible(tab *Tab, visCursor int, visCount int) {
+	if visCount == 0 {
+		tab.ViewOffset = 0
+		return
+	}
+	if tab.ViewOffset > visCursor {
+		tab.ViewOffset = visCursor
+	}
+	// The upper bound check requires knowing which columns fit. We use a
+	// conservative rule: offset can never exceed cursor. The viewport
+	// computation in tableView does the precise fitting.
+	if tab.ViewOffset > visCount-1 {
+		tab.ViewOffset = visCount - 1
+	}
+	if tab.ViewOffset < 0 {
+		tab.ViewOffset = 0
+	}
+}
+
+// viewportRange determines the range of visible-projection column indices
+// [start, end) that fit within the terminal width, starting from viewOffset.
+// It also returns whether there are columns off-screen to the left or right.
+func viewportRange(
+	widths []int,
+	sepWidth int,
+	termWidth int,
+	viewOffset int,
+	visCursor int,
+) (start, end int, hasLeft, hasRight bool) {
+	n := len(widths)
+	if n == 0 {
+		return 0, 0, false, false
+	}
+	if viewOffset < 0 {
+		viewOffset = 0
+	}
+	if viewOffset >= n {
+		viewOffset = n - 1
+	}
+
+	// Check if everything already fits without scrolling.
+	totalWidth := sumInts(widths)
+	if n > 1 {
+		totalWidth += (n - 1) * sepWidth
+	}
+	if totalWidth <= termWidth {
+		return 0, n, false, false
+	}
+
+	// Start from viewOffset and greedily include columns left-to-right.
+	start = viewOffset
+	hasLeft = start > 0
+	budget := termWidth
+	if hasLeft {
+		budget -= scrollIndicatorWidth
+	}
+
+	end = start
+	for end < n {
+		colW := widths[end]
+		if end > start {
+			colW += sepWidth
+		}
+		if budget-colW < 0 && end > start {
+			break
+		}
+		budget -= colW
+		end++
+	}
+
+	hasRight = end < n
+	// If right indicator is needed but took the last column's space, drop it.
+	if hasRight && budget < scrollIndicatorWidth && end > start+1 {
+		end--
+	}
+
+	// Ensure cursor is visible: if cursor is past the right edge, shift right.
+	for visCursor >= end && end < n {
+		// Drop leftmost column and try to add more on the right.
+		start++
+		hasLeft = true
+		budget = termWidth - scrollIndicatorWidth // left indicator
+		for e := start; e < n; e++ {
+			colW := widths[e]
+			if e > start {
+				colW += sepWidth
+			}
+			if budget-colW < 0 && e > start {
+				end = e
+				break
+			}
+			budget -= colW
+			end = e + 1
+		}
+		hasRight = end < n
+		if hasRight && budget < scrollIndicatorWidth && end > start+1 {
+			end--
+		}
+		if visCursor < end {
+			break
+		}
+	}
+
+	return start, end, hasLeft, hasRight
+}
+
+// sliceViewport extracts the viewport window from visible-projection data.
+func sliceViewport[T any](items []T, start, end int) []T {
+	if start >= len(items) {
+		return nil
+	}
+	if end > len(items) {
+		end = len(items)
+	}
+	return items[start:end]
+}
+
+// sliceViewportRows extracts the viewport window from each row of cells.
+func sliceViewportRows(rows [][]cell, start, end int) [][]cell {
+	result := make([][]cell, len(rows))
+	for i, row := range rows {
+		result[i] = sliceViewport(row, start, end)
+	}
+	return result
+}

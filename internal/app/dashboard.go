@@ -304,7 +304,7 @@ func (m *Model) dashboardView() string {
 		var mLines []string
 
 		if nOverdue > 0 {
-			subhdr := m.styles.DashSection.Render("\u26a0 Overdue")
+			subhdr := m.styles.DashSection.Render("Overdue")
 			mLines = append(mLines, subhdr)
 			localCursor := -1
 			if cursor >= 0 && cursor < nOverdue {
@@ -318,7 +318,7 @@ func (m *Model) dashboardView() string {
 			if nOverdue > 0 {
 				mLines = append(mLines, "")
 			}
-			subhdr := m.styles.DashSection.Render("\U0001f4c5 Upcoming")
+			subhdr := m.styles.DashSection.Render("Upcoming")
 			mLines = append(mLines, subhdr)
 			localCursor := -1
 			upIdx := cursor - nOverdue
@@ -333,7 +333,7 @@ func (m *Model) dashboardView() string {
 			mLines = append(mLines,
 				m.styles.DashSection.Render("Maintenance"),
 				m.styles.DashAllClear.Render(
-					"  \u2705 Nothing overdue or upcoming \u2014 nice work!"),
+					"  Nothing overdue or upcoming -- nice work!"),
 			)
 		}
 		cursor -= len(maintRows)
@@ -342,14 +342,14 @@ func (m *Model) dashboardView() string {
 		allLines = append(allLines, strings.Join([]string{
 			m.styles.DashSection.Render("Maintenance"),
 			m.styles.DashAllClear.Render(
-				"  \u2705 Nothing overdue or upcoming \u2014 nice work!"),
+				"  Nothing overdue or upcoming -- nice work!"),
 		}, "\n"))
 	}
 
 	// Projects.
 	projResult := renderSection(
-		"\U0001f528 Active Projects",
-		"\U0001f6cb\ufe0f  No active projects. Time to start something?",
+		"Active Projects",
+		"No active projects. Time to start something?",
 		m.dashProjectRows(),
 	)
 	allLines = append(allLines, strings.Join(projResult.lines, "\n"))
@@ -357,23 +357,23 @@ func (m *Model) dashboardView() string {
 	// Expiring.
 	expRows := m.dashExpiringRows()
 	expResult := renderSection(
-		"\U0001f6e1\ufe0f  Expiring Soon",
-		"\U0001f6e1\ufe0f  All clear for the next 90 days",
+		"Expiring Soon",
+		"All clear for the next 90 days.",
 		expRows,
 	)
 	allLines = append(allLines, strings.Join(expResult.lines, "\n"))
 
 	// Recent activity.
 	actResult := renderSection(
-		"\U0001f4cb Recent Activity",
-		"\U0001f4cb No service history yet",
+		"Recent Activity",
+		"No service history yet.",
 		m.dashActivityRows(),
 	)
 	allLines = append(allLines, strings.Join(actResult.lines, "\n"))
 
 	// Spending (not navigable, no cursor tracking needed).
 	if spend := m.dashSpendingLine(); spend != "" {
-		header := m.styles.DashSection.Render("\U0001f4b0 Spending (YTD)")
+		header := m.styles.DashSection.Render("Spending (YTD)")
 		allLines = append(allLines, header+"\n  "+spend)
 	}
 

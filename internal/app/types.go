@@ -77,6 +77,7 @@ type Tab struct {
 	Specs       []columnSpec
 	CellRows    [][]cell
 	ColCursor   int
+	ViewOffset  int // first visible column in horizontal scroll viewport
 	LastDeleted *uint
 	ShowDeleted bool
 	Sorts       []sortEntry

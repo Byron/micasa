@@ -421,3 +421,142 @@ func TestColumnWidthsFixedValuesStillStabilize(t *testing.T) {
 		t.Fatalf("expected width >= 9 (longest fixed value), got %d", widths[0])
 	}
 }
+
+// --- Line clamping tests ---
+
+func TestClampLinesBasic(t *testing.T) {
+	got := clampLines("hello world", 5)
+	if got != "hell…" {
+		t.Fatalf("expected %q, got %q", "hell…", got)
+	}
+}
+
+func TestClampLinesMultiline(t *testing.T) {
+	input := "short\na very long line here\nok"
+	got := clampLines(input, 8)
+	lines := strings.Split(got, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d", len(lines))
+	}
+	if lines[0] != "short" {
+		t.Fatalf("short line should be unchanged, got %q", lines[0])
+	}
+	if lines[2] != "ok" {
+		t.Fatalf("short line should be unchanged, got %q", lines[2])
+	}
+	// The middle line should be truncated.
+	if len(lines[1]) >= len("a very long line here") {
+		t.Fatalf("long line should be truncated, got %q", lines[1])
+	}
+}
+
+func TestClampLinesNoopWhenFits(t *testing.T) {
+	input := "fits"
+	got := clampLines(input, 100)
+	if got != input {
+		t.Fatalf("expected unchanged %q, got %q", input, got)
+	}
+}
+
+func TestTruncateLeftBasic(t *testing.T) {
+	got := truncateLeft("/home/user/long/path/to/data.db", 15)
+	if !strings.HasPrefix(got, "…") {
+		t.Fatalf("expected leading …, got %q", got)
+	}
+	if !strings.HasSuffix(got, "data.db") {
+		t.Fatalf("expected to end with data.db, got %q", got)
+	}
+	if len([]rune(got)) > 15 {
+		t.Fatalf("expected width <= 15, got %q (len %d)", got, len([]rune(got)))
+	}
+}
+
+func TestTruncateLeftNoopWhenFits(t *testing.T) {
+	input := "short.db"
+	got := truncateLeft(input, 20)
+	if got != input {
+		t.Fatalf("expected unchanged %q, got %q", input, got)
+	}
+}
+
+// --- Viewport tests ---
+
+func TestViewportAllColumnsFit(t *testing.T) {
+	widths := []int{10, 15, 10}
+	start, end, hasL, hasR := viewportRange(widths, 3, 50, 0, 0)
+	if start != 0 || end != 3 {
+		t.Fatalf("expected full range [0,3), got [%d,%d)", start, end)
+	}
+	if hasL || hasR {
+		t.Fatal("should have no scroll indicators when everything fits")
+	}
+}
+
+func TestViewportScrollsRight(t *testing.T) {
+	// 5 columns of 10 each + 4 seps of 3 = 62 total.
+	// Terminal width 30 fits ~2 columns.
+	widths := []int{10, 10, 10, 10, 10}
+	// Cursor on column 3, offset starts at 0.
+	start, end, hasL, hasR := viewportRange(widths, 3, 30, 0, 3)
+	if start > 3 {
+		t.Fatalf("start should be <= cursor (3), got %d", start)
+	}
+	if end <= 3 {
+		t.Fatalf("end should be > cursor (3), got %d", end)
+	}
+	if !hasL {
+		t.Fatal("expected left indicator when scrolled right")
+	}
+	_ = hasR // may or may not have right depending on fit
+}
+
+func TestViewportScrollsLeftOnCursorMove(t *testing.T) {
+	// Simulate: user was scrolled to offset 3, then moved cursor left to 1.
+	// ensureCursorVisible should pull ViewOffset back to cursor.
+	tab := &Tab{ViewOffset: 3}
+	ensureCursorVisible(tab, 1, 5)
+	widths := []int{10, 10, 10, 10, 10}
+	start, end, _, _ := viewportRange(widths, 3, 30, tab.ViewOffset, 1)
+	if start > 1 {
+		t.Fatalf("start should be <= cursor (1), got %d", start)
+	}
+	if end <= 1 {
+		t.Fatalf("end should be > cursor (1), got %d", end)
+	}
+}
+
+func TestEnsureCursorVisibleClamps(t *testing.T) {
+	tab := &Tab{ViewOffset: 5}
+	ensureCursorVisible(tab, 2, 4)
+	if tab.ViewOffset > 2 {
+		t.Fatalf("expected ViewOffset <= cursor (2), got %d", tab.ViewOffset)
+	}
+}
+
+func TestEnsureCursorVisibleNoopWhenVisible(t *testing.T) {
+	tab := &Tab{ViewOffset: 0}
+	ensureCursorVisible(tab, 2, 5)
+	if tab.ViewOffset != 0 {
+		t.Fatalf("expected ViewOffset unchanged at 0, got %d", tab.ViewOffset)
+	}
+}
+
+func TestViewportSortsAdjustsOffset(t *testing.T) {
+	sorts := []sortEntry{{Col: 3, Dir: sortAsc}, {Col: 5, Dir: sortDesc}}
+	adjusted := viewportSorts(sorts, 2)
+	if adjusted[0].Col != 1 || adjusted[1].Col != 3 {
+		t.Fatalf("expected cols [1,3], got [%d,%d]", adjusted[0].Col, adjusted[1].Col)
+	}
+}
+
+func TestViewportSortsNoOffset(t *testing.T) {
+	sorts := []sortEntry{{Col: 1, Dir: sortAsc}}
+	adjusted := viewportSorts(sorts, 0)
+	// When offset is 0, indices should be unchanged.
+	if adjusted[0].Col != 1 {
+		t.Fatalf("expected col 1, got %d", adjusted[0].Col)
+	}
+	if adjusted[0].Dir != sortAsc {
+		t.Fatalf("expected sortAsc, got %v", adjusted[0].Dir)
+	}
+}

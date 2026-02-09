@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	overlay "github.com/rmhubbert/bubbletea-overlay"
 )
 
@@ -57,6 +58,23 @@ func (m *Model) buildBaseView() string {
 	}
 	status := m.statusView()
 
+	// Right-align db path on the tab row when set.
+	if m.dbPath != "" {
+		dbLabel := m.styles.HeaderLabel.Render("db")
+		tabsW := lipgloss.Width(tabs)
+		labelW := lipgloss.Width(dbLabel) + 1 // "db "
+		minGap := 2                           // breathing room between tabs and path
+		available := m.effectiveWidth() - tabsW - labelW - minGap
+		if available > 5 {
+			path := truncateLeft(m.dbPath, available)
+			label := dbLabel + " " + m.styles.HeaderHint.Render(path)
+			gap := m.effectiveWidth() - tabsW - lipgloss.Width(label)
+			if gap > 0 {
+				tabs += strings.Repeat(" ", gap) + label
+			}
+		}
+	}
+
 	// Assemble upper portion with intentional spacing.
 	upper := lipgloss.JoinVertical(lipgloss.Left, house, "", tabs, tabLine)
 	if content != "" {
@@ -75,7 +93,7 @@ func (m *Model) buildBaseView() string {
 	b.WriteString(upper)
 	b.WriteString(strings.Repeat("\n", gap))
 	b.WriteString(status)
-	return b.String()
+	return clampLines(b.String(), m.effectiveWidth())
 }
 
 // buildDashboardOverlay renders the dashboard content inside a bordered box
@@ -92,7 +110,6 @@ func (m *Model) buildDashboardOverlay() string {
 	items = append(items,
 		m.helpItem("D", "close"),
 		m.helpItem("?", "help"),
-		m.helpItem("q", "quit"),
 	)
 	hints := joinWithSeparator(m.helpSeparator(), items...)
 
@@ -440,12 +457,6 @@ func (m *Model) helpView() string {
 	b.WriteString(m.styles.HeaderHint.Render(" or "))
 	b.WriteString(m.renderKeys("?"))
 	b.WriteString(m.styles.HeaderHint.Render(" to close"))
-	if m.dbPath != "" {
-		b.WriteString("\n\n")
-		b.WriteString(m.styles.HeaderLabel.Render("db"))
-		b.WriteString(" ")
-		b.WriteString(m.styles.HeaderHint.Render(m.dbPath))
-	}
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -456,7 +467,8 @@ func (m *Model) helpView() string {
 }
 
 // tableView orchestrates the full table rendering: visible projection,
-// column sizing, header/divider/rows, and hidden-column badge line.
+// column sizing, horizontal scroll viewport, header/divider/rows, and
+// hidden-column badge line.
 func (m *Model) tableView(tab *Tab) string {
 	if tab == nil || len(tab.Specs) == 0 {
 		return ""
@@ -469,10 +481,35 @@ func (m *Model) tableView(tab *Tab) string {
 	width := m.effectiveWidth()
 	normalSep := m.styles.TableSeparator.Render(" │ ")
 	normalDiv := m.styles.TableSeparator.Render("─┼─")
-	plainSeps, collapsedSeps := gapSeparators(visToFull, len(tab.Specs), normalSep, m.styles)
-	widths := columnWidths(visSpecs, visCells, width, lipgloss.Width(normalSep))
-	header := renderHeaderRow(visSpecs, widths, collapsedSeps, visColCursor, visSorts, m.styles)
-	divider := renderDivider(widths, plainSeps, normalDiv, m.styles.TableSeparator)
+	sepW := lipgloss.Width(normalSep)
+
+	// Compute natural column widths for the full visible set.
+	fullWidths := columnWidths(visSpecs, visCells, width, sepW)
+
+	// Horizontal scroll viewport: determine which columns are on screen.
+	ensureCursorVisible(tab, visColCursor, len(visSpecs))
+	vpStart, vpEnd, hasLeft, hasRight := viewportRange(
+		fullWidths, sepW, width, tab.ViewOffset, visColCursor,
+	)
+	tab.ViewOffset = vpStart
+
+	// Slice everything to the viewport window.
+	vpSpecs := sliceViewport(visSpecs, vpStart, vpEnd)
+	vpCells := sliceViewportRows(visCells, vpStart, vpEnd)
+	vpSorts := viewportSorts(visSorts, vpStart)
+	vpCursor := visColCursor - vpStart
+	if visColCursor < vpStart || visColCursor >= vpEnd {
+		vpCursor = -1
+	}
+
+	// Compute widths for the viewport columns using the full terminal width.
+	vpWidths := columnWidths(vpSpecs, vpCells, width, sepW)
+
+	vpVisToFull := sliceViewport(visToFull, vpStart, vpEnd)
+	plainSeps, collapsedSeps := gapSeparators(vpVisToFull, len(tab.Specs), normalSep, m.styles)
+
+	header := renderHeaderRow(vpSpecs, vpWidths, collapsedSeps, vpCursor, vpSorts, m.styles)
+	divider := renderDivider(vpWidths, plainSeps, normalDiv, m.styles.TableSeparator)
 
 	// Badge line accounts for 1 row of vertical space when visible.
 	badges := renderHiddenBadges(tab.Specs, tab.ColCursor, m.styles)
@@ -486,17 +523,20 @@ func (m *Model) tableView(tab *Tab) string {
 		effectiveHeight = 2
 	}
 	rows := renderRows(
-		visSpecs,
-		visCells,
+		vpSpecs,
+		vpCells,
 		tab.Rows,
-		widths,
+		vpWidths,
 		plainSeps,
 		collapsedSeps,
 		tab.Table.Cursor(),
-		visColCursor,
+		vpCursor,
 		effectiveHeight,
 		m.styles,
 	)
+
+	// Scroll indicators.
+	scrollHint := m.scrollIndicators(hasLeft, hasRight)
 
 	// Assemble body (header + divider + data rows).
 	bodyParts := []string{header, divider}
@@ -506,15 +546,46 @@ func (m *Model) tableView(tab *Tab) string {
 		bodyParts = append(bodyParts, strings.Join(rows, "\n"))
 	}
 	if badges != "" {
-		// Center relative to the actual table content width, not the terminal.
-		tableWidth := sumInts(widths)
-		if len(widths) > 1 {
-			tableWidth += (len(widths) - 1) * lipgloss.Width(normalSep)
+		tableWidth := sumInts(vpWidths)
+		if len(vpWidths) > 1 {
+			tableWidth += (len(vpWidths) - 1) * sepW
 		}
 		centered := lipgloss.PlaceHorizontal(tableWidth, lipgloss.Center, badges)
 		bodyParts = append(bodyParts, centered)
 	}
+	if scrollHint != "" {
+		bodyParts = append(bodyParts, scrollHint)
+	}
 	return joinVerticalNonEmpty(bodyParts...)
+}
+
+// scrollIndicators renders a hint line when columns exist off-screen.
+func (m *Model) scrollIndicators(hasLeft, hasRight bool) string {
+	if !hasLeft && !hasRight {
+		return ""
+	}
+	hint := m.styles.HeaderHint
+	var parts []string
+	if hasLeft {
+		parts = append(parts, hint.Render("◀ more"))
+	}
+	if hasRight {
+		parts = append(parts, hint.Render("more ▶"))
+	}
+	return strings.Join(parts, "  ")
+}
+
+// viewportSorts adjusts sort entries so column indices are relative to the
+// viewport start offset.
+func viewportSorts(sorts []sortEntry, vpStart int) []sortEntry {
+	if vpStart == 0 {
+		return sorts
+	}
+	adjusted := make([]sortEntry, 0, len(sorts))
+	for _, s := range sorts {
+		adjusted = append(adjusted, sortEntry{Col: s.Col - vpStart, Dir: s.Dir})
+	}
+	return adjusted
 }
 
 // dimBackground applies ANSI faint (dim) to an already-styled string. It
@@ -606,4 +677,47 @@ func joinWithSeparator(sep string, values ...string) string {
 
 func joinNonEmpty(values []string, sep string) string {
 	return joinWithSeparator(sep, values...)
+}
+
+// clampLines truncates each line in s to maxW visible columns, appending "…"
+// when truncation occurs. ANSI escape sequences are preserved.
+func clampLines(s string, maxW int) string {
+	if maxW <= 0 {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if lipgloss.Width(line) > maxW {
+			lines[i] = ansi.Truncate(line, maxW, "…")
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// truncateLeft trims s from the left so the result fits within maxW visible
+// columns, prepending "…" when truncation occurs.
+func truncateLeft(s string, maxW int) string {
+	w := lipgloss.Width(s)
+	if w <= maxW {
+		return s
+	}
+	// Walk runes from the end, accumulating width.
+	runes := []rune(s)
+	kept := 0
+	for i := len(runes) - 1; i >= 0; i-- {
+		cw := lipgloss.Width(string(runes[i]))
+		if kept+cw+1 > maxW { // +1 for the "…"
+			break
+		}
+		kept += cw
+	}
+	cut := len(runes) - kept // rune index to start keeping from (approximate)
+	// Re-measure to be safe with combining characters.
+	for cut < len(runes) && lipgloss.Width("…"+string(runes[cut:])) > maxW {
+		cut++
+	}
+	if cut >= len(runes) {
+		return ansi.Truncate(s, maxW, "")
+	}
+	return "…" + string(runes[cut:])
 }
