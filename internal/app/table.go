@@ -66,6 +66,7 @@ func renderHeaderRow(
 ) string {
 	cells := make([]string, 0, len(specs))
 	last := len(specs) - 1
+	arrow := lipgloss.NewStyle().Foreground(secondary)
 	for i, spec := range specs {
 		width := safeWidth(widths, i)
 		title := spec.Title
@@ -73,7 +74,6 @@ func renderHeaderRow(
 			title = title + " " + styles.LinkIndicator.Render(spec.Link.Relation)
 		}
 		// Scroll arrows embedded in edge column headers.
-		arrow := lipgloss.NewStyle().Foreground(secondary)
 		if i == 0 && hasLeft {
 			title = arrow.Render("◀") + " " + title
 		}
@@ -92,8 +92,6 @@ func renderHeaderRow(
 }
 
 type tableViewport struct {
-	Start         int
-	End           int
 	HasLeft       bool
 	HasRight      bool
 	Specs         []columnSpec
@@ -103,7 +101,6 @@ type tableViewport struct {
 	CollapsedSeps []string
 	Cursor        int
 	Sorts         []sortEntry
-	VisToFull     []int
 }
 
 func computeTableViewport(tab *Tab, termWidth int, normalSep string, styles Styles) tableViewport {
@@ -122,15 +119,13 @@ func computeTableViewport(tab *Tab, termWidth int, normalSep string, styles Styl
 	start, end, hasLeft, hasRight := viewportRange(
 		fullWidths, sepW, termWidth, tab.ViewOffset, visColCursor,
 	)
-	vp.Start = start
-	vp.End = end
 	vp.HasLeft = hasLeft
 	vp.HasRight = hasRight
 
 	vp.Specs = sliceViewport(visSpecs, start, end)
 	vp.Cells = sliceViewportRows(visCells, start, end)
 	vp.Sorts = viewportSorts(visSorts, start)
-	vp.VisToFull = sliceViewport(visToFull, start, end)
+	vpVisToFull := sliceViewport(visToFull, start, end)
 
 	vp.Cursor = visColCursor - start
 	if visColCursor < start || visColCursor >= end {
@@ -141,7 +136,7 @@ func computeTableViewport(tab *Tab, termWidth int, normalSep string, styles Styl
 	vp.Widths = columnWidths(vp.Specs, vp.Cells, termWidth, sepW)
 
 	// Per-gap separators need to match the viewport's projected columns.
-	vp.PlainSeps, vp.CollapsedSeps = gapSeparators(vp.VisToFull, len(tab.Specs), normalSep, styles)
+	vp.PlainSeps, vp.CollapsedSeps = gapSeparators(vpVisToFull, len(tab.Specs), normalSep, styles)
 
 	return vp
 }
