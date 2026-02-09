@@ -598,6 +598,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [WEBSITE-VIBES] typewriter heading, aspirational content, pitch tightening, polish (413e24a, b0bb6d9, cc0a955)
 - [MODULE-RENAME] Go module path corrected from micasa/micasa to cpcloud/micasa (f2fc33d)
 - [DASHBOARD] Dashboard landing screen with overdue/upcoming maintenance, active projects, expiring warranties, recent activity, YTD spending (271121c)
+- [WEBSITE-CHIMNEY] animated chimney smoke particle system on website hero house (75318ac)
 
 ## 2026-02-07 Session 12
 
@@ -733,9 +734,6 @@ in case things crash or otherwise go haywire, be diligent about this.
   model number; doesn't need to be super sophisticated, just plausible
 - [PARSE-ARGS] can we avoid manual argument parsing and use a maintained
   library for this?
-- [WEBSITE-CHIMNEY] can we add some animated cursor-block chimney smoke for that
-  sweet little block cursor house you made? a bit worried that it might be too much
-  animation on the landing page, so feel free to tell me that idea is hot garbage lol.
 - [STATUS-MODE-VERBOSITY] is there a kind of verbose status bar we can add that
   shows keystrokes and also more verbose context?
 - [VENDORS-TAB] Vendors as a first-class tab. Vendor model already exists but is
