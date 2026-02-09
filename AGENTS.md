@@ -255,6 +255,16 @@ These have been repeatedly requested. Violating them wastes the user's time.
   need a different directory.
 - **No `&&`**: Do not join shell commands with `&&`. Run them as separate tool
   calls (parallel when independent, sequential when dependent).
+- **Quote nix flake refs**: Always single-quote flake references that
+  contain `#` so the shell doesn't treat `#` as a comment. Examples:
+  `nix shell 'nixpkgs#vhs'`, `nix run '.#capture-screenshots'`,
+  `nix search 'nixpkgs' vhs`. Bare `nixpkgs#foo` silently drops everything
+  after the `#`.
+- **Dynamic nix store paths**: Use
+  `nix build '.#micasa' --print-out-paths --no-link` to get the store path
+  at runtime. Never hardcode `/nix/store/...` hashes in variables or
+  commands. Example to put micasa on PATH:
+  `PATH="$(nix build '.#micasa' --print-out-paths --no-link)/bin:$PATH"`
 - **Run `go mod tidy` before committing** to keep `go.mod`/`go.sum` clean.
 - **Record every user request** in the "Remaining work" section of this file
   (with a unique ID) if it is not already there. Mark it done when complete.
@@ -277,6 +287,11 @@ These have been repeatedly requested. Violating them wastes the user's time.
 - **Re-record demo after UI/UX changes**: Run `nix run '.#record-demo'`
   after any UI or UX feature work. This updates `images/demo.gif` (used in
   README). Commit the GIF with the feature.
+- **Screenshots: test one before capturing all**: When iterating on
+  screenshot themes or capture settings, modify the `capture-screenshots`
+  script to only run a single capture (e.g. just `dashboard`) and inspect the
+  result before committing to a full 9-screenshot run (~2 min each). Don't
+  re-run all 9 just to check a theme change.
 
 If the user asks you to learn something, add it to this "Hard rules" section
 so it survives context resets. This file is always injected; external files
@@ -775,6 +790,10 @@ in case things crash or otherwise go haywire, be diligent about this.
   - `pages.yml`: installs Hugo v0.155.2 (single tar+extract), one-line build command
   - `.gitignore`: `docs/public/`, `docs/resources/` replace `docs/book/`
   - Build verified: 34 pages in 21ms, sidebar + pager + responsive mobile all working
+- Fixed sidebar: pre-commit `license-header` hook was prepending HTML comments before Hugo TOML frontmatter; excluded `^docs/content/` from hook, stripped existing headers
+- `build-docs` nix app for one-shot Hugo build (reused by `website` app silently)
+- Docs linked from website hero CTA + footer, README "Documentation" section
+- [VHS-SCREENSHOTS] Switched from asciinema+agg to VHS (Charmbracelet) for screenshots. VHS renders through headless Chrome + ttyd so `lipgloss.AdaptiveColor` 24-bit colors render correctly (agg's 16-color theme mapping was the root cause of "redacted legal docs"). 9 tape files in `docs/tapes/`, each produces a crisp PNG via VHS `Screenshot` command. `capture-screenshots` nix app runs all tapes (or `ONLY=name` for one). Appliances tape uses 1800px width so all 10 columns fit. Dracula theme, JetBrains Mono 14px, 1400x900 default.
 
 # Remaining work
 
@@ -859,7 +878,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 
 ## Docs
 
-- [DOCS] ~~Build out project documentation, deploy to micasa.dev/docs via CI~~ switched to Hugo
+- [DOCS] ~~Build out project documentation, deploy to micasa.dev/docs via CI~~ switched to Hugo, screenshots added
 - [ATTRIBUTION] ensure that claude, codex and cursor are ack'd in the built with section
 
 ## Bugs
