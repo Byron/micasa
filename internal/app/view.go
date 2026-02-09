@@ -473,50 +473,27 @@ func (m *Model) tableView(tab *Tab) string {
 	if tab == nil || len(tab.Specs) == 0 {
 		return ""
 	}
-	visSpecs, visCells, visColCursor, visSorts, visToFull := visibleProjection(tab)
-	if len(visSpecs) == 0 {
-		return ""
-	}
 
 	width := m.effectiveWidth()
 	normalSep := m.styles.TableSeparator.Render(" │ ")
 	normalDiv := m.styles.TableSeparator.Render("─┼─")
 	sepW := lipgloss.Width(normalSep)
 
-	// Compute natural column widths for the full visible set.
-	fullWidths := columnWidths(visSpecs, visCells, width, sepW)
-
-	// Horizontal scroll viewport: determine which columns are on screen.
-	vpStart, vpEnd, hasLeft, hasRight := viewportRange(
-		fullWidths, sepW, width, tab.ViewOffset, visColCursor,
-	)
-
-	// Slice everything to the viewport window.
-	vpSpecs := sliceViewport(visSpecs, vpStart, vpEnd)
-	vpCells := sliceViewportRows(visCells, vpStart, vpEnd)
-	vpSorts := viewportSorts(visSorts, vpStart)
-	vpCursor := visColCursor - vpStart
-	if visColCursor < vpStart || visColCursor >= vpEnd {
-		vpCursor = -1
+	vp := computeTableViewport(tab, width, normalSep, m.styles)
+	if len(vp.Specs) == 0 {
+		return ""
 	}
-
-	// Compute widths for the viewport columns using the full terminal width.
-	vpWidths := columnWidths(vpSpecs, vpCells, width, sepW)
-
-	vpVisToFull := sliceViewport(visToFull, vpStart, vpEnd)
-	plainSeps, collapsedSeps := gapSeparators(vpVisToFull, len(tab.Specs), normalSep, m.styles)
-
 	header := renderHeaderRow(
-		vpSpecs,
-		vpWidths,
-		collapsedSeps,
-		vpCursor,
-		vpSorts,
-		hasLeft,
-		hasRight,
+		vp.Specs,
+		vp.Widths,
+		vp.CollapsedSeps,
+		vp.Cursor,
+		vp.Sorts,
+		vp.HasLeft,
+		vp.HasRight,
 		m.styles,
 	)
-	divider := renderDivider(vpWidths, plainSeps, normalDiv, m.styles.TableSeparator)
+	divider := renderDivider(vp.Widths, vp.PlainSeps, normalDiv, m.styles.TableSeparator)
 
 	// Badge line accounts for 1 row of vertical space when visible.
 	badges := renderHiddenBadges(tab.Specs, tab.ColCursor, m.styles)
@@ -530,14 +507,14 @@ func (m *Model) tableView(tab *Tab) string {
 		effectiveHeight = 2
 	}
 	rows := renderRows(
-		vpSpecs,
-		vpCells,
+		vp.Specs,
+		vp.Cells,
 		tab.Rows,
-		vpWidths,
-		plainSeps,
-		collapsedSeps,
+		vp.Widths,
+		vp.PlainSeps,
+		vp.CollapsedSeps,
 		tab.Table.Cursor(),
-		vpCursor,
+		vp.Cursor,
 		effectiveHeight,
 		m.styles,
 	)
@@ -550,27 +527,14 @@ func (m *Model) tableView(tab *Tab) string {
 		bodyParts = append(bodyParts, strings.Join(rows, "\n"))
 	}
 	if badges != "" {
-		tableWidth := sumInts(vpWidths)
-		if len(vpWidths) > 1 {
-			tableWidth += (len(vpWidths) - 1) * sepW
+		tableWidth := sumInts(vp.Widths)
+		if len(vp.Widths) > 1 {
+			tableWidth += (len(vp.Widths) - 1) * sepW
 		}
 		centered := lipgloss.PlaceHorizontal(tableWidth, lipgloss.Center, badges)
 		bodyParts = append(bodyParts, centered)
 	}
 	return joinVerticalNonEmpty(bodyParts...)
-}
-
-// viewportSorts adjusts sort entries so column indices are relative to the
-// viewport start offset.
-func viewportSorts(sorts []sortEntry, vpStart int) []sortEntry {
-	if vpStart == 0 {
-		return sorts
-	}
-	adjusted := make([]sortEntry, 0, len(sorts))
-	for _, s := range sorts {
-		adjusted = append(adjusted, sortEntry{Col: s.Col - vpStart, Dir: s.Dir})
-	}
-	return adjusted
 }
 
 // dimBackground applies ANSI faint (dim) to an already-styled string. It

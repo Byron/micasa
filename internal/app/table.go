@@ -91,6 +91,61 @@ func renderHeaderRow(
 	return joinCells(cells, separators)
 }
 
+type tableViewport struct {
+	Start         int
+	End           int
+	HasLeft       bool
+	HasRight      bool
+	Specs         []columnSpec
+	Cells         [][]cell
+	Widths        []int
+	PlainSeps     []string
+	CollapsedSeps []string
+	Cursor        int
+	Sorts         []sortEntry
+	VisToFull     []int
+}
+
+func computeTableViewport(tab *Tab, termWidth int, normalSep string, styles Styles) tableViewport {
+	var vp tableViewport
+	if tab == nil {
+		return vp
+	}
+	visSpecs, visCells, visColCursor, visSorts, visToFull := visibleProjection(tab)
+	if len(visSpecs) == 0 {
+		return vp
+	}
+
+	sepW := lipgloss.Width(normalSep)
+	fullWidths := columnWidths(visSpecs, visCells, termWidth, sepW)
+
+	start, end, hasLeft, hasRight := viewportRange(
+		fullWidths, sepW, termWidth, tab.ViewOffset, visColCursor,
+	)
+	vp.Start = start
+	vp.End = end
+	vp.HasLeft = hasLeft
+	vp.HasRight = hasRight
+
+	vp.Specs = sliceViewport(visSpecs, start, end)
+	vp.Cells = sliceViewportRows(visCells, start, end)
+	vp.Sorts = viewportSorts(visSorts, start)
+	vp.VisToFull = sliceViewport(visToFull, start, end)
+
+	vp.Cursor = visColCursor - start
+	if visColCursor < start || visColCursor >= end {
+		vp.Cursor = -1
+	}
+
+	// Widths for the viewport columns using the full terminal width.
+	vp.Widths = columnWidths(vp.Specs, vp.Cells, termWidth, sepW)
+
+	// Per-gap separators need to match the viewport's projected columns.
+	vp.PlainSeps, vp.CollapsedSeps = gapSeparators(vp.VisToFull, len(tab.Specs), normalSep, styles)
+
+	return vp
+}
+
 // formatHeaderCell renders a header cell with the title left-aligned and
 // the sort indicator right-aligned within the given width. If there's no
 // indicator, it falls back to plain left-aligned formatting.
@@ -112,6 +167,19 @@ func formatHeaderCell(title, indicator string, width int) string {
 		gap = width - titleW - indW
 	}
 	return title + strings.Repeat(" ", gap) + indicator
+}
+
+// viewportSorts adjusts sort entries so column indices are relative to the
+// viewport start offset.
+func viewportSorts(sorts []sortEntry, vpStart int) []sortEntry {
+	if vpStart == 0 {
+		return sorts
+	}
+	adjusted := make([]sortEntry, 0, len(sorts))
+	for _, s := range sorts {
+		adjusted = append(adjusted, sortEntry{Col: s.Col - vpStart, Dir: s.Dir})
+	}
+	return adjusted
 }
 
 // headerTitleWidth returns the rendered width of a column header including
