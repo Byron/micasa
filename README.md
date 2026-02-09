@@ -19,7 +19,7 @@ Your house is quietly plotting to break while you sleep -- and you're dreaming a
 
 - **When did I last change the furnace filter?** Maintenance schedules, auto-computed due dates, full service history.
 - **What if we finally did the backyard?** Projects from napkin sketch to completion -- or graceful abandonment.
-- **How much would it actually cost to...** Quotes, vendors, stare at the numbers, close the laptop, reopen the laptop.
+- **How much would it actually cost to...** Quotes side by side, vendor history, and the math you need to actually decide.
 - **Is the dishwasher still under warranty?** Appliance tracking with purchase dates, warranty windows, and linked maintenance.
 
 ## Install
@@ -38,6 +38,10 @@ micasa          # start fresh with your own house
 ```
 
 > Your data stays yours. `~/.local/share/micasa/micasa.db`. One file. Back it up with `cp`.
+
+## Documentation
+
+Full docs at [micasa.dev/docs](https://micasa.dev/docs/) -- installation, user guide, keybinding reference, configuration, and development setup.
 
 ## Development
 

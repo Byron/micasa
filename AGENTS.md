@@ -745,6 +745,37 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [DASH-CLEANUP] Removed q hint from dashboard overlay, stripped emoji from section headers/empty states
 - [DBPATH-MOVE] Moved db path from help overlay to right-aligned tab row with left-ellipsis truncation
 
+## 2026-02-09 Session 19
+
+**User request**: Build out project documentation. User wants Markdown source in repo, generated HTML in CI (not stored in git), deployed to micasa.dev/docs. Local testing via `nix run '.#docs'`.
+
+**Work done**:
+- [DOCS] Full documentation site using mdbook
+  - `docs/book.toml` + `docs/src/SUMMARY.md` nav tree
+  - 17 Markdown pages across 4 sections:
+    - Getting Started: introduction, installation, first-run, concepts
+    - User Guide: navigation, house-profile, projects, maintenance, appliances, quotes, dashboard, sorting-and-columns, undo-redo
+    - Reference: keybindings (complete table), configuration (CLI flags, env vars, resolution order), data-storage (schema, backup, soft delete)
+    - Development: building (Go, Nix, container), architecture (TEA, TabHandler, modal keys, cell rendering, overlays), testing, contributing
+  - Content sourced from README, website, help overlay, AGENTS.md session log, and actual source code
+  - `flake.nix`: added `pkgs.mdbook` to dev shell, `docs` package + app (`nix run '.#docs'` for live-reload server)
+  - `pages.yml`: installs mdbook v0.5.2, builds docs into `website/docs/`, deploys combined site
+  - Trigger paths expanded to `[website/**, docs/**]`
+  - `.gitignore`: added `docs/book/`
+  - Verified build: `mdbook build docs` succeeds cleanly
+  - User tried mdBook styling (custom CSS for website palette/fonts), text was too small/inconsistent
+  - Evaluated alternatives: embedding website in mdBook, Docusaurus, Hugo, Zola, Pandoc
+  - User chose Zola (option 4), then switched to Hugo since project is Go
+- [DOCS] Switched from mdBook to Hugo (user request: "let's try hugo since we're already in go land")
+  - Deleted mdBook infra: `book.toml`, `theme/custom.css`, `src/SUMMARY.md`, `docs/src/` tree
+  - Hugo setup: `docs/hugo.toml`, `docs/layouts/` (baseof, single, list, index, sidebar, pager partials)
+  - `docs/static/css/docs.css`: exact website palette/fonts/feel (cream, linen, charcoal, terracotta, sage, DM Serif Display, Source Serif 4, JetBrains Mono), sidebar nav, responsive mobile hamburger
+  - Migrated 20 Markdown files to `docs/content/` with TOML frontmatter (title, weight, description, linkTitle); fixed cross-links to Hugo `ref` shortcodes
+  - `flake.nix`: replaced `pkgs.mdbook` with `pkgs.hugo`; `website` app does `rm -rf website/docs` + `hugo --source docs`; `docs` app runs `hugo server`
+  - `pages.yml`: installs Hugo v0.155.2 (single tar+extract), one-line build command
+  - `.gitignore`: `docs/public/`, `docs/resources/` replace `docs/book/`
+  - Build verified: 34 pages in 21ms, sidebar + pager + responsive mobile all working
+
 # Remaining work
 
 ## Features
@@ -818,6 +849,8 @@ in case things crash or otherwise go haywire, be diligent about this.
   (title + status for projects, name + interval for maintenance), let user fill
   in optional details later via edit.
 
+- [WEBSITE-DESLOP] ~~Remove "close the laptop, reopen the laptop" AI-slop from
+  quotes feature blurb on website and README.~~ DONE
 - [DASH-OVERLAY-STYLE] Revisit dashboard overlay styling -- noodle on dim/bg
   approach, make it feel polished.
 - [HELP-OVERLAY] ~~Convert help screen to an overlay using bubbletea-overlay.
@@ -826,6 +859,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 
 ## Docs
 
+- [DOCS] ~~Build out project documentation, deploy to micasa.dev/docs via CI~~ switched to Hugo
 - [ATTRIBUTION] ensure that claude, codex and cursor are ack'd in the built with section
 
 ## Bugs

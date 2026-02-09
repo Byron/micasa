@@ -1,0 +1,56 @@
+<!-- Copyright 2026 Phillip Cloud -->
+<!-- Licensed under the Apache License, Version 2.0 -->
+
++++
+title = "Quotes"
+weight = 6
+description = "Compare vendor quotes for your projects."
+linkTitle = "Quotes"
++++
+
+The Quotes tab helps you compare vendor quotes for your projects.
+
+## Prerequisites
+
+You need at least one project before you can add a quote, since every quote
+is linked to a project.
+
+## Adding a quote
+
+1. Switch to the Quotes tab
+2. Enter Edit mode (`i`), press `a`
+3. Select a project, enter vendor details, then cost breakdown
+
+## Fields
+
+| Column  | Description | Notes |
+|---------|-------------|-------|
+| ID      | Auto-assigned | Read-only |
+| Project | Linked project | Select. Shows as `m:1` link -- press `enter` to jump. |
+| Vendor  | Vendor name | Required. Find-or-create: typing a name that exists reuses it. |
+| Total   | Total quote amount | Required. Dollar amount. |
+| Labor   | Labor portion | Optional. |
+| Mat     | Materials portion | Optional. |
+| Other   | Other costs | Optional. |
+| Recv    | Date received | YYYY-MM-DD |
+
+## Vendor management
+
+When you add a quote, you enter a vendor name. If a vendor with that name
+already exists, micasa links to the existing record. If not, it creates a new
+one.
+
+The vendor form also collects optional contact info: contact name, email,
+phone, and website. These are stored on the vendor record and shared across
+all quotes and service log entries for that vendor.
+
+## Cost comparison
+
+To compare quotes for a project, sort the Quotes tab by the Project column
+(`s` on the Project column header) to group quotes by project. Then compare
+the Total, Labor, Materials, and Other columns across vendors.
+
+## Project link
+
+The Project column is a foreign key. In Normal mode, press `enter` on the
+Project cell to jump to the linked project in the Projects tab.

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<!-- Copyright 2026 Phillip Cloud -->
+<!-- Licensed under the Apache License, Version 2.0 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ .Title }} &mdash; micasa docs</title>
+  <meta name="description" content="{{ with .Params.description }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='16,4 2,16 6,16 6,28 26,28 26,16 30,16' fill='%23c05e3c'/><rect x='13' y='19' width='6' height='9' fill='%23faf6f1'/></svg>">
+  <link rel="stylesheet" href="{{ "css/docs.css" | relURL }}">
+</head>
+<body>
+
+<div class="docs-topbar">
+  <button class="menu-toggle" onclick="document.querySelector('.docs-sidebar').classList.toggle('open')" aria-label="Toggle menu">&#9776;</button>
+  <a href="/">micasa</a>
+</div>
+
+<div class="docs-layout">
+  {{ partial "sidebar.html" . }}
+
+  <main class="docs-main">
+    {{ block "main" . }}{{ end }}
+
+    {{ partial "pager.html" . }}
+
+    <div class="docs-footer">
+      <a href="/">micasa.dev</a> &middot;
+      <a href="https://github.com/cpcloud/micasa">GitHub</a> &middot;
+      <a href="https://github.com/cpcloud/micasa/blob/main/LICENSE">Apache-2.0</a>
+    </div>
+  </main>
+</div>
+
+<script>
+// Close sidebar when clicking outside on mobile
+document.addEventListener('click', function(e) {
+  var sidebar = document.querySelector('.docs-sidebar');
+  var toggle = document.querySelector('.menu-toggle');
+  if (sidebar.classList.contains('open') && !sidebar.contains(e.target) && !toggle.contains(e.target)) {
+    sidebar.classList.remove('open');
+  }
+});
+</script>
+
+</body>
+</html>

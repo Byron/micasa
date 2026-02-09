@@ -140,6 +140,7 @@
               pkgs.tokei
               pkgs.fd
               pkgs.ripgrep-all
+              pkgs.hugo
             ]
             ++ enabledPackages;
           };
@@ -148,7 +149,12 @@
           inherit micasa;
           default = micasa;
           website = pkgs.writeShellScriptBin "micasa-website" ''
+            rm -rf website/docs
+            ${pkgs.hugo}/bin/hugo --source docs --baseURL /docs/ --destination ../website/docs
             ${pkgs.python3}/bin/python3 -m http.server 0 -d website
+          '';
+          docs = pkgs.writeShellScriptBin "micasa-docs" ''
+            ${pkgs.hugo}/bin/hugo server --source docs --baseURL /docs/ --bind 0.0.0.0
           '';
           record-demo = pkgs.writeShellApplication {
             name = "record-demo";
@@ -258,6 +264,7 @@
           default = flake-utils.lib.mkApp { drv = micasa; };
           website = flake-utils.lib.mkApp { drv = self.packages.${system}.website; };
           record-demo = flake-utils.lib.mkApp { drv = self.packages.${system}.record-demo; };
+          docs = flake-utils.lib.mkApp { drv = self.packages.${system}.docs; };
         };
 
         formatter = pkgs.nixpkgs-fmt;

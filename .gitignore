@@ -37,6 +37,11 @@ result-*
 # Editor
 .cursor/
 
+# Hugo output
+docs/public/
+docs/resources/
+website/docs/
+
 # Env / local
 .env
 .pre-commit-config.yaml
