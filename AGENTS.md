@@ -706,6 +706,11 @@ in case things crash or otherwise go haywire, be diligent about this.
   - Removed `dashboardTabsView()`; background shows normal tab bar
   - Dashboard box: rounded border, accent color, max 78 wide, capped to terminal height
   - Updated 3 tests: overlay content, composite rendering, status bar independence
+- [HELP-OVERLAY] Help screen as stacking overlay with background dimming
+  - `buildView()` chains overlays: base -> dashboard (if shown) -> help (if shown); each layer dims the one below via `dimBackground()` + `cancelFaint()`
+  - `cancelFaint()` prepends `\033[22m` (normal intensity) to each foreground line so ANSI faint from dimmed background doesn't bleed into overlay content
+  - `buildHelpOverlay()` delegates to existing `helpView()` which already renders bordered box
+  - Stacking works: `?` on dashboard shows help over dimmed dashboard over dimmed table
 
 # Remaining work
 
@@ -780,9 +785,9 @@ in case things crash or otherwise go haywire, be diligent about this.
 
 - [DASH-OVERLAY-STYLE] Revisit dashboard overlay styling -- noodle on dim/bg
   approach, make it feel polished.
-- [HELP-OVERLAY] Convert help screen to an overlay using bubbletea-overlay.
+- [HELP-OVERLAY] ~~Convert help screen to an overlay using bubbletea-overlay.
   Must support stacking on top of the dashboard overlay (dimming the layer
-  beneath).
+  beneath).~~ DONE
 
 ## Docs
 

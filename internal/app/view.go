@@ -12,9 +12,6 @@ import (
 )
 
 func (m *Model) buildView() string {
-	if m.showHelp {
-		return m.helpFullScreen()
-	}
 	if m.mode == modeForm && m.form != nil && m.formKind == formHouse {
 		return m.formFullScreen()
 	}
@@ -23,8 +20,12 @@ func (m *Model) buildView() string {
 
 	if m.showDashboard {
 		fg := cancelFaint(m.buildDashboardOverlay())
-		dimmed := dimBackground(base)
-		return overlay.Composite(fg, dimmed, overlay.Center, overlay.Center, 0, 0)
+		base = overlay.Composite(fg, dimBackground(base), overlay.Center, overlay.Center, 0, 0)
+	}
+
+	if m.showHelp {
+		fg := cancelFaint(m.buildHelpOverlay())
+		base = overlay.Composite(fg, dimBackground(base), overlay.Center, overlay.Center, 0, 0)
 	}
 
 	return base
@@ -330,8 +331,9 @@ func (m *Model) formFullScreen() string {
 	return m.centerPanel(panel, 1)
 }
 
-func (m *Model) helpFullScreen() string {
-	return m.centerPanel(m.helpView(), 0)
+func (m *Model) buildHelpOverlay() string {
+	// helpView() already renders a bordered box with padding.
+	return m.helpView()
 }
 
 // centerPanel centers a rendered panel within the terminal dimensions.
