@@ -535,6 +535,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 
 # Completed work
 
+- [REF-SCROLL] Refactor width/scroll implementation (fb84d4e, a46f34a, 9ca4f6e, 1bfa3cb)
 - [README] project README with features, keybindings, architecture, install instructions
 - Appliances tab, FK links on Maintenance/Quotes, enter follows link, relation indicators in headers (f61993b, 03af1e1)
 - [HOUSE-UX] redesign house profile: middot-separated inline text, no chip borders (9deaba7)
@@ -699,6 +700,16 @@ in case things crash or otherwise go haywire, be diligent about this.
   - 14 new tests: clamp lines, truncate left, viewport range, cursor visibility, sort adjustment
 - [HELP-OVERLAY] Help as stacking overlay via `overlay.Composite()`
 
+## 2026-02-09 Session 19
+
+**User request**: Refactor the width/scroll implementation; one commit per refactor.
+
+**Work done**:
+- `refactor(ui): update table viewport in Update, not View` (fb84d4e)
+- `refactor(ui): extract table viewport computation` (a46f34a)
+- `refactor(ui): fix truncateLeft width accounting` (9ca4f6e)
+- `refactor(ui): minor viewport/header cleanups` (1bfa3cb)
+
 ## 2026-02-09 Session 17
 
 **User request**: Implement [WEBSITE-CHIMNEY] -- animated chimney smoke with random zig-zag particles on the website hero house.
@@ -737,6 +748,8 @@ in case things crash or otherwise go haywire, be diligent about this.
 # Remaining work
 
 ## Features
+- [REF-SCROLL] ~~Refactor width/scroll implementation (pure rendering, extract
+  viewport helper, fix left-truncation), one commit per refactor.~~ DONE
 - [WEBSITE] Help me build a `github-pages` website for this project. Modern,
   simple, not AI sloppish, whimsical, funny, perhaps even a bit snarky and
   irreverent. Ideally this wouldn't require a bunch of random javascript crap
