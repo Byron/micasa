@@ -19,7 +19,7 @@
 <header class="hero">
   <div class="container">
     <div class="hero-house" aria-hidden="true">
-      &#x2584;&#x2593;&#x2584;<br>
+      &nbsp;&nbsp;&nbsp;&nbsp;&#x2584;&#x2593;&#x2584;<span class="chimney-anchor chimney">&#x2588;<span class="smoke-bed" id="smoke-bed" aria-hidden="true"></span></span>&nbsp;&nbsp;&nbsp;<br>
       &#x2584;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2584;<br>
       &#x2584;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2584;<br>
       &#x2588;&#x2588; &#x2591;&#x2591; &#x2591;&#x2591; &#x2588;&#x2588;<br>
@@ -213,6 +213,100 @@ micasa          # start fresh with your own house</code></pre>
       cycle();
     });
   }, PAUSE);
+})();
+</script>
+
+<script>
+// Chimney smoke particle system
+(function () {
+  var bed = document.getElementById('smoke-bed');
+  if (!bed) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  // Mostly light block chars for a wispy look
+  var glyphs = ['\u2591', '\u2591', '\u2591', '\u2592'];
+  var particles = [];
+  var MAX_PARTICLES = 5;
+
+  function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
+
+  function spawn() {
+    if (particles.length < MAX_PARTICLES) {
+      var el = document.createElement('span');
+      el.className = 'smoke-particle';
+      el.textContent = glyphs[Math.floor(Math.random() * glyphs.length)];
+      bed.appendChild(el);
+
+      particles.push({
+        el: el,
+        age: 0,
+        lifetime: rand(3000, 5000),
+        x0: rand(-0.2, 0.2),
+        // Primary wobble: gentle sway
+        amp1: rand(0.15, 0.4),
+        freq1: rand(0.8, 1.6),
+        phase1: rand(0, Math.PI * 2),
+        // Secondary wobble: subtle jitter
+        amp2: rand(0.05, 0.12),
+        freq2: rand(2.5, 4.0),
+        phase2: rand(0, Math.PI * 2),
+        rise: rand(0.8, 1.4),
+        drift: rand(-0.05, 0.3),
+        scaleEnd: rand(1.2, 1.6),
+        peakAlpha: rand(0.7, 0.9)
+      });
+    }
+
+    setTimeout(spawn, rand(800, 1500));
+  }
+
+  var last = 0;
+  function tick(now) {
+    if (!last) last = now;
+    var dt = Math.min((now - last) / 1000, 0.1); // cap dt to avoid jumps
+    last = now;
+
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      p.age += dt * 1000;
+      var t = p.age / p.lifetime; // normalized 0..1
+
+      if (t >= 1) {
+        p.el.remove();
+        particles.splice(i, 1);
+        continue;
+      }
+
+      // Rise
+      var y = p.rise * (p.age / 1000);
+
+      // Zig-zag: two overlaid sine waves, amplitude grows with age
+      var wobble1 = Math.sin(p.freq1 * t * Math.PI * 2 + p.phase1) * p.amp1;
+      var wobble2 = Math.sin(p.freq2 * t * Math.PI * 2 + p.phase2) * p.amp2;
+      var x = p.x0 + (wobble1 + wobble2) * t + p.drift * t;
+
+      // Scale grows gently
+      var scale = 1 + (p.scaleEnd - 1) * t;
+
+      // Opacity: quick fade-in, long fade-out
+      var alpha;
+      if (t < 0.12) {
+        alpha = (t / 0.12) * p.peakAlpha;
+      } else {
+        alpha = p.peakAlpha * (1 - (t - 0.12) / 0.88);
+      }
+
+      p.el.style.transform =
+        'translate(' + x.toFixed(2) + 'em, -' + y.toFixed(2) + 'em) scale(' + scale.toFixed(2) + ')';
+      p.el.style.opacity = alpha.toFixed(3);
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  // Kick off
+  spawn();
+  requestAnimationFrame(tick);
 })();
 </script>
 </body>

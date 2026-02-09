@@ -678,6 +678,22 @@ in case things crash or otherwise go haywire, be diligent about this.
   - **Tests**: 6 data-layer tests (schedule, active projects, warranties, recent logs, spending) + 12 app-layer tests (daysUntil, daysLabel, sort, cap, toggle, dismiss, blocking, empty/populated views, tab bar, status bar) -- 154 total tests passing
   - Added nil guards on `reloadActiveTab`/`reloadAllTabs` for store-less test models
 
+## 2026-02-09 Session 17
+
+**User request**: Implement [WEBSITE-CHIMNEY] -- animated chimney smoke with random zig-zag particles on the website hero house.
+
+**Work done**:
+- [WEBSITE-CHIMNEY] Replaced 3 static CSS-animated smoke spans with a JS particle system
+  - `smoke-bed` container positioned above chimney, JS spawns `smoke-particle` spans on a timer (350-700ms stagger)
+  - Each particle has fully randomized properties: lifetime (2.5-4.5s), rise speed, two overlapping sine-wave wobbles (different freq/amp/phase), wind drift, scale growth, peak opacity
+  - Multi-harmonic zig-zag: primary low-freq wide wobble + secondary high-freq jitter = organic smoke movement
+  - Block character mix (░, ▒, ▓) with density-weighted distribution (more light ░ for wispy look)
+  - `requestAnimationFrame` loop with dt capping; particles auto-removed from DOM when faded
+  - Max 10 concurrent particles; `prefers-reduced-motion` respected (no particles spawned)
+  - CSS: removed `@keyframes smoke-drift` and static `.smoke-*` rules; added `.smoke-bed` + `.smoke-particle` with `will-change: transform, opacity`
+  - Fixed chimney detachment: `top: -0.65em` -> `top: -0.15em` so chimney bottom overlaps first roof line
+  - Dialed smoke down: max 5 particles (was 10), spawn every 800-1500ms (was 350-700), peak opacity 0.12-0.3 (was 0.25-0.5), slower rise, gentler scale growth, mostly light ░ glyphs
+
 # Remaining work
 
 ## Features
