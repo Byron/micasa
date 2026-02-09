@@ -795,6 +795,23 @@ in case things crash or otherwise go haywire, be diligent about this.
 - Docs linked from website hero CTA + footer, README "Documentation" section
 - [VHS-SCREENSHOTS] Switched from asciinema+agg to VHS (Charmbracelet) for screenshots. VHS renders through headless Chrome + ttyd so `lipgloss.AdaptiveColor` 24-bit colors render correctly (agg's 16-color theme mapping was the root cause of "redacted legal docs"). 9 tape files in `docs/tapes/`, each produces a crisp PNG via VHS `Screenshot` command. `capture-screenshots` nix app runs all tapes (or `ONLY=name` for one). Appliances tape uses 1800px width so all 10 columns fit. Dracula theme, JetBrains Mono 14px, 1400x900 default.
 
+## 2026-02-09 Session 19
+
+**User request**: Fix colorless VHS screenshots (user provided good.png vs bad.png for comparison).
+
+**Root cause**: Cursor shell environment sets `NO_COLOR=1` and `TERM=dumb`. VHS inherits these, passes them to the spawned terminal, and lipgloss emits zero color codes.
+
+**Fix**: Added `Env` overrides to all 9 VHS tape files: `NO_COLOR ""`, `TERM "xterm-256color"`, `COLORTERM "truecolor"`, `COLORFGBG "15;0"`.
+
+**Work done**:
+- All 8 of 9 screenshots regenerated with full Wong palette colors (4e415fa)
+- Replaced asciinema+agg+tmux pipeline in flake.nix with VHS-based `capture-screenshots`
+- Added `build-docs` nix app, `pkgs.vhs` to devShell, skip `debug.tape` in capture script
+- New hard rules: "Quote nix flake refs" and "Dynamic nix store paths"
+- Cleaned up temp files (good.png, bad.png, debug-vhs.png, test_output.gif, debug.tape, test.tape)
+
+**WIP**: `house-profile.tape` -- VHS `Screenshot` silently produces no file when the `H` key has been pressed (toggles house profile expansion in micasa). All other tapes work. Without `H`, the same tape works. Not a timing issue (tested with 3s+ sleeps). Needs further investigation -- possibly VHS Chrome rendering fails on the expanded house profile view.
+
 # Remaining work
 
 ## Features
