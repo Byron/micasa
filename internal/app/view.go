@@ -646,27 +646,33 @@ func clampLines(s string, maxW int) string {
 // truncateLeft trims s from the left so the result fits within maxW visible
 // columns, prepending "…" when truncation occurs.
 func truncateLeft(s string, maxW int) string {
-	w := lipgloss.Width(s)
-	if w <= maxW {
+	if maxW <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= maxW {
 		return s
 	}
-	// Walk runes from the end, accumulating width.
+	ellipsis := "…"
+	ellW := lipgloss.Width(ellipsis)
+	if maxW <= ellW {
+		return ansi.Truncate(s, maxW, "")
+	}
+
+	// Walk runes from the end, accumulating visible width, until adding another
+	// rune would exceed maxW once we include the ellipsis.
 	runes := []rune(s)
-	kept := 0
+	keptW := 0
+	cut := len(runes)
 	for i := len(runes) - 1; i >= 0; i-- {
 		cw := lipgloss.Width(string(runes[i]))
-		if kept+cw+1 > maxW { // +1 for the "…"
+		if keptW+cw+ellW > maxW {
 			break
 		}
-		kept += cw
-	}
-	cut := len(runes) - kept // rune index to start keeping from (approximate)
-	// Re-measure to be safe with combining characters.
-	for cut < len(runes) && lipgloss.Width("…"+string(runes[cut:])) > maxW {
-		cut++
+		keptW += cw
+		cut = i
 	}
 	if cut >= len(runes) {
 		return ansi.Truncate(s, maxW, "")
 	}
-	return "…" + string(runes[cut:])
+	return ellipsis + string(runes[cut:])
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/cpcloud/micasa/internal/data"
 )
 
@@ -466,8 +467,8 @@ func TestTruncateLeftBasic(t *testing.T) {
 	if !strings.HasSuffix(got, "data.db") {
 		t.Fatalf("expected to end with data.db, got %q", got)
 	}
-	if len([]rune(got)) > 15 {
-		t.Fatalf("expected width <= 15, got %q (len %d)", got, len([]rune(got)))
+	if lipgloss.Width(got) > 15 {
+		t.Fatalf("expected width <= 15, got %q (width %d)", got, lipgloss.Width(got))
 	}
 }
 
