@@ -274,6 +274,9 @@ These have been repeatedly requested. Violating them wastes the user's time.
   third-party dependency, review its source for security issues (injection
   risks, unsafe env var handling, network calls, file writes outside
   expected paths) before integrating.
+- **Pin Actions to version tags**: In GitHub Actions workflows, always use
+  versioned tags (e.g. `@v3.93.1`) instead of named refs like `@main` or
+  `@latest`.
 - **Nix vendorHash after dep changes**: After adding or updating a Go
   dependency, run `nix build '.#micasa'`. If it fails with a hash mismatch,
   temporarily set `vendorHash = lib.fakeHash;` (not `""`) to get the
