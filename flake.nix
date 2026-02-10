@@ -328,11 +328,14 @@
             config = {
               Entrypoint = [ "/bin/micasa" ];
               Labels = {
+                "org.opencontainers.image.title" = "micasa";
                 "org.opencontainers.image.description" =
                   "Terminal UI for managing home projects and maintenance";
                 "org.opencontainers.image.source" =
                   "https://github.com/cpcloud/micasa";
                 "org.opencontainers.image.url" = "https://micasa.dev";
+                "org.opencontainers.image.documentation" =
+                  "https://micasa.dev/docs/";
                 "org.opencontainers.image.licenses" = "Apache-2.0";
               };
             };
