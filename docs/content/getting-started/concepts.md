@@ -31,6 +31,8 @@ erDiagram
     Project }o--|| ProjectType : "categorized by"
 ```
 
+### Why this matters
+
 The `Type` column is a select drawn from pre-seeded project types. This keeps
 naming consistent -- you won't end up with "Renovation", "renovation", and
 "Reno" as three separate categories.
@@ -49,6 +51,8 @@ erDiagram
     Quote }o--|| Project : "for"
     Quote }o--|| Vendor : "from"
 ```
+
+### Why this matters
 
 Every quote belongs to a project and comes from a vendor. In the UI this
 means:
@@ -77,6 +81,8 @@ erDiagram
     MaintenanceItem }o--o| Appliance : "linked to"
 ```
 
+### Why this matters
+
 Categories work like project types -- a fixed set so filtering and sorting
 stays clean. The appliance link is optional (not every task involves a specific
 piece of equipment), but when present it lets you:
@@ -103,6 +109,8 @@ erDiagram
     ServiceLogEntry }o--o| Vendor : "performed by"
 ```
 
+### Why this matters
+
 Service log entries live inside a maintenance item (you get to them by
 drilling down from the `Log` column), so they always have context -- you never
 see a floating service record without knowing what it was for. The optional
@@ -120,6 +128,8 @@ Physical equipment in your home. Each appliance tracks:
 - Linked maintenance: the `Maint` column shows how many maintenance
   items reference this appliance. Press `enter` to drill into them.
 
+### Why this matters
+
 Appliances are referenced by maintenance items, so the relationship flows the
 other way: you don't pick maintenance tasks from the appliance form, you pick
 an appliance from the maintenance form. But the `Maint` drilldown column gives
@@ -132,6 +142,8 @@ Vendors are shared entities created through the Quotes and Service Log forms.
 When you add a quote or service log entry, you type a vendor name; micasa
 finds or creates the vendor record. Vendors have name, contact name, email,
 phone, website, and notes.
+
+### Why this matters
 
 Because vendors are shared, updating a vendor's phone number in one place
 updates it everywhere. You won't end up with "Acme Plumbing" and
