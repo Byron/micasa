@@ -844,6 +844,21 @@ in case things crash or otherwise go haywire, be diligent about this.
   - Fixed chimney smoke after rebuild: smoke particle system re-queries `smoke-bed` DOM element on each spawn instead of caching stale reference
   - Removed all stick figure / side door CSS (`.stick-figure`, `.side-door`, `.walking`)
 
+## 2026-02-10 Session 27
+
+**User request**: Full security/privacy audit before making repo public. Then quick-win feature batch.
+
+**Security audit**: Comprehensive scan covering secrets, PII, git history, .gitignore, CI workflows, deps (govulncheck), demo data, license compliance, AGENTS.md content. Verdict: safe to make public. One non-blocking finding: Go stdlib vuln GO-2026-4341 (fix: update to 1.25.7+). User discussed keeping AGENTS.md/PLANS.md in repo (decided: keep for agent context persistence).
+
+**Work done** (see git log for details):
+- [NORMAL-TO-NAV] Renamed NORMAL badge to NAV in status bar, help overlay ("Nav Mode"), and all tests
+- [APPLIANCEAGE] Computed Age column on Appliances: `applianceAge()` function, `time.Now()` passed through `applianceRows`, readonly column between Purchased and Warranty, inline edit mapping shifted (col 7=Age readonly, 8=Warranty, 9=Cost, 10=Maint), 6 subtests
+- [WARRANTY-INDICATOR] New `cellWarranty` kind with `warrantyStyle()`: green if active, red if expired; applied to Warranty column on appliances
+- [STYLING-TIME-TO-MAINT] New `cellUrgency` kind with `urgencyStyle()`: 4-tier coloring (>60d=green, 30-60d=yellow, 0-30d=orange, <0=bold red); applied to Next Due on maintenance + appliance maintenance detail
+- [SOFT-DELETE-DOCS] `TestSoftDeletePersistsAcrossRuns`: creates project, soft-deletes, closes DB, reopens, verifies hidden/restorable; updated data-storage.md
+- [ATTRIBUTION] Verified already done in website footer + README
+- Sort comparator updated to handle new `cellUrgency`/`cellWarranty` as date types
+
 # Completed work
 
 - [REF-SCROLL] Refactor width/scroll implementation (fb84d4e, a46f34a, 9ca4f6e, 1bfa3cb)
@@ -915,6 +930,12 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [XDG-LIB] switched to adrg/xdg for platform-aware data paths (Linux/macOS/Windows)
 - [PRINT-PATH] `--print-path` flag: resolves and prints db path to stdout, exits 0
 - [PIN-ACTIONS] pin all GitHub Actions to commit SHAs + Renovate config for automated updates
+- [NORMAL-TO-NAV] rename NORMAL badge to NAV (c1c7214)
+- [APPLIANCEAGE] computed Age column on Appliances from PurchaseDate (c1c7214)
+- [WARRANTY-INDICATOR] green/red warranty status coloring on appliances (c1c7214)
+- [STYLING-TIME-TO-MAINT] 4-tier urgency coloring on Next Due column (c1c7214)
+- [SOFT-DELETE-DOCS] verified cross-session persistence + updated docs (c1c7214)
+- [ATTRIBUTION] already done -- website footer + README credit Claude/Cursor
 
 # Remaining work
 
@@ -934,17 +955,13 @@ in case things crash or otherwise go haywire, be diligent about this.
   adjusts a nice little terminal calendar based on what the user has typed in
   so far?
 - [HOTNESS-KEYS] ~~in nav mode, ^ should go to the first column, $ to the last~~ DONE
-- [NORMAL-TO-NAV] change the NORMAL label to NAV
-- [STYLING-TIME-TO-MAINT] add a gradient from say green to orange to red (where
+- [NORMAL-TO-NAV] ~~change the NORMAL label to NAV~~ DONE
+- [STYLING-TIME-TO-MAINT] ~~add a gradient from say green to orange to red (where
   green means maintenance is not due for a long time, orange means it's coming
   up, and red means it's overdue) to the background of the "Next Due" column on
-  the maintenance tab. This would be a nice visual indicator of which items
-  need attention soon. Maybe make a computed column that contains days until
-  next maintenance and base the gradient on that, so we can have consistent
-  thresholds for the colors across all items.
-- [APPLIANCEAGE] Add an Age column to the Appliances table, it should be
-  read-only and computed from purchase date and the current date based on the
-  current time zone. I don't think this should involve a data model change, let me know if it does.
+  the maintenance tab.~~ DONE
+- [APPLIANCEAGE] ~~Add an Age column to the Appliances table, it should be
+  read-only and computed from purchase date and the current date.~~ DONE
 - [HIDECOLS-INTERACTIVE] Make the collapsed column stacks interactive: navigate to
   a candy-wrapper pill and press c to unhide just that column (peel it off the
   stack). Currently c hides and C shows all; this would add per-column restore.
@@ -972,9 +989,8 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [SEASONAL-CHECKLISTS] Recurring seasonal reminders not tied to a specific
   appliance or interval (e.g. "clean gutters in spring", "check weatherstripping
   before winter"). Could be a lightweight checklist model with season/month tags.
-- [WARRANTY-INDICATOR] Visual indicator on appliances for warranty status: green
-  if still covered, red/dim if expired. WarrantyExpiry field already exists;
-  this is purely a rendering enhancement.
+- [WARRANTY-INDICATOR] ~~Visual indicator on appliances for warranty status: green
+  if still covered, red/dim if expired.~~ DONE
 - [NOTES-EXPAND] Read-only note preview: enter or a dedicated key on a notes
   cell expands to show the full text in a popup/overlay, without entering edit
   mode.
@@ -988,9 +1004,9 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [QUICK-ADD-FORM] Lighter-weight add forms: only require essential fields
   (title + status for projects, name + interval for maintenance), let user fill
   in optional details later via edit.
-- [SOFT-DELETE-DOCS] verify that soft deletion works across runs and if it does
+- [SOFT-DELETE-DOCS] ~~verify that soft deletion works across runs and if it does
   then note in the soft delete section that this functionality works even
-  across runs
+  across runs~~ DONE
 
 - [WEBSITE-DESLOP] ~~Remove "close the laptop, reopen the laptop" AI-slop from
   quotes feature blurb on website and README.~~ DONE
@@ -1003,7 +1019,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 ## Docs
 
 - [DOCS] ~~Build out project documentation, deploy to micasa.dev/docs via CI~~ switched to Hugo, screenshots added
-- [ATTRIBUTION] ensure that claude, codex and cursor are ack'd in the built with section
+- [ATTRIBUTION] ~~ensure that claude, codex and cursor are ack'd in the built with section~~ DONE (website footer + README)
 
 ## Bugs
 
