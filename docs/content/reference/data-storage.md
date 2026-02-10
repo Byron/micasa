@@ -74,6 +74,20 @@ micasa uses GORM's soft delete feature. When you delete an item, it sets a
   are still hidden (but restorable). Nothing is ever permanently lost unless
   you edit the database file directly
 
+### Referential integrity guards
+
+Soft deletion respects foreign key relationships:
+
+- **Delete guards**: you cannot delete a parent record that has active
+  children. For example, deleting a project that still has quotes is refused
+  with an actionable error message ("delete its quotes first").
+- **Restore guards**: you cannot restore a child record whose parent is
+  deleted. For example, restoring a quote whose project is deleted is refused
+  ("restore the project first").
+- These guards apply at every FK level: projects/quotes,
+  maintenance/service logs, and appliances/maintenance (including nullable
+  links where a value was set).
+
 ## Portability
 
 The database is a standard SQLite file. You can:

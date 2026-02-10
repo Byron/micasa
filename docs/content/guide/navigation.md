@@ -12,7 +12,7 @@ micasa uses vim-style modal keybindings. There are three modes: **Normal**,
 
 ## Normal mode
 
-Normal mode is the default. The status bar shows a blue **NORMAL** badge. You
+Normal mode is the default. The status bar shows a blue **NAV** badge. You
 have full table navigation:
 
 | Key         | Action               |
@@ -70,9 +70,9 @@ Edit).
 
 ## Tabs
 
-The main data lives in four tabs: **Projects**, **Quotes**, **Maintenance**,
-and **Appliances**. Use `tab` / `shift+tab` to cycle between them. The active
-tab is highlighted in the tab bar.
+The main data lives in five tabs: **Projects**, **Quotes**, **Maintenance**,
+**Appliances**, and **Vendors**. Use `tab` / `shift+tab` to cycle between
+them. The active tab is highlighted in the tab bar.
 
 ## Detail views
 

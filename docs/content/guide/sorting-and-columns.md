@@ -43,6 +43,14 @@ is priority 1, the second is priority 2, etc.
 Press `S` (capital S) to clear all sort criteria and return to default PK
 ordering.
 
+## Fuzzy column finder
+
+Press `/` in Normal mode to open a fuzzy finder overlay. Type to filter
+columns by name -- matched characters are highlighted. Use `up`/`down` to
+navigate the list, `enter` to jump to the selected column, `esc` to cancel.
+
+Jumping to a hidden column automatically unhides it.
+
 ## Column hiding
 
 You can hide columns you don't need to reduce noise. This is session-only --

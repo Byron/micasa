@@ -28,6 +28,8 @@ internal/
     sort.go          Multi-column sort logic
     undo.go          Undo/redo stack
     form_select.go   Select field ordinal jumping
+    calendar.go      Inline date picker overlay
+    column_finder.go Fuzzy column jump overlay
   data/              Data access layer
     models.go        GORM models (HouseProfile, Project, etc.)
     store.go         Store struct, CRUD methods, queries
@@ -60,10 +62,13 @@ micasa uses three modes: Normal, Edit, and Form. The key dispatch chain in
 1. Window resize handling
 2. `ctrl+c` always quits
 3. Help overlay intercepts `esc`/`?` when open
-4. Form mode delegates to `huh` form library
-5. Dashboard intercepts nav keys when visible
-6. Common keys (shared by Normal and Edit)
-7. Mode-specific keys
+4. Note preview overlay: any key dismisses
+5. Calendar date picker: absorbs all keys when open
+6. Column finder overlay: absorbs all keys when open
+7. Form mode delegates to `huh` form library
+8. Dashboard intercepts nav keys when visible
+9. Common keys (shared by Normal and Edit)
+10. Mode-specific keys
 
 The `bubbles/table` widget has its own vim keybindings. In Edit mode, `d` and
 `u` are stripped from the table's KeyMap so they can be used for delete/undo
@@ -107,7 +112,8 @@ the detail tab (if open), and the dashboard (if visible).
 
 ## Overlays
 
-Dashboard and help are rendered as overlays using
+Dashboard, help, calendar, column finder, and note preview are rendered as
+overlays using
 [bubbletea-overlay](https://github.com/rmhubbert/bubbletea-overlay). They
-composite on top of the live table view. Help can stack on top of the
-dashboard (dimming the layer beneath).
+composite on top of the live table view with dimmed backgrounds. Overlays can
+stack (e.g. help on top of dashboard).
