@@ -1,5 +1,7 @@
 Require micasa
 
+Output docs/static/images/quotes.gif
+
 Set Shell bash
 Set FontFamily "JetBrains Mono"
 Set FontSize 14
@@ -18,7 +20,6 @@ Hide
 Type "micasa --demo"
 Enter
 Sleep 4s
-# Dismiss dashboard, switch to Quotes
 Type "D"
 Sleep 0.5s
 Tab
@@ -26,5 +27,3 @@ Sleep 1s
 Show
 
 Sleep 1.5s
-
-Screenshot docs/static/images/quotes.png

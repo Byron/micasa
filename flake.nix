@@ -252,11 +252,25 @@
               micasa
               pkgs.vhs
               pkgs.imagemagick
+              pkgs.jetbrains-mono
             ];
             text = ''
+              # Make JetBrains Mono visible to Chrome inside VHS
+              FC_CONF=$(mktemp --suffix=.conf)
+              cat > "$FC_CONF" <<FCXML
+              <?xml version="1.0"?>
+              <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+              <fontconfig>
+                <include>/etc/fonts/fonts.conf</include>
+                <dir>${pkgs.jetbrains-mono}/share/fonts</dir>
+                <cachedir>/tmp/fc-cache-screenshots</cachedir>
+              </fontconfig>
+              FCXML
+              export FONTCONFIG_FILE="$FC_CONF"
+
               TAPES="docs/tapes"
-              OUT="docs/static/images"
-              mkdir -p "$OUT"
+                OUT="docs/static/images"
+                mkdir -p "$OUT"
 
               # Run a single tape or all tapes
               if [[ -n "''${ONLY:-}" ]]; then

@@ -1,5 +1,7 @@
 Require micasa
 
+Output docs/static/images/sorting.gif
+
 Set Shell bash
 Set FontFamily "JetBrains Mono"
 Set FontSize 14
@@ -18,7 +20,6 @@ Hide
 Type "micasa --demo"
 Enter
 Sleep 4s
-# Dismiss dashboard, sort by Title asc then Status asc
 Type "D"
 Sleep 0.5s
 Type "ll"
@@ -32,5 +33,3 @@ Sleep 0.8s
 Show
 
 Sleep 1.5s
-
-Screenshot docs/static/images/sorting.png

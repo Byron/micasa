@@ -1,5 +1,7 @@
 Require micasa
 
+Output docs/static/images/projects.gif
+
 Set Shell bash
 Set FontFamily "JetBrains Mono"
 Set FontSize 14
@@ -18,11 +20,8 @@ Hide
 Type "micasa --demo"
 Enter
 Sleep 4s
-# Dismiss dashboard
 Type "D"
 Sleep 1s
 Show
 
 Sleep 1.5s
-
-Screenshot docs/static/images/projects.png

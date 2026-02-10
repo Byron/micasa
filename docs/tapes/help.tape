@@ -1,5 +1,7 @@
 Require micasa
 
+Output docs/static/images/help.gif
+
 Set Shell bash
 Set FontFamily "JetBrains Mono"
 Set FontSize 14
@@ -18,7 +20,6 @@ Hide
 Type "micasa --demo"
 Enter
 Sleep 4s
-# Dismiss dashboard, open help
 Type "D"
 Sleep 0.5s
 Type "?"
@@ -26,5 +27,3 @@ Sleep 2s
 Show
 
 Sleep 1.5s
-
-Screenshot docs/static/images/help.png

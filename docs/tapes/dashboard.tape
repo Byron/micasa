@@ -1,5 +1,7 @@
 Require micasa
 
+Output docs/static/images/dashboard.gif
+
 Set Shell bash
 Set FontFamily "JetBrains Mono"
 Set FontSize 14
@@ -21,5 +23,3 @@ Sleep 4s
 Show
 
 Sleep 2s
-
-Screenshot docs/static/images/dashboard.png
