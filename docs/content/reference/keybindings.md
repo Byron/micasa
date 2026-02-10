@@ -52,7 +52,7 @@ Complete reference of every keybinding in micasa, organized by mode.
 
 | Key     | Action |
 |---------|--------|
-| `enter` | Drilldown into detail view, or follow FK link |
+| `enter` | Drilldown into detail view, follow FK link, or preview notes |
 | `i`     | Enter Edit mode |
 | `?`     | Open help overlay |
 | `q`     | Quit (exit code 0) |
@@ -75,7 +75,7 @@ Same as Normal mode, except `d` and `u` are rebound:
 | Key   | Action |
 |-------|--------|
 | `a`   | Add new entry to current tab |
-| `e`   | Edit current cell inline, or full form if cell is read-only |
+| `e`   | Edit current cell inline (date columns open calendar picker), or full form if cell is read-only |
 | `d`   | Toggle delete/restore on selected row |
 | `x`   | Toggle visibility of soft-deleted rows |
 | `p`   | Edit house profile |
@@ -106,6 +106,24 @@ When the dashboard overlay is open:
 | `tab`     | Dismiss dashboard and switch tab |
 | `?`       | Open help overlay (stacks on dashboard) |
 | `q`       | Quit |
+
+## Date picker
+
+When inline editing a date column, a calendar widget opens instead of a text
+input:
+
+| Key       | Action |
+|-----------|--------|
+| `h`/`l`   | Move one day left/right |
+| `j`/`k`   | Move one week down/up |
+| `H`/`L`   | Move one month back/forward |
+| `enter`   | Pick the highlighted date |
+| `esc`     | Cancel (keep original value) |
+
+## Note preview
+
+Press `enter` on a notes column (e.g., service log Notes) to open a read-only
+overlay showing the full text. Any key dismisses it.
 
 ## Help overlay
 

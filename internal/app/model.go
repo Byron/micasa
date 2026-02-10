@@ -6,6 +6,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -13,6 +14,8 @@ import (
 	"github.com/cpcloud/micasa/internal/data"
 	"gorm.io/gorm"
 )
+
+const keyEsc = "esc"
 
 type Model struct {
 	store                 *data.Store
@@ -29,6 +32,7 @@ type Model struct {
 	showNotePreview       bool
 	notePreviewText       string
 	notePreviewTitle      string
+	calendar              *calendarState
 	dashboard             dashboardData
 	dashCursor            int
 	dashNav               []dashNavEntry
@@ -100,7 +104,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.showHelp {
 		if keyMsg, ok := msg.(tea.KeyMsg); ok {
 			switch keyMsg.String() {
-			case "esc", "?":
+			case keyEsc, "?":
 				m.showHelp = false
 			}
 		}
@@ -113,6 +117,14 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showNotePreview = false
 			m.notePreviewText = ""
 			m.notePreviewTitle = ""
+		}
+		return m, nil
+	}
+
+	// Calendar date picker: absorb all keys.
+	if m.calendar != nil {
+		if keyMsg, ok := msg.(tea.KeyMsg); ok {
+			return m.handleCalendarKey(keyMsg)
 		}
 		return m, nil
 	}
@@ -317,7 +329,7 @@ func (m *Model) handleNormalKeys(key tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, true
 	case "q":
 		return tea.Quit, true
-	case "esc":
+	case keyEsc:
 		if m.detail != nil {
 			m.closeDetail()
 			return nil, true
@@ -422,11 +434,68 @@ func (m *Model) handleEditKeys(key tea.KeyMsg) (tea.Cmd, bool) {
 	case "p":
 		m.startHouseForm()
 		return m.formInitCmd(), true
-	case "esc":
+	case keyEsc:
 		m.enterNormalMode()
 		return nil, true
 	}
 	return nil, false
+}
+
+func (m *Model) handleCalendarKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch key.String() {
+	case "h", "left":
+		calendarMove(m.calendar, -1)
+	case "l", "right":
+		calendarMove(m.calendar, 1)
+	case "j", "down":
+		calendarMove(m.calendar, 7)
+	case "k", "up":
+		calendarMove(m.calendar, -7)
+	case "H":
+		calendarMoveMonth(m.calendar, -1)
+	case "L":
+		calendarMoveMonth(m.calendar, 1)
+	case "enter":
+		m.confirmCalendar()
+	case keyEsc:
+		m.calendar = nil
+	}
+	return m, nil
+}
+
+func (m *Model) confirmCalendar() {
+	if m.calendar == nil {
+		return
+	}
+	dateStr := m.calendar.Cursor.Format("2006-01-02")
+	if m.calendar.FieldPtr != nil {
+		*m.calendar.FieldPtr = dateStr
+	}
+	if m.calendar.OnConfirm != nil {
+		m.calendar.OnConfirm()
+	}
+	m.calendar = nil
+}
+
+// openCalendar opens the date picker for a form field value pointer.
+func (m *Model) openCalendar(fieldPtr *string, onConfirm func()) {
+	cursor := time.Now()
+	var selected time.Time
+	hasValue := false
+	if fieldPtr != nil && *fieldPtr != "" {
+		if t, err := time.Parse("2006-01-02", *fieldPtr); err == nil {
+			cursor = t
+			selected = t
+			hasValue = true
+		}
+	}
+	m.calendar = &calendarState{
+		Cursor:    cursor,
+		Selected:  selected,
+		HasValue:  hasValue,
+		FieldPtr:  fieldPtr,
+		OnConfirm: onConfirm,
+	}
 }
 
 func (m *Model) View() string {

@@ -24,6 +24,11 @@ func (m *Model) buildView() string {
 		base = overlay.Composite(fg, dimBackground(base), overlay.Center, overlay.Center, 0, 0)
 	}
 
+	if m.calendar != nil {
+		fg := cancelFaint(m.buildCalendarOverlay())
+		base = overlay.Composite(fg, dimBackground(base), overlay.Center, overlay.Center, 0, 0)
+	}
+
 	if m.showNotePreview {
 		fg := cancelFaint(m.buildNotePreviewOverlay())
 		base = overlay.Composite(fg, dimBackground(base), overlay.Center, overlay.Center, 0, 0)
@@ -368,6 +373,18 @@ func (m *Model) formFullScreen() string {
 	return m.centerPanel(panel, 1)
 }
 
+func (m *Model) buildCalendarOverlay() string {
+	if m.calendar == nil {
+		return ""
+	}
+	grid := calendarGrid(*m.calendar, m.styles)
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(accent).
+		Padding(1, 2).
+		Render(grid)
+}
+
 func (m *Model) buildNotePreviewOverlay() string {
 	contentW := m.effectiveWidth() - 12
 	if contentW > 72 {
@@ -492,6 +509,16 @@ func (m *Model) helpView() string {
 				{"1-9", "Jump to Nth option (selects only)"},
 				{"ctrl+s", "Save immediately"},
 				{"esc", "Cancel and discard"},
+			},
+		},
+		{
+			title: "Date Picker",
+			bindings: []binding{
+				{"h/l", "Previous/next day"},
+				{"j/k", "Next/previous week"},
+				{"H/L", "Previous/next month"},
+				{"enter", "Pick date"},
+				{"esc", "Cancel"},
 			},
 		},
 	}

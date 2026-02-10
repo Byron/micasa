@@ -1029,3 +1029,15 @@ in case things crash or otherwise go haywire, be diligent about this.
 ## Questions
 - Why are some values pointers to numbers instead of just the number? E.g.,
   HOAFeeCents and PropertyTaxCents. Why aren't those just plain int64s?
+
+## Moar
+- for the calendar widget, let's make ctrl+shift+h/l moves years
+- let's make sure that deleting, even soft deleting doesn't break the model,
+  e.g., if i try to delete a quote that's linked to a project, i get
+  a reasonable error message, probably in the status bar but open to thoughts
+  on where to show it
+- would be nice to have a way to hide completed projects easily. we'll get to
+  the generic way to do that when we implement filter, but i think it will
+  still be useful as a standalone feature
+- seems like vendors should have a drilldown link to quotes, that would effectively show the quote history for a vendor
+- so for the house brick animation on the main website, the reanimation of hte fallen bricks kind of snaps back into place at the last step

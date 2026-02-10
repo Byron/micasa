@@ -679,15 +679,11 @@ func (m *Model) inlineEditProject(id uint, col int) error {
 			Value(&values.Actual).
 			Validate(optionalMoney("actual cost"))
 	case 6:
-		field = huh.NewInput().
-			Title("Start date (YYYY-MM-DD)").
-			Value(&values.StartDate).
-			Validate(optionalDate("start date"))
+		m.openDatePicker(id, formProject, &values.StartDate, values)
+		return nil
 	case 7:
-		field = huh.NewInput().
-			Title("End date (YYYY-MM-DD)").
-			Value(&values.EndDate).
-			Validate(optionalDate("end date"))
+		m.openDatePicker(id, formProject, &values.EndDate, values)
+		return nil
 	default:
 		return m.startEditProjectForm(id)
 	}
@@ -743,10 +739,8 @@ func (m *Model) inlineEditQuote(id uint, col int) error {
 			Value(&values.Other).
 			Validate(optionalMoney("other costs"))
 	case 7:
-		field = huh.NewInput().
-			Title("Received date (YYYY-MM-DD)").
-			Value(&values.ReceivedDate).
-			Validate(optionalDate("received date"))
+		m.openDatePicker(id, formQuote, &values.ReceivedDate, values)
+		return nil
 	default:
 		return m.startEditQuoteForm(id)
 	}
@@ -780,10 +774,8 @@ func (m *Model) inlineEditMaintenance(id uint, col int) error {
 			Options(appOpts...).
 			Value(&values.ApplianceID)
 	case 4:
-		field = huh.NewInput().
-			Title("Last serviced (YYYY-MM-DD)").
-			Value(&values.LastServiced).
-			Validate(optionalDate("last serviced"))
+		m.openDatePicker(id, formMaintenance, &values.LastServiced, values)
+		return nil
 	case 6:
 		field = huh.NewInput().
 			Title("Interval months").
@@ -818,15 +810,11 @@ func (m *Model) inlineEditAppliance(id uint, col int) error {
 	case 5:
 		field = huh.NewInput().Title("Location").Value(&values.Location)
 	case 6:
-		field = huh.NewInput().
-			Title("Purchase date (YYYY-MM-DD)").
-			Value(&values.PurchaseDate).
-			Validate(optionalDate("purchase date"))
+		m.openDatePicker(id, formAppliance, &values.PurchaseDate, values)
+		return nil
 	case 8:
-		field = huh.NewInput().
-			Title("Warranty expiry (YYYY-MM-DD)").
-			Value(&values.WarrantyExpiry).
-			Validate(optionalDate("warranty expiry"))
+		m.openDatePicker(id, formAppliance, &values.WarrantyExpiry, values)
+		return nil
 	case 9:
 		field = huh.NewInput().
 			Title("Cost").
@@ -953,10 +941,8 @@ func (m *Model) inlineEditServiceLog(id uint, col int) error {
 	var field huh.Field
 	switch col {
 	case 1:
-		field = huh.NewInput().
-			Title("Date serviced (YYYY-MM-DD)").
-			Value(&values.ServicedAt).
-			Validate(requiredDate("date serviced"))
+		m.openDatePicker(id, formServiceLog, &values.ServicedAt, values)
+		return nil
 	case 2:
 		field = huh.NewSelect[uint]().
 			Title("Performed by").
@@ -1027,6 +1013,31 @@ func applianceOptions(appliances []data.Appliance) []huh.Option[uint] {
 		options = append(options, huh.NewOption(label, appliance.ID))
 	}
 	return withOrdinals(options)
+}
+
+// openDatePicker opens the calendar picker for an inline date edit.
+// When the user picks a date, the form data is saved via the handler.
+func (m *Model) openDatePicker(
+	id uint,
+	kind FormKind,
+	dateField *string,
+	values any,
+) {
+	m.editID = &id
+	m.formKind = kind
+	m.formData = values
+	m.openCalendar(dateField, func() {
+		m.snapshotForUndo()
+		if err := m.handleFormSubmit(); err != nil {
+			m.setStatusError(err.Error())
+		} else {
+			m.setStatusInfo("Saved.")
+			m.reloadAll()
+		}
+		m.formKind = formNone
+		m.formData = nil
+		m.editID = nil
+	})
 }
 
 // openInlineEdit sets up a single-field inline edit form.
