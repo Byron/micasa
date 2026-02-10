@@ -149,17 +149,32 @@
         packages = {
           inherit micasa;
           default = micasa;
-          build-docs = pkgs.writeShellScriptBin "micasa-build-docs" ''
-            rm -rf website/docs
-            ${pkgs.hugo}/bin/hugo --source docs --baseURL /docs/ --destination ../website/docs
-          '';
-          website = pkgs.writeShellScriptBin "micasa-website" ''
-            ${self.packages.${system}.build-docs}/bin/micasa-build-docs >/dev/null 2>&1
-            ${pkgs.python3Packages.livereload}/bin/livereload website/
-          '';
-          docs = pkgs.writeShellScriptBin "micasa-docs" ''
-            ${pkgs.hugo}/bin/hugo server --source docs --baseURL /docs/ --bind 0.0.0.0
-          '';
+          build-docs = pkgs.writeShellApplication {
+            name = "micasa-build-docs";
+            runtimeInputs = [ pkgs.hugo ];
+            text = ''
+              rm -rf website/docs
+              hugo --source docs --baseURL /docs/ --destination ../website/docs
+            '';
+          };
+          website = pkgs.writeShellApplication {
+            name = "micasa-website";
+            runtimeInputs = [
+              self.packages.${system}.build-docs
+              pkgs.python3Packages.livereload
+            ];
+            text = ''
+              micasa-build-docs >/dev/null 2>&1
+              livereload website/
+            '';
+          };
+          docs = pkgs.writeShellApplication {
+            name = "micasa-docs";
+            runtimeInputs = [ pkgs.hugo ];
+            text = ''
+              hugo server --source docs --baseURL /docs/ --bind 0.0.0.0
+            '';
+          };
           record-demo = pkgs.writeShellApplication {
             name = "record-demo";
             runtimeInputs = [

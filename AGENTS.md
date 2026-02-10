@@ -265,6 +265,9 @@ These have been repeatedly requested. Violating them wastes the user's time.
   at runtime. Never hardcode `/nix/store/...` hashes in variables or
   commands. Example to put micasa on PATH:
   `PATH="$(nix build '.#micasa' --print-out-paths --no-link)/bin:$PATH"`
+- **Use `writeShellApplication`** for all Nix shell scripts, not
+  `writeShellScriptBin`. `writeShellApplication` runs `shellcheck` at build
+  time and sets `set -euo pipefail` automatically.
 - **Run `go mod tidy` before committing** to keep `go.mod`/`go.sum` clean.
 - **Record every user request** in the "Remaining work" section of this file
   (with a unique ID) if it is not already there. Mark it done when complete.
@@ -884,6 +887,9 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [QUICK-ADD-FORM] Lighter-weight add forms: only require essential fields
   (title + status for projects, name + interval for maintenance), let user fill
   in optional details later via edit.
+- [SOFT-DELETE-DOCS] verify that soft deletion works across runs and if it does
+  then note in the soft delete section that this functionality works even
+  across runs
 
 - [WEBSITE-DESLOP] ~~Remove "close the laptop, reopen the laptop" AI-slop from
   quotes feature blurb on website and README.~~ DONE
