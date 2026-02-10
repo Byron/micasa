@@ -277,6 +277,10 @@ These have been repeatedly requested. Violating them wastes the user's time.
 - **Pin Actions to version tags**: In GitHub Actions workflows, always use
   versioned tags (e.g. `@v3.93.1`) instead of named refs like `@main` or
   `@latest`.
+- **Prefer tools over shell commands**: Use the dedicated Read, Write,
+  StrReplace, Grep, and Glob tools instead of shell equivalents (`cat`,
+  `sed`, `grep`, `find`, `echo >`, etc.). Only use Shell for commands that
+  genuinely need a shell (build, test, git, nix, etc.).
 - **Nix vendorHash after dep changes**: After adding or updating a Go
   dependency, run `nix build '.#micasa'`. If it fails with a hash mismatch,
   temporarily set `vendorHash = lib.fakeHash;` (not `""`) to get the
