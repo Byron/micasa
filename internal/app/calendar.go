@@ -84,27 +84,47 @@ func calendarGrid(cal calendarState, styles Styles) string {
 		hintStyle.Render("enter pick · esc cancel"),
 	)
 
-	// The grid is 20 chars wide ("Su Mo Tu We Th Fr Sa"); center everything
-	// to the wider of the grid and hints so the box looks balanced.
+	// The day-label row defines the grid's intrinsic width (20 visible cols).
+	// Pad every grid line to that width so the block is rectangular, then
+	// center the whole block within the wider hint line.
 	calW := lipgloss.Width(dayLabels)
+	gridBlock := padLines(grid.String(), calW)
+
 	hintW := lipgloss.Width(hints)
 	boxW := calW
 	if hintW > boxW {
 		boxW = hintW
 	}
 
-	center := func(s string) string {
+	// centerBlock centers a pre-padded rectangular block (all lines same
+	// width) by indenting every line uniformly. Unlike PlaceHorizontal this
+	// preserves internal column alignment.
+	centerBlock := func(s string, blockW int) string {
+		pad := (boxW - blockW) / 2
+		if pad <= 0 {
+			return s
+		}
+		indent := strings.Repeat(" ", pad)
+		lines := strings.Split(s, "\n")
+		for i, line := range lines {
+			lines[i] = indent + line
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	// Single-line items can use PlaceHorizontal safely.
+	centerLine := func(s string) string {
 		return lipgloss.PlaceHorizontal(boxW, lipgloss.Center, s)
 	}
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		center(header),
+		centerLine(header),
 		"",
-		center(dayLabels),
-		center(grid.String()),
+		centerBlock(dayLabels, calW),
+		centerBlock(gridBlock, calW),
 		"",
-		center(hints),
+		centerLine(hints),
 	)
 }
 
@@ -114,6 +134,19 @@ func daysIn(year int, month time.Month) int {
 
 func sameDay(a, b time.Time) bool {
 	return a.Year() == b.Year() && a.Month() == b.Month() && a.Day() == b.Day()
+}
+
+// padLines right-pads each line in s so every line is exactly width visible
+// columns. This makes the block rectangular so uniform indentation preserves
+// internal column alignment.
+func padLines(s string, width int) string {
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if w := lipgloss.Width(line); w < width {
+			lines[i] = line + strings.Repeat(" ", width-w)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // calendarMove adjusts the calendar cursor by the given number of days.

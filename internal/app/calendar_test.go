@@ -242,6 +242,62 @@ func TestCalendarYearNavigation(t *testing.T) {
 	}
 }
 
+func TestCalendarGridColumnAlignment(t *testing.T) {
+	// Nov 2026 starts on Sunday, so days 29 (Mon) and 30 (Tue) are on the
+	// last row. They must appear in the Mon and Tue columns, not shifted by
+	// centering logic.
+	styles := DefaultStyles()
+	cal := calendarState{
+		Cursor:   time.Date(2026, 11, 1, 0, 0, 0, 0, time.Local),
+		HasValue: false,
+	}
+	grid := calendarGrid(cal, styles)
+
+	// Find the day-label line and the last-row line.
+	lines := strings.Split(grid, "\n")
+	labelIdx := -1
+	lastDayIdx := -1
+	for i, line := range lines {
+		if strings.Contains(line, "Su Mo Tu We Th Fr Sa") {
+			labelIdx = i
+		}
+		if strings.Contains(line, "29") && strings.Contains(line, "30") {
+			lastDayIdx = i
+		}
+	}
+	if labelIdx < 0 {
+		t.Fatal("day-label line not found")
+	}
+	if lastDayIdx < 0 {
+		t.Fatal("line with 29 and 30 not found")
+	}
+
+	// Nov 1, 2026 is a Sunday, so day 29 = Sunday ("Su" column) and
+	// day 30 = Monday ("Mo" column). Verify both align correctly.
+	suPos := strings.Index(lines[labelIdx], "Su")
+	moPos := strings.Index(lines[labelIdx], "Mo")
+	pos29 := strings.Index(lines[lastDayIdx], "29")
+	pos30 := strings.Index(lines[lastDayIdx], "30")
+	if suPos < 0 || pos29 < 0 {
+		t.Fatalf("could not find Su (%d) or 29 (%d)", suPos, pos29)
+	}
+	if suPos != pos29 {
+		t.Errorf(
+			"column misalignment: Su at col %d but 29 at col %d\nlabels: %q\nlast:   %q",
+			suPos, pos29, lines[labelIdx], lines[lastDayIdx],
+		)
+	}
+	if moPos < 0 || pos30 < 0 {
+		t.Fatalf("could not find Mo (%d) or 30 (%d)", moPos, pos30)
+	}
+	if moPos != pos30 {
+		t.Errorf(
+			"column misalignment: Mo at col %d but 30 at col %d\nlabels: %q\nlast:   %q",
+			moPos, pos30, lines[labelIdx], lines[lastDayIdx],
+		)
+	}
+}
+
 func TestOpenCalendarWithEmptyValue(t *testing.T) {
 	m := newTestModel()
 	dateVal := ""
