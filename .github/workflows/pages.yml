@@ -6,7 +6,7 @@ name: Deploy Website + Docs
 on:
   push:
     branches: [main]
-    paths: [website/**, docs/**]
+    paths: [website/**, docs/**, images/**]
   workflow_dispatch:
 
 permissions:
@@ -34,6 +34,9 @@ jobs:
 
       - name: Build docs
         run: nix run 'nixpkgs#hugo' -- --source docs --baseURL /docs/ --destination ../website/docs
+
+      - name: Copy shared assets
+        run: cp -r images website/images
 
       - uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
