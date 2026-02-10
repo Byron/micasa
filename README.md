@@ -38,7 +38,7 @@ micasa                # start fresh with your own house
 micasa --print-path   # show where the database lives
 ```
 
-> Your data stays yours. One SQLite file in your platform's data directory. Back it up with `cp "$(micasa --print-path)" backup.db`.
+> One SQLite file. Your data, your machine. Back it up with `cp`.
 
 ## Documentation
 
