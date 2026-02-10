@@ -411,22 +411,11 @@ func (h applianceMaintenanceHandler) SubmitForm(m *Model) error {
 	return m.submitMaintenanceForm()
 }
 
-func (h applianceMaintenanceHandler) Snapshot(
+func (applianceMaintenanceHandler) Snapshot(
 	store *data.Store,
 	id uint,
 ) (undoEntry, bool) {
-	item, err := store.GetMaintenance(id)
-	if err != nil {
-		return undoEntry{}, false
-	}
-	return undoEntry{
-		Description: fmt.Sprintf("maintenance %q", item.Name),
-		FormKind:    formMaintenance,
-		EntityID:    id,
-		Restore: func() error {
-			return store.UpdateMaintenance(item)
-		},
-	}, true
+	return maintenanceHandler{}.Snapshot(store, id)
 }
 
 func (applianceMaintenanceHandler) SyncFixedValues(m *Model, specs []columnSpec) {

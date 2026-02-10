@@ -844,6 +844,44 @@ in case things crash or otherwise go haywire, be diligent about this.
   - Fixed chimney smoke after rebuild: smoke particle system re-queries `smoke-bed` DOM element on each spawn instead of caching stale reference
   - Removed all stick figure / side door CSS (`.stick-figure`, `.side-door`, `.walking`)
 
+## 2026-02-10 Session 29
+
+**User request**: Refactoring pass -- simple and architectural wins.
+
+**Work done** (single commit):
+- Dedup `buildBaseView()`: removed identical detail/non-detail branches (only `tabs =` line differed)
+- Extract `activateForm()`: replaced 7 copies of 6-line form-open epilogue with single helper
+- Derive `tabIndex()` from tab slice: replaced hardcoded switch with init-time map from `NewTabs`
+- Dedup `applianceMaintenanceHandler.Snapshot`: now delegates to `maintenanceHandler.Snapshot`
+- Generic `buildRows[T]`: extracted `rowSpec` struct + `buildRows` helper; converted all 7 row-builder functions (project, quote, maintenance, appliance, applianceMaintenance, serviceLog, vendor)
+- Generic `countByFK`: extracted shared FK-count helper in data layer; replaced 4 identical methods (`CountQuotesByVendor`, `CountServiceLogsByVendor`, `CountServiceLogs`, `CountMaintenanceByAppliance`)
+- Skipped forms.go split (reorganization only, no real complexity reduction)
+- Net: -101 lines across 7 files
+
+## 2026-02-10 Session 28
+
+**User request**: Implement [VENDORS-TAB], [NOTES-EXPAND], and [DATEPICKER] as three separate feature commits.
+
+**Work done** (see git log for details):
+- [VENDORS-TAB] (a330f2d): Vendors as first-class browsable tab
+  - Data: GetVendor, CreateVendor, UpdateVendor, CountQuotesByVendor, CountServiceLogsByVendor
+  - App: tabVendors, formVendor, vendorHandler (no delete -- FK refs), vendorColumnSpecs (ID/Name/Contact/Email/Phone/Website/Quotes/Jobs), vendor forms (add/edit/inline), vendorFormValues
+  - Quotes tab Vendor column now links to Vendors tab (m:1 FK)
+  - 11 app tests, 3 data tests; docs (vendors.md, concepts.md, quotes.md, README, website)
+- [NOTES-EXPAND] (590a6c0): Read-only note preview overlay
+  - New cellNotes kind; enter on Notes column opens word-wrapped overlay
+  - Any key dismisses; no-op on empty notes
+  - wordWrap utility, buildNotePreviewOverlay, enterHint shows "preview"
+  - 7 tests
+- [DATEPICKER] (68a1fa6): Calendar date picker for inline date editing
+  - calendarState with cursor, selected, fieldPtr, onConfirm callback
+  - calendarGrid renders month with cursor/selected/today highlights (CalCursor, CalSelected, CalToday styles)
+  - Keys: h/l day, j/k week, H/L month, enter pick, esc cancel
+  - openDatePicker wires confirm to form submit + reloadAll
+  - All 6 inline date edit paths route through calendar (projects 2, quotes 1, maintenance 1, appliance 2, service log 1)
+  - Help overlay + keybindings doc updated; keyEsc constant for goconst lint
+  - 12 tests
+
 ## 2026-02-10 Session 27
 
 **User request**: Full security/privacy audit before making repo public. Then quick-win feature batch.
@@ -936,6 +974,9 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [STYLING-TIME-TO-MAINT] 4-tier urgency coloring on Next Due column (c1c7214)
 - [SOFT-DELETE-DOCS] verified cross-session persistence + updated docs (c1c7214)
 - [ATTRIBUTION] already done -- website footer + README credit Claude/Cursor
+- [VENDORS-TAB] vendors as first-class browsable tab with CRUD + aggregate counts (a330f2d)
+- [NOTES-EXPAND] read-only note preview overlay on cellNotes columns (590a6c0)
+- [DATEPICKER] calendar date picker for inline date editing (68a1fa6)
 
 # Remaining work
 
@@ -951,9 +992,7 @@ in case things crash or otherwise go haywire, be diligent about this.
   The site should include a project overview, installation instructions,
   feature list. Bonus points for a "demo" section with animated GIFs showing
   off the terminal UI.
-- [DATEPICKER] for date column data entry can we make that a date picker that
-  adjusts a nice little terminal calendar based on what the user has typed in
-  so far?
+- [DATEPICKER] ~~Date picker calendar widget for inline date editing.~~ DONE
 - [HOTNESS-KEYS] ~~in nav mode, ^ should go to the first column, $ to the last~~ DONE
 - [NORMAL-TO-NAV] ~~change the NORMAL label to NAV~~ DONE
 - [STYLING-TIME-TO-MAINT] ~~add a gradient from say green to orange to red (where
@@ -974,9 +1013,7 @@ in case things crash or otherwise go haywire, be diligent about this.
   model number; doesn't need to be super sophisticated, just plausible
 - [STATUS-MODE-VERBOSITY] is there a kind of verbose status bar we can add that
   shows keystrokes and also more verbose context?
-- [VENDORS-TAB] Vendors as a first-class tab. Vendor model already exists but is
-  only accessible through quote and service log forms. Should be browsable,
-  editable, and show all work a vendor has done (quotes + service log entries).
+- [VENDORS-TAB] ~~Vendors as a first-class tab.~~ DONE
 - [PAINT-COLORS] Paint color tracking per room: brand, color name/code, finish,
   room/area. "What paint did we use in the living room?" is a universal
   homeowner question.
@@ -991,9 +1028,7 @@ in case things crash or otherwise go haywire, be diligent about this.
   before winter"). Could be a lightweight checklist model with season/month tags.
 - [WARRANTY-INDICATOR] ~~Visual indicator on appliances for warranty status: green
   if still covered, red/dim if expired.~~ DONE
-- [NOTES-EXPAND] Read-only note preview: enter or a dedicated key on a notes
-  cell expands to show the full text in a popup/overlay, without entering edit
-  mode.
+- [NOTES-EXPAND] ~~Read-only note preview: enter on notes cell opens overlay.~~ DONE
 - [TABLE-FILTER] In-table row filtering: `/` opens a filter input, typed text
   narrows visible rows across all columns, `esc` clears. Essential for tabs
   with more than ~15 rows. (Search was previously removed; this is a simpler,

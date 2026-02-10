@@ -171,32 +171,25 @@ func applianceMaintenanceColumnSpecs() []columnSpec {
 func applianceMaintenanceRows(
 	items []data.MaintenanceItem,
 ) ([]table.Row, []rowMeta, [][]cell) {
-	rows := make([]table.Row, 0, len(items))
-	meta := make([]rowMeta, 0, len(items))
-	cells := make([][]cell, 0, len(items))
-	for _, item := range items {
-		deleted := item.DeletedAt.Valid
+	return buildRows(items, func(item data.MaintenanceItem) rowSpec {
 		interval := ""
 		if item.IntervalMonths > 0 {
 			interval = fmt.Sprintf("%d mo", item.IntervalMonths)
 		}
 		nextDue := data.ComputeNextDue(item.LastServicedAt, item.IntervalMonths)
-		rowCells := []cell{
-			{Value: fmt.Sprintf("%d", item.ID), Kind: cellReadonly},
-			{Value: item.Name, Kind: cellText},
-			{Value: item.Category.Name, Kind: cellText},
-			{Value: dateValue(item.LastServicedAt), Kind: cellDate},
-			{Value: dateValue(nextDue), Kind: cellUrgency},
-			{Value: interval, Kind: cellText},
-		}
-		rows = append(rows, cellsToRow(rowCells))
-		cells = append(cells, rowCells)
-		meta = append(meta, rowMeta{
+		return rowSpec{
 			ID:      item.ID,
-			Deleted: deleted,
-		})
-	}
-	return rows, meta, cells
+			Deleted: item.DeletedAt.Valid,
+			Cells: []cell{
+				{Value: fmt.Sprintf("%d", item.ID), Kind: cellReadonly},
+				{Value: item.Name, Kind: cellText},
+				{Value: item.Category.Name, Kind: cellText},
+				{Value: dateValue(item.LastServicedAt), Kind: cellDate},
+				{Value: dateValue(nextDue), Kind: cellUrgency},
+				{Value: interval, Kind: cellText},
+			},
+		}
+	})
 }
 
 func serviceLogColumnSpecs() []columnSpec {
@@ -212,30 +205,23 @@ func serviceLogColumnSpecs() []columnSpec {
 func serviceLogRows(
 	entries []data.ServiceLogEntry,
 ) ([]table.Row, []rowMeta, [][]cell) {
-	rows := make([]table.Row, 0, len(entries))
-	meta := make([]rowMeta, 0, len(entries))
-	cells := make([][]cell, 0, len(entries))
-	for _, entry := range entries {
-		deleted := entry.DeletedAt.Valid
+	return buildRows(entries, func(e data.ServiceLogEntry) rowSpec {
 		performedBy := "Self"
-		if entry.VendorID != nil && entry.Vendor.Name != "" {
-			performedBy = entry.Vendor.Name
+		if e.VendorID != nil && e.Vendor.Name != "" {
+			performedBy = e.Vendor.Name
 		}
-		rowCells := []cell{
-			{Value: fmt.Sprintf("%d", entry.ID), Kind: cellReadonly},
-			{Value: entry.ServicedAt.Format(data.DateLayout), Kind: cellDate},
-			{Value: performedBy, Kind: cellText},
-			{Value: centsValue(entry.CostCents), Kind: cellMoney},
-			{Value: entry.Notes, Kind: cellNotes},
+		return rowSpec{
+			ID:      e.ID,
+			Deleted: e.DeletedAt.Valid,
+			Cells: []cell{
+				{Value: fmt.Sprintf("%d", e.ID), Kind: cellReadonly},
+				{Value: e.ServicedAt.Format(data.DateLayout), Kind: cellDate},
+				{Value: performedBy, Kind: cellText},
+				{Value: centsValue(e.CostCents), Kind: cellMoney},
+				{Value: e.Notes, Kind: cellNotes},
+			},
 		}
-		rows = append(rows, cellsToRow(rowCells))
-		cells = append(cells, rowCells)
-		meta = append(meta, rowMeta{
-			ID:      entry.ID,
-			Deleted: deleted,
-		})
-	}
-	return rows, meta, cells
+	})
 }
 
 func applianceRows(
@@ -243,36 +229,29 @@ func applianceRows(
 	maintCounts map[uint]int,
 	now time.Time,
 ) ([]table.Row, []rowMeta, [][]cell) {
-	rows := make([]table.Row, 0, len(items))
-	meta := make([]rowMeta, 0, len(items))
-	cells := make([][]cell, 0, len(items))
-	for _, item := range items {
-		deleted := item.DeletedAt.Valid
+	return buildRows(items, func(a data.Appliance) rowSpec {
 		maintCount := ""
-		if n := maintCounts[item.ID]; n > 0 {
+		if n := maintCounts[a.ID]; n > 0 {
 			maintCount = fmt.Sprintf("%d", n)
 		}
-		rowCells := []cell{
-			{Value: fmt.Sprintf("%d", item.ID), Kind: cellReadonly},
-			{Value: item.Name, Kind: cellText},
-			{Value: item.Brand, Kind: cellText},
-			{Value: item.ModelNumber, Kind: cellText},
-			{Value: item.SerialNumber, Kind: cellText},
-			{Value: item.Location, Kind: cellText},
-			{Value: dateValue(item.PurchaseDate), Kind: cellDate},
-			{Value: applianceAge(item.PurchaseDate, now), Kind: cellReadonly},
-			{Value: dateValue(item.WarrantyExpiry), Kind: cellWarranty},
-			{Value: centsValue(item.CostCents), Kind: cellMoney},
-			{Value: maintCount, Kind: cellDrilldown},
+		return rowSpec{
+			ID:      a.ID,
+			Deleted: a.DeletedAt.Valid,
+			Cells: []cell{
+				{Value: fmt.Sprintf("%d", a.ID), Kind: cellReadonly},
+				{Value: a.Name, Kind: cellText},
+				{Value: a.Brand, Kind: cellText},
+				{Value: a.ModelNumber, Kind: cellText},
+				{Value: a.SerialNumber, Kind: cellText},
+				{Value: a.Location, Kind: cellText},
+				{Value: dateValue(a.PurchaseDate), Kind: cellDate},
+				{Value: applianceAge(a.PurchaseDate, now), Kind: cellReadonly},
+				{Value: dateValue(a.WarrantyExpiry), Kind: cellWarranty},
+				{Value: centsValue(a.CostCents), Kind: cellMoney},
+				{Value: maintCount, Kind: cellDrilldown},
+			},
 		}
-		rows = append(rows, cellsToRow(rowCells))
-		cells = append(cells, rowCells)
-		meta = append(meta, rowMeta{
-			ID:      item.ID,
-			Deleted: deleted,
-		})
-	}
-	return rows, meta, cells
+	})
 }
 
 // applianceAge returns a human-readable age string from purchase date to now.
@@ -322,10 +301,7 @@ func vendorRows(
 	quoteCounts map[uint]int,
 	jobCounts map[uint]int,
 ) ([]table.Row, []rowMeta, [][]cell) {
-	rows := make([]table.Row, 0, len(vendors))
-	meta := make([]rowMeta, 0, len(vendors))
-	cells := make([][]cell, 0, len(vendors))
-	for _, v := range vendors {
+	return buildRows(vendors, func(v data.Vendor) rowSpec {
 		quoteCount := ""
 		if n := quoteCounts[v.ID]; n > 0 {
 			quoteCount = fmt.Sprintf("%d", n)
@@ -334,21 +310,20 @@ func vendorRows(
 		if n := jobCounts[v.ID]; n > 0 {
 			jobCount = fmt.Sprintf("%d", n)
 		}
-		rowCells := []cell{
-			{Value: fmt.Sprintf("%d", v.ID), Kind: cellReadonly},
-			{Value: v.Name, Kind: cellText},
-			{Value: v.ContactName, Kind: cellText},
-			{Value: v.Email, Kind: cellText},
-			{Value: v.Phone, Kind: cellText},
-			{Value: v.Website, Kind: cellText},
-			{Value: quoteCount, Kind: cellReadonly},
-			{Value: jobCount, Kind: cellReadonly},
+		return rowSpec{
+			ID: v.ID,
+			Cells: []cell{
+				{Value: fmt.Sprintf("%d", v.ID), Kind: cellReadonly},
+				{Value: v.Name, Kind: cellText},
+				{Value: v.ContactName, Kind: cellText},
+				{Value: v.Email, Kind: cellText},
+				{Value: v.Phone, Kind: cellText},
+				{Value: v.Website, Kind: cellText},
+				{Value: quoteCount, Kind: cellReadonly},
+				{Value: jobCount, Kind: cellReadonly},
+			},
 		}
-		rows = append(rows, cellsToRow(rowCells))
-		cells = append(cells, rowCells)
-		meta = append(meta, rowMeta{ID: v.ID})
-	}
-	return rows, meta, cells
+	})
 }
 
 func specsToColumns(specs []columnSpec) []table.Column {
@@ -378,72 +353,54 @@ func newTable(columns []table.Column, styles Styles) table.Model {
 func projectRows(
 	projects []data.Project,
 ) ([]table.Row, []rowMeta, [][]cell) {
-	rows := make([]table.Row, 0, len(projects))
-	meta := make([]rowMeta, 0, len(projects))
-	cells := make([][]cell, 0, len(projects))
-	for _, project := range projects {
-		deleted := project.DeletedAt.Valid
-		rowCells := []cell{
-			{Value: fmt.Sprintf("%d", project.ID), Kind: cellReadonly},
-			{Value: project.ProjectType.Name, Kind: cellText},
-			{Value: project.Title, Kind: cellText},
-			{Value: project.Status, Kind: cellStatus},
-			{Value: centsValue(project.BudgetCents), Kind: cellMoney},
-			{Value: centsValue(project.ActualCents), Kind: cellMoney},
-			{Value: dateValue(project.StartDate), Kind: cellDate},
-			{Value: dateValue(project.EndDate), Kind: cellDate},
+	return buildRows(projects, func(p data.Project) rowSpec {
+		return rowSpec{
+			ID:      p.ID,
+			Deleted: p.DeletedAt.Valid,
+			Cells: []cell{
+				{Value: fmt.Sprintf("%d", p.ID), Kind: cellReadonly},
+				{Value: p.ProjectType.Name, Kind: cellText},
+				{Value: p.Title, Kind: cellText},
+				{Value: p.Status, Kind: cellStatus},
+				{Value: centsValue(p.BudgetCents), Kind: cellMoney},
+				{Value: centsValue(p.ActualCents), Kind: cellMoney},
+				{Value: dateValue(p.StartDate), Kind: cellDate},
+				{Value: dateValue(p.EndDate), Kind: cellDate},
+			},
 		}
-		rows = append(rows, cellsToRow(rowCells))
-		cells = append(cells, rowCells)
-		meta = append(meta, rowMeta{
-			ID:      project.ID,
-			Deleted: deleted,
-		})
-	}
-	return rows, meta, cells
+	})
 }
 
 func quoteRows(
 	quotes []data.Quote,
 ) ([]table.Row, []rowMeta, [][]cell) {
-	rows := make([]table.Row, 0, len(quotes))
-	meta := make([]rowMeta, 0, len(quotes))
-	cells := make([][]cell, 0, len(quotes))
-	for _, quote := range quotes {
-		deleted := quote.DeletedAt.Valid
-		projectName := quote.Project.Title
+	return buildRows(quotes, func(q data.Quote) rowSpec {
+		projectName := q.Project.Title
 		if projectName == "" {
-			projectName = fmt.Sprintf("Project %d", quote.ProjectID)
+			projectName = fmt.Sprintf("Project %d", q.ProjectID)
 		}
-		rowCells := []cell{
-			{Value: fmt.Sprintf("%d", quote.ID), Kind: cellReadonly},
-			{Value: projectName, Kind: cellText, LinkID: quote.ProjectID},
-			{Value: quote.Vendor.Name, Kind: cellText, LinkID: quote.VendorID},
-			{Value: data.FormatCents(quote.TotalCents), Kind: cellMoney},
-			{Value: centsValue(quote.LaborCents), Kind: cellMoney},
-			{Value: centsValue(quote.MaterialsCents), Kind: cellMoney},
-			{Value: centsValue(quote.OtherCents), Kind: cellMoney},
-			{Value: dateValue(quote.ReceivedDate), Kind: cellDate},
+		return rowSpec{
+			ID:      q.ID,
+			Deleted: q.DeletedAt.Valid,
+			Cells: []cell{
+				{Value: fmt.Sprintf("%d", q.ID), Kind: cellReadonly},
+				{Value: projectName, Kind: cellText, LinkID: q.ProjectID},
+				{Value: q.Vendor.Name, Kind: cellText, LinkID: q.VendorID},
+				{Value: data.FormatCents(q.TotalCents), Kind: cellMoney},
+				{Value: centsValue(q.LaborCents), Kind: cellMoney},
+				{Value: centsValue(q.MaterialsCents), Kind: cellMoney},
+				{Value: centsValue(q.OtherCents), Kind: cellMoney},
+				{Value: dateValue(q.ReceivedDate), Kind: cellDate},
+			},
 		}
-		rows = append(rows, cellsToRow(rowCells))
-		cells = append(cells, rowCells)
-		meta = append(meta, rowMeta{
-			ID:      quote.ID,
-			Deleted: deleted,
-		})
-	}
-	return rows, meta, cells
+	})
 }
 
 func maintenanceRows(
 	items []data.MaintenanceItem,
 	logCounts map[uint]int,
 ) ([]table.Row, []rowMeta, [][]cell) {
-	rows := make([]table.Row, 0, len(items))
-	meta := make([]rowMeta, 0, len(items))
-	cells := make([][]cell, 0, len(items))
-	for _, item := range items {
-		deleted := item.DeletedAt.Valid
+	return buildRows(items, func(item data.MaintenanceItem) rowSpec {
 		interval := ""
 		if item.IntervalMonths > 0 {
 			interval = fmt.Sprintf("%d mo", item.IntervalMonths)
@@ -459,24 +416,21 @@ func maintenanceRows(
 			logCount = fmt.Sprintf("%d", n)
 		}
 		nextDue := data.ComputeNextDue(item.LastServicedAt, item.IntervalMonths)
-		rowCells := []cell{
-			{Value: fmt.Sprintf("%d", item.ID), Kind: cellReadonly},
-			{Value: item.Name, Kind: cellText},
-			{Value: item.Category.Name, Kind: cellText},
-			{Value: appName, Kind: cellText, LinkID: appLinkID},
-			{Value: dateValue(item.LastServicedAt), Kind: cellDate},
-			{Value: dateValue(nextDue), Kind: cellUrgency},
-			{Value: interval, Kind: cellText},
-			{Value: logCount, Kind: cellDrilldown},
-		}
-		rows = append(rows, cellsToRow(rowCells))
-		cells = append(cells, rowCells)
-		meta = append(meta, rowMeta{
+		return rowSpec{
 			ID:      item.ID,
-			Deleted: deleted,
-		})
-	}
-	return rows, meta, cells
+			Deleted: item.DeletedAt.Valid,
+			Cells: []cell{
+				{Value: fmt.Sprintf("%d", item.ID), Kind: cellReadonly},
+				{Value: item.Name, Kind: cellText},
+				{Value: item.Category.Name, Kind: cellText},
+				{Value: appName, Kind: cellText, LinkID: appLinkID},
+				{Value: dateValue(item.LastServicedAt), Kind: cellDate},
+				{Value: dateValue(nextDue), Kind: cellUrgency},
+				{Value: interval, Kind: cellText},
+				{Value: logCount, Kind: cellDrilldown},
+			},
+		}
+	})
 }
 
 func cellsToRow(cells []cell) table.Row {
@@ -485,6 +439,29 @@ func cellsToRow(cells []cell) table.Row {
 		row[i] = cell.Value
 	}
 	return row
+}
+
+// rowSpec describes one table row from an entity.
+type rowSpec struct {
+	ID      uint
+	Deleted bool
+	Cells   []cell
+}
+
+// buildRows converts a slice of entities into the three parallel slices that
+// the table and sort systems consume. The toRow function maps each entity to
+// its ID, deletion status, and cell values.
+func buildRows[T any](items []T, toRow func(T) rowSpec) ([]table.Row, []rowMeta, [][]cell) {
+	rows := make([]table.Row, 0, len(items))
+	meta := make([]rowMeta, 0, len(items))
+	cells := make([][]cell, 0, len(items))
+	for _, item := range items {
+		spec := toRow(item)
+		rows = append(rows, cellsToRow(spec.Cells))
+		cells = append(cells, spec.Cells)
+		meta = append(meta, rowMeta{ID: spec.ID, Deleted: spec.Deleted})
+	}
+	return rows, meta, cells
 }
 
 func centsValue(cents *int64) string {

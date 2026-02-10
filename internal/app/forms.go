@@ -188,18 +188,12 @@ func (m *Model) startHouseForm() {
 				Validate(optionalMoney("HOA fee")),
 		).Title("Financial"),
 	)
-	applyFormDefaults(form)
 	formWidth := 60
 	if m.width > 0 && m.width < formWidth+10 {
 		formWidth = m.width - 10
 	}
 	form.WithWidth(formWidth)
-	m.prevMode = m.mode
-	m.mode = modeForm
-	m.formKind = formHouse
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.activateForm(formHouse, form, values)
 }
 
 func (m *Model) startProjectForm() {
@@ -265,13 +259,7 @@ func (m *Model) openProjectForm(values *projectFormData, options []huh.Option[ui
 				Value(&values.Description),
 		).Title("Timeline"),
 	)
-	applyFormDefaults(form)
-	m.prevMode = m.mode
-	m.mode = modeForm
-	m.formKind = formProject
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.activateForm(formProject, form, values)
 }
 
 func (m *Model) startQuoteForm() error {
@@ -352,13 +340,7 @@ func (m *Model) openQuoteForm(values *quoteFormData, projectOpts []huh.Option[ui
 			huh.NewText().Title("Notes").Value(&values.Notes),
 		).Title("Quote"),
 	)
-	applyFormDefaults(form)
-	m.prevMode = m.mode
-	m.mode = modeForm
-	m.formKind = formQuote
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.activateForm(formQuote, form, values)
 }
 
 func (m *Model) startMaintenanceForm() {
@@ -426,13 +408,7 @@ func (m *Model) openMaintenanceForm(
 			huh.NewText().Title("Notes").Value(&values.Notes),
 		).Title("Details"),
 	)
-	applyFormDefaults(form)
-	m.prevMode = m.mode
-	m.mode = modeForm
-	m.formKind = formMaintenance
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.activateForm(formMaintenance, form, values)
 }
 
 func (m *Model) startApplianceForm() {
@@ -481,13 +457,7 @@ func (m *Model) openApplianceForm(values *applianceFormData) {
 			huh.NewText().Title("Notes").Value(&values.Notes),
 		).Title("Details"),
 	)
-	applyFormDefaults(form)
-	m.prevMode = m.mode
-	m.mode = modeForm
-	m.formKind = formAppliance
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.activateForm(formAppliance, form, values)
 }
 
 func (m *Model) submitApplianceForm() error {
@@ -568,13 +538,7 @@ func (m *Model) openVendorForm(values *vendorFormData) {
 			huh.NewText().Title("Notes").Value(&values.Notes),
 		),
 	)
-	applyFormDefaults(form)
-	m.prevMode = m.mode
-	m.mode = modeForm
-	m.formKind = formVendor
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.activateForm(formVendor, form, values)
 }
 
 func (m *Model) submitVendorForm() error {
@@ -872,13 +836,7 @@ func (m *Model) openServiceLogForm(
 			huh.NewText().Title("Notes").Value(&values.Notes),
 		),
 	)
-	applyFormDefaults(form)
-	m.prevMode = m.mode
-	m.mode = modeForm
-	m.formKind = formServiceLog
-	m.form = form
-	m.formData = values
-	m.snapshotForm()
+	m.activateForm(formServiceLog, form, values)
 }
 
 func (m *Model) submitServiceLogForm() error {
@@ -1040,10 +998,9 @@ func (m *Model) openDatePicker(
 	})
 }
 
-// openInlineEdit sets up a single-field inline edit form.
-func (m *Model) openInlineEdit(id uint, kind FormKind, field huh.Field, values any) {
-	m.editID = &id
-	form := huh.NewForm(huh.NewGroup(field))
+// activateForm applies defaults and switches the model into form mode.
+// All form-opening paths should call this instead of duplicating the epilogue.
+func (m *Model) activateForm(kind FormKind, form *huh.Form, values any) {
 	applyFormDefaults(form)
 	m.prevMode = m.mode
 	m.mode = modeForm
@@ -1051,6 +1008,12 @@ func (m *Model) openInlineEdit(id uint, kind FormKind, field huh.Field, values a
 	m.form = form
 	m.formData = values
 	m.snapshotForm()
+}
+
+// openInlineEdit sets up a single-field inline edit form.
+func (m *Model) openInlineEdit(id uint, kind FormKind, field huh.Field, values any) {
+	m.editID = &id
+	m.activateForm(kind, huh.NewForm(huh.NewGroup(field)), values)
 }
 
 func applyFormDefaults(form *huh.Form) {

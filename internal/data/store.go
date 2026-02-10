@@ -587,48 +587,12 @@ func (s *Store) UpdateVendor(vendor Vendor) error {
 
 // CountQuotesByVendor returns the number of non-deleted quotes per vendor ID.
 func (s *Store) CountQuotesByVendor(vendorIDs []uint) (map[uint]int, error) {
-	if len(vendorIDs) == 0 {
-		return map[uint]int{}, nil
-	}
-	var results []struct {
-		VendorID uint `gorm:"column:vendor_id"`
-		Count    int  `gorm:"column:cnt"`
-	}
-	if err := s.db.Model(&Quote{}).
-		Select("vendor_id, count(*) as cnt").
-		Where("vendor_id IN ?", vendorIDs).
-		Group("vendor_id").
-		Find(&results).Error; err != nil {
-		return nil, err
-	}
-	counts := make(map[uint]int, len(results))
-	for _, r := range results {
-		counts[r.VendorID] = r.Count
-	}
-	return counts, nil
+	return s.countByFK(&Quote{}, "vendor_id", vendorIDs)
 }
 
 // CountServiceLogsByVendor returns the number of non-deleted service log entries per vendor ID.
 func (s *Store) CountServiceLogsByVendor(vendorIDs []uint) (map[uint]int, error) {
-	if len(vendorIDs) == 0 {
-		return map[uint]int{}, nil
-	}
-	var results []struct {
-		VendorID uint `gorm:"column:vendor_id"`
-		Count    int  `gorm:"column:cnt"`
-	}
-	if err := s.db.Model(&ServiceLogEntry{}).
-		Select("vendor_id, count(*) as cnt").
-		Where("vendor_id IN ?", vendorIDs).
-		Group("vendor_id").
-		Find(&results).Error; err != nil {
-		return nil, err
-	}
-	counts := make(map[uint]int, len(results))
-	for _, r := range results {
-		counts[r.VendorID] = r.Count
-	}
-	return counts, nil
+	return s.countByFK(&ServiceLogEntry{}, "vendor_id", vendorIDs)
 }
 
 func (s *Store) ListProjects(includeDeleted bool) ([]Project, error) {
@@ -867,53 +831,13 @@ func (s *Store) RestoreServiceLog(id uint) error {
 // CountServiceLogs returns the number of non-deleted service log entries per
 // maintenance item ID for the given set of IDs.
 func (s *Store) CountServiceLogs(itemIDs []uint) (map[uint]int, error) {
-	if len(itemIDs) == 0 {
-		return map[uint]int{}, nil
-	}
-	type result struct {
-		MaintenanceItemID uint
-		Count             int
-	}
-	var results []result
-	err := s.db.Model(&ServiceLogEntry{}).
-		Select("maintenance_item_id, count(*) as count").
-		Where("maintenance_item_id IN ?", itemIDs).
-		Group("maintenance_item_id").
-		Find(&results).Error
-	if err != nil {
-		return nil, err
-	}
-	counts := make(map[uint]int, len(results))
-	for _, r := range results {
-		counts[r.MaintenanceItemID] = r.Count
-	}
-	return counts, nil
+	return s.countByFK(&ServiceLogEntry{}, "maintenance_item_id", itemIDs)
 }
 
 // CountMaintenanceByAppliance returns the count of non-deleted maintenance
 // items for each appliance ID.
 func (s *Store) CountMaintenanceByAppliance(applianceIDs []uint) (map[uint]int, error) {
-	if len(applianceIDs) == 0 {
-		return map[uint]int{}, nil
-	}
-	type result struct {
-		ApplianceID uint
-		Count       int
-	}
-	var results []result
-	err := s.db.Model(&MaintenanceItem{}).
-		Select("appliance_id, count(*) as count").
-		Where("appliance_id IN ?", applianceIDs).
-		Group("appliance_id").
-		Find(&results).Error
-	if err != nil {
-		return nil, err
-	}
-	counts := make(map[uint]int, len(results))
-	for _, r := range results {
-		counts[r.ApplianceID] = r.Count
-	}
-	return counts, nil
+	return s.countByFK(&MaintenanceItem{}, "appliance_id", applianceIDs)
 }
 
 func (s *Store) DeleteProject(id uint) error {
@@ -1043,6 +967,32 @@ func (s *Store) markDeletionRestored(entity string, id uint) error {
 	return s.db.Model(&DeletionRecord{}).
 		Where("entity = ? AND target_id = ? AND restored_at IS NULL", entity, id).
 		Update("restored_at", restoredAt).Error
+}
+
+// countByFK groups rows in model by fkColumn and returns a count per FK value.
+// Only non-deleted rows are counted (soft-delete scope applies automatically).
+func (s *Store) countByFK(model any, fkColumn string, ids []uint) (map[uint]int, error) {
+	if len(ids) == 0 {
+		return map[uint]int{}, nil
+	}
+	type row struct {
+		FK    uint `gorm:"column:fk"`
+		Count int  `gorm:"column:cnt"`
+	}
+	var results []row
+	err := s.db.Model(model).
+		Select(fkColumn+" as fk, count(*) as cnt").
+		Where(fkColumn+" IN ?", ids).
+		Group(fkColumn).
+		Find(&results).Error
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[uint]int, len(results))
+	for _, r := range results {
+		counts[r.FK] = r.Count
+	}
+	return counts, nil
 }
 
 func findOrCreateVendor(tx *gorm.DB, vendor Vendor) (Vendor, error) {

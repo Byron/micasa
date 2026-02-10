@@ -48,23 +48,17 @@ func (m *Model) buildView() string {
 func (m *Model) buildBaseView() string {
 	house := m.houseView()
 
-	var tabs, tabLine, content string
+	tabs := m.tabsView()
 	if m.detail != nil {
 		tabs = m.breadcrumbView()
-		tabLine = m.tabUnderline()
-		if m.mode == modeForm && m.form != nil {
-			content = m.form.View()
-		} else if tab := m.effectiveTab(); tab != nil {
-			content = m.tableView(tab)
-		}
-	} else {
-		tabs = m.tabsView()
-		tabLine = m.tabUnderline()
-		if m.mode == modeForm && m.form != nil {
-			content = m.form.View()
-		} else if tab := m.effectiveTab(); tab != nil {
-			content = m.tableView(tab)
-		}
+	}
+	tabLine := m.tabUnderline()
+
+	var content string
+	if m.mode == modeForm && m.form != nil {
+		content = m.form.View()
+	} else if tab := m.effectiveTab(); tab != nil {
+		content = m.tableView(tab)
 	}
 	status := m.statusView()
 

@@ -1131,19 +1131,24 @@ func (m *Model) updateTabViewport(tab *Tab) {
 	tab.ViewOffset = vpStart
 }
 
+// tabIndex returns the position of the given TabKind in the canonical tab
+// ordering defined by NewTabs. Derived from the actual slice at init time
+// so adding a tab to NewTabs automatically keeps this in sync.
 func tabIndex(kind TabKind) int {
-	switch kind {
-	case tabProjects:
-		return 0
-	case tabQuotes:
-		return 1
-	case tabMaintenance:
-		return 2
-	case tabAppliances:
-		return 3
-	case tabVendors:
-		return 4
-	default:
+	idx, ok := tabKindIndex[kind]
+	if !ok {
 		return 0
 	}
+	return idx
 }
+
+// tabKindIndex maps each TabKind to its position in the canonical tab slice.
+// Populated once at init from NewTabs.
+var tabKindIndex = func() map[TabKind]int {
+	tabs := NewTabs(DefaultStyles())
+	m := make(map[TabKind]int, len(tabs))
+	for i, tab := range tabs {
+		m[tab.Kind] = i
+	}
+	return m
+}()
