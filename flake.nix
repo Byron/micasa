@@ -246,57 +246,74 @@
               echo "Done: $CAST_FILE and $GIF_FILE"
             '';
           };
-          capture-screenshots = pkgs.writeShellApplication {
-            name = "capture-screenshots";
+          # Captures a single VHS tape to PNG: capture-one <tape-file>
+          capture-one = pkgs.writeShellApplication {
+            name = "capture-one";
             runtimeInputs = [
               micasa
               pkgs.vhs
               pkgs.imagemagick
-              pkgs.jetbrains-mono
             ];
             text = ''
+              if [[ $# -ne 1 ]]; then
+                echo "usage: capture-one <tape-file>" >&2
+                exit 1
+              fi
+
+              tape="$1"
+              name="$(basename "$tape" .tape)"
+              OUT="docs/static/images"
+              mkdir -p "$OUT"
+
               # Make JetBrains Mono visible to Chrome inside VHS
               FC_CONF=$(mktemp --suffix=.conf)
+              trap 'rm -f "$FC_CONF"' EXIT
               cat > "$FC_CONF" <<FCXML
               <?xml version="1.0"?>
               <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
               <fontconfig>
                 <include>/etc/fonts/fonts.conf</include>
                 <dir>${pkgs.jetbrains-mono}/share/fonts</dir>
-                <cachedir>/tmp/fc-cache-screenshots</cachedir>
+                <cachedir>/tmp/fc-cache-screenshots-$$</cachedir>
               </fontconfig>
               FCXML
               export FONTCONFIG_FILE="$FC_CONF"
 
-              TAPES="docs/tapes"
-                OUT="docs/static/images"
-                mkdir -p "$OUT"
+              vhs "$tape"
 
-              # Run a single tape or all tapes
-              if [[ -n "''${ONLY:-}" ]]; then
-                tapes=("$TAPES/$ONLY.tape")
-              else
-                tapes=("$TAPES"/*.tape)
+              # Extract last frame from GIF as PNG
+              magick "$OUT/$name.gif" -coalesce "$OUT/$name-frame-%04d.png"
+              last=$(printf '%s\n' "$OUT/$name-frame"-*.png | sort -t- -k3 -n | tail -1)
+              mv "$last" "$OUT/$name.png"
+              rm -f "$OUT/$name-frame"-*.png "$OUT/$name.gif"
+
+              echo "$name -> $OUT/$name.png"
+            '';
+          };
+
+          # Captures all VHS tapes in parallel: capture-screenshots [name]
+          capture-screenshots = pkgs.writeShellApplication {
+            name = "capture-screenshots";
+            runtimeInputs = [
+              self.packages.${system}.capture-one
+              pkgs.parallel
+            ];
+            text = ''
+              TAPES="docs/tapes"
+
+              if [[ -n "''${1:-}" ]]; then
+                # Single tape by name
+                capture-one "$TAPES/$1.tape"
+                exit
               fi
 
-              for tape in "''${tapes[@]}"; do
-                name="$(basename "$tape" .tape)"
-                [[ "$name" == "debug" ]] && continue
-                echo "  capturing $name..."
-                vhs "$tape"
-
-                # Extract last frame from GIF as PNG
-                magick "$OUT/$name.gif" -coalesce "$OUT/$name-frame-%04d.png"
-                last=$(printf '%s\n' "$OUT/$name-frame"-*.png | sort -t- -k3 -n | tail -1)
-                mv "$last" "$OUT/$name.png"
-                rm -f "$OUT/$name-frame"-*.png "$OUT/$name.gif"
-
-                echo "  -> $OUT/$name.png"
-              done
+              # All tapes in parallel (skip debug)
+              find "$TAPES" -name '*.tape' ! -name 'debug.tape' -print0 \
+                | parallel -0 -j4 --bar capture-one {}
 
               echo ""
-              echo "Done! Screenshots in $OUT/"
-              ls -la "$OUT/"*.png
+              echo "Done! Screenshots in docs/static/images/"
+              ls -la docs/static/images/*.png
             '';
           };
           micasa-container = pkgs.dockerTools.buildImage {
@@ -323,6 +340,7 @@
           record-demo = flake-utils.lib.mkApp { drv = self.packages.${system}.record-demo; };
           build-docs = flake-utils.lib.mkApp { drv = self.packages.${system}.build-docs; };
           docs = flake-utils.lib.mkApp { drv = self.packages.${system}.docs; };
+          capture-one = flake-utils.lib.mkApp { drv = self.packages.${system}.capture-one; };
           capture-screenshots = flake-utils.lib.mkApp { drv = self.packages.${system}.capture-screenshots; };
         };
 
