@@ -174,15 +174,6 @@
               python3 -m http.server 0 -d website
             '';
           };
-          docs = pkgs.writeShellApplication {
-            name = "micasa-docs";
-            runtimeInputs = [ pkgs.hugo ];
-            text = ''
-              mkdir -p docs/static/images
-              cp images/favicon.svg docs/static/images/favicon.svg
-              hugo server --source docs --baseURL /docs/ --bind 0.0.0.0
-            '';
-          };
           record-demo = pkgs.writeShellApplication {
             name = "record-demo";
             runtimeInputs = [
@@ -324,7 +315,6 @@
           website = flake-utils.lib.mkApp { drv = self.packages.${system}.website; };
           record-demo = flake-utils.lib.mkApp { drv = self.packages.${system}.record-demo; };
           build-docs = flake-utils.lib.mkApp { drv = self.packages.${system}.build-docs; };
-          docs = flake-utils.lib.mkApp { drv = self.packages.${system}.docs; };
           capture-one = flake-utils.lib.mkApp { drv = self.packages.${system}.capture-one; };
           capture-screenshots = flake-utils.lib.mkApp { drv = self.packages.${system}.capture-screenshots; };
           pre-commit = flake-utils.lib.mkApp { drv = self.packages.${system}.run-pre-commit; };

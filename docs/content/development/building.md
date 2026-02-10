@@ -73,7 +73,7 @@ The flake exposes several convenience apps:
 |---------|-------------|
 | `nix run` | Run micasa directly |
 | `nix run '.#website'` | Serve the website locally |
-| `nix run '.#docs'` | Serve the docs with live reload |
+| `nix run '.#build-docs'` | Build the Hugo docs into `website/docs/` |
 | `nix run '.#record-demo'` | Record the demo GIF |
 
 ## Container image
