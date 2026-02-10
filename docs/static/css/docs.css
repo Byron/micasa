@@ -314,6 +314,16 @@ pre {
 .status-completed { color: #6B7280; }
 .status-abandoned { color: #CC3311; }
 
+/* ── Mermaid diagrams ──────────────────────────────────────── */
+
+.docs-main pre.mermaid {
+  background: none;
+  color: var(--charcoal);
+  padding: 1rem 0;
+  box-shadow: none;
+  text-align: center;
+}
+
 /* ── Screenshots ───────────────────────────────────────────── */
 
 .docs-main img {

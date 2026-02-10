@@ -83,14 +83,15 @@ phone, website, and notes.
 
 ## Relationships
 
-```
-House Profile (1)
-    |
-Projects (many) ──< Quotes (many) ──> Vendor
-    |
-Maintenance (many) ──> Appliance (optional)
-    |
-    └──< Service Log (many) ──> Vendor (optional)
+```mermaid
+erDiagram
+    HOUSE_PROFILE ||--o{ PROJECT : has
+    PROJECT ||--o{ QUOTE : has
+    QUOTE }o--|| VENDOR : "from"
+    HOUSE_PROFILE ||--o{ MAINTENANCE : has
+    MAINTENANCE }o--o| APPLIANCE : "linked to"
+    MAINTENANCE ||--o{ SERVICE_LOG : has
+    SERVICE_LOG }o--o| VENDOR : "performed by"
 ```
 
 - A **project** has many **quotes**

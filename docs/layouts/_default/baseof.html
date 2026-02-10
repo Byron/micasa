@@ -44,5 +44,23 @@ document.addEventListener('click', function(e) {
 });
 </script>
 
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'base',
+  themeVariables: {
+    fontFamily: '"Source Serif 4", Georgia, serif',
+    fontSize: '14px',
+    primaryColor: '#f0ebe4',
+    primaryBorderColor: '#c05e3c',
+    primaryTextColor: '#2d2a26',
+    lineColor: '#9e958a',
+    secondaryColor: '#faf6f1',
+    tertiaryColor: '#faf6f1'
+  }
+});
+</script>
+
 </body>
 </html>
