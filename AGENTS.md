@@ -574,76 +574,6 @@ in case things crash or otherwise go haywire, be diligent about this.
 - Refactored view.go (1784→564 lines): extracted `table.go` (604), `collapse.go` (385), `house.go` (264)
 - Fixed gap calculation regression (used `m.effectiveHeight()` instead of `m.height`); added `TestBuildViewShowsFullHouseBox` regression test
 
-# Completed work
-
-- [REF-SCROLL] Refactor width/scroll implementation (fb84d4e, a46f34a, 9ca4f6e, 1bfa3cb)
-- [README] project README with features, keybindings, architecture, install instructions
-- Appliances tab, FK links on Maintenance/Quotes, enter follows link, relation indicators in headers (f61993b, 03af1e1)
-- [HOUSE-UX] redesign house profile: middot-separated inline text, no chip borders (9deaba7)
-- [SERVICELOG] maintenance log feature: service history sub-table per maintenance item (89eefaa)
-- [VENDOR-SERVICE] vendor tracking in service log entries (89eefaa)
-- [APPLIANCE-MAINT] Maint count column on appliances tab (89eefaa)
-- [NOTRUNC] avoid truncating cell text when terminal is wide enough (1379865)
-- [ROWHL] soften table row highlight color (5406579)
-- [DBPATH] move db path from status bar to help overlay (5406579)
-- [SELFG] drop fg override from selected row so status/money colors show through (5406579)
-- [CURSOR] replace orange-bg cell cursor with underline+bold; fix ANSI leak (5406579)
-- [ULLEN] underline matches text length, not full column width (5406579)
-- [CONSOLIDATE] merge LEARNINGS.md and AGENT_LOG.md into AGENTS.md (5406579)
-- [ARROWS] use proper arrow/triangle characters for sort indicators (98384e0)
-- [SORTSTABLE] sort indicators render within existing column width (98384e0)
-- [STATUSBAR-ENTER] remove redundant `enter edit` from Normal mode status bar (98384e0)
-- [SORTPK] PK as implicit tiebreaker, skip priority number for single-column sorts (98384e0)
-- [EDITLABEL] shorten "edit mode" to "edit" in Normal mode status bar (98384e0)
-- [DELETEDANSI] fix ANSI leak on deleted rows (98384e0)
-- [SORT] multi-column sorting (98384e0)
-- [STRIKELEN] strikethrough length matches text, not full column width (d1720a0)
-- [STRIKECLR] softer color for deleted row strikethrough (d1720a0)
-- [XEDIT] move x (show deleted) to Edit mode only (d1720a0)
-- [DELITALIC] add italic to deleted rows (d1720a0)
-- [DTOGGLE] d toggles delete/restore instead of separate d/u keys (d1720a0)
-- [ORDINAL] press 1-9 to jump to Nth option in select fields (60ec495)
-- [ORDINAL-LABEL] show ordinal numbers next to select options (60ec495)
-- [UNDERWAY] rename "in_progress" status to "underway" (ef87b74)
-- [SELECTCOLOR] color status labels in select menus to match table cell colors (d05836d)
-- [UNDO] undo cell/form edits with u in Edit mode (c6b6739)
-- [REDO] redo undone edits with r in Edit mode (c6b6739)
-- [COLWIDTH] stable column widths for fixed-option columns (c6b6739)
-- [TABHANDLER] TabHandler interface eliminates switch dispatch on TabKind/FormKind (67bfbe3)
-- [HIDECOLS] hide/show columns with candy stacks, ladle edges, sparse ellipsis (7bf8835)
-- refactor forms.go and view.go: deduplicate submit/edit pairs, centering, inline edit boilerplate, form-data converters (9851c74)
-- scrap the log-on-dash-v approach, just enable logging dynamically (75b2c86)
-- remove the v1 in Logs; remove the forward slashes; ghost text reads type a Perl-compatible regex (1c623d4)
-- build a search engine with local UI, spinner and selection (1c623d4)
-- global search interface: pop up box, show matches, select and jump to row (1c623d4)
-- highlight the part of the string that the regex matched in log lines (4289fb7)
-- entry editing: make editing existing entries work (a457c44)
-- anchored status bar: keystroke info always at bottom of terminal (a457c44)
-- [BADGE-REFACTOR] replace candy stacks with single-line hidden-column badges (356abd4)
-- [BADGE-LEFTALIGN] left-align badges, color-only for cursor position (fef8e04)
-- [BADGE-TRIANGLES] triangle glyphs on outermost badges (4336fb2)
-- [BADGE-CENTER] center badge row relative to table width (c566cc6, 00bce3d)
-- [GHCR] nix container build + push to ghcr.io on release (59a8ba0)
-- [SEMREL] semantic-release workflow + container on release event (238b785)
-- [GHCR-META] docker/metadata-action semver cascade + SHA tags (f066639, 498b799)
-- [PURE-GO-SQLITE] pure-Go SQLite driver, no CGO (b96f7cd)
-- [SHOWCOL-HINT] shift+C hint in status bar when columns hidden (90a850d)
-- [CI-XPLAT] CI across Linux, macOS, Windows (6295c50)
-- [CI-SHUFFLE] -shuffle=on in CI tests (f0878c4)
-- [CI-BINARIES] cross-platform binary uploads on release (9303b94)
-- [CGO-OFF] CGO_ENABLED=0 everywhere: nix, dev shell, CI (a173788, bae0824, efe06d2)
-- [WIN-TEMPDIR] Store.Close() for Windows temp dir cleanup (2c132df)
-- [CI-PRECOMMIT] nix pre-commit hooks replace manual lint/tidy CI jobs (9479cce)
-- [RELEASE-CONSOLIDATE] consolidated binaries+container into release workflow to fix GITHUB_TOKEN event limitation
-- [WEBSITE-BUG] fix GitHub links on website: micasa/micasa -> cpcloud/micasa (3500195)
-- [WEBSITE-MAIN] move website from gh-pages branch to website/ on main with Actions deploy workflow (343e35a, 3c9bed3)
-- [WEBSITE-VIBES] typewriter heading, aspirational content, pitch tightening, polish (413e24a, b0bb6d9, cc0a955)
-- [MODULE-RENAME] Go module path corrected from micasa/micasa to cpcloud/micasa (f2fc33d)
-- [DASHBOARD] Dashboard landing screen with overdue/upcoming maintenance, active projects, expiring warranties, recent activity, YTD spending (271121c)
-- [WEBSITE-CHIMNEY] animated chimney smoke particle system on website hero house (75318ac)
-- [PARSE-ARGS] replaced manual arg parsing with alecthomas/kong
-- [XDG-LIB] switched to adrg/xdg for platform-aware data paths (Linux/macOS/Windows)
-
 ## 2026-02-07 Session 12
 
 **Work done** (see git log for details):
@@ -723,7 +653,7 @@ in case things crash or otherwise go haywire, be diligent about this.
   - **Tests**: 6 data-layer tests (schedule, active projects, warranties, recent logs, spending) + 12 app-layer tests (daysUntil, daysLabel, sort, cap, toggle, dismiss, blocking, empty/populated views, tab bar, status bar) -- 154 total tests passing
   - Added nil guards on `reloadActiveTab`/`reloadAllTabs` for store-less test models
 
-## 2026-02-09 Session 18
+## 2026-02-09 Session 17
 
 **User requests**: Fix dashboard overlay dim bleed-through; dashboard cleanup (remove q hint, strip emoji); move db path from help to tab row; fix terminal right-edge bleed with line clamping + horizontal scroll viewport.
 
@@ -742,7 +672,7 @@ in case things crash or otherwise go haywire, be diligent about this.
   - 14 new tests: clamp lines, truncate left, viewport range, cursor visibility, sort adjustment
 - [HELP-OVERLAY] Help as stacking overlay via `overlay.Composite()`
 
-## 2026-02-09 Session 19
+## 2026-02-09 Session 18
 
 **User request**: Refactor the width/scroll implementation; one commit per refactor.
 
@@ -752,7 +682,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 - `refactor(ui): fix truncateLeft width accounting` (9ca4f6e)
 - `refactor(ui): minor viewport/header cleanups` (1bfa3cb)
 
-## 2026-02-09 Session 17
+## 2026-02-09 Session 19
 
 **User request**: Implement [WEBSITE-CHIMNEY] -- animated chimney smoke with random zig-zag particles on the website hero house.
 
@@ -787,7 +717,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 - [DASH-CLEANUP] Removed q hint from dashboard overlay, stripped emoji from section headers/empty states
 - [DBPATH-MOVE] Moved db path from help overlay to right-aligned tab row with left-ellipsis truncation
 
-## 2026-02-09 Session 19
+## 2026-02-09 Session 20
 
 **User request**: Build out project documentation. User wants Markdown source in repo, generated HTML in CI (not stored in git), deployed to micasa.dev/docs. Local testing via `nix run '.#docs'`.
 
@@ -822,7 +752,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 - Docs linked from website hero CTA + footer, README "Documentation" section
 - [VHS-SCREENSHOTS] Switched from asciinema+agg to VHS (Charmbracelet) for screenshots. VHS renders through headless Chrome + ttyd so `lipgloss.AdaptiveColor` 24-bit colors render correctly (agg's 16-color theme mapping was the root cause of "redacted legal docs"). 9 tape files in `docs/tapes/`, each produces a crisp PNG via VHS `Screenshot` command. `capture-screenshots` nix app runs all tapes (or `ONLY=name` for one). Appliances tape uses 1800px width so all 10 columns fit. Dracula theme, JetBrains Mono 14px, 1400x900 default.
 
-## 2026-02-09 Session 19
+## 2026-02-09 Session 21
 
 **User request**: Fix colorless VHS screenshots (user provided good.png vs bad.png for comparison).
 
@@ -839,7 +769,7 @@ in case things crash or otherwise go haywire, be diligent about this.
 
 **WIP**: `house-profile.tape` -- VHS `Screenshot` silently produces no file when the `H` key has been pressed (toggles house profile expansion in micasa). All other tapes work. Without `H`, the same tape works. Not a timing issue (tested with 3s+ sleeps). Needs further investigation -- possibly VHS Chrome rendering fails on the expanded house profile view.
 
-## 2026-02-09 Session 20
+## 2026-02-09 Session 22
 
 **User request**: Integrate `adrg/xdg` for platform-aware data paths. Also: audit new deps for security before integrating (added as hard rule).
 
@@ -854,6 +784,88 @@ in case things crash or otherwise go haywire, be diligent about this.
 - Added CodeQL and TruffleHog secret scanning to CI
 - Added hard rules: nix vendorHash after dep changes, pin Actions to version tags, prefer tools over shell, audit docs on feature changes
 - [DOC-SYNC] Updated docs/README/website for features from other machine: `^`/`$` keybindings and horizontal scroll arrows in navigation.md; Go 1.25+ version requirement across all surfaces; cross-platform XDG data paths in configuration, data-storage, first-run docs, README, website; fixed nav doc "NAV" badge to match code ("NORMAL")
+
+## 2026-02-09 Session 23
+
+**User request**: Add `--print-path` CLI flag to show resolved database path and exit.
+
+**Work done**:
+- [PRINT-PATH] Added `PrintPath bool` to `cli` struct (kong tag: `--print-path`); resolves path via existing `resolveDBPath`, prints to stdout, exits 0
+- 12 new tests in `cmd/micasa/main_test.go`:
+  - 6 unit tests for `resolveDBPath`: explicit path, explicit+demo, demo-only (:memory:), default (platform), env override, explicit-beats-env
+  - 6 integration tests via `buildTestBinary`: default path, explicit path, env override, demo-no-path, demo-with-path, exit-code-zero
+- Docs: `--print-path` section in configuration.md, backup example in data-storage.md uses `$(micasa --print-path)`, README and website CLI snippets updated
+
+# Completed work
+
+- [REF-SCROLL] Refactor width/scroll implementation (fb84d4e, a46f34a, 9ca4f6e, 1bfa3cb)
+- [README] project README with features, keybindings, architecture, install instructions
+- Appliances tab, FK links on Maintenance/Quotes, enter follows link, relation indicators in headers (f61993b, 03af1e1)
+- [HOUSE-UX] redesign house profile: middot-separated inline text, no chip borders (9deaba7)
+- [SERVICELOG] maintenance log feature: service history sub-table per maintenance item (89eefaa)
+- [VENDOR-SERVICE] vendor tracking in service log entries (89eefaa)
+- [APPLIANCE-MAINT] Maint count column on appliances tab (89eefaa)
+- [NOTRUNC] avoid truncating cell text when terminal is wide enough (1379865)
+- [ROWHL] soften table row highlight color (5406579)
+- [DBPATH] move db path from status bar to help overlay (5406579)
+- [SELFG] drop fg override from selected row so status/money colors show through (5406579)
+- [CURSOR] replace orange-bg cell cursor with underline+bold; fix ANSI leak (5406579)
+- [ULLEN] underline matches text length, not full column width (5406579)
+- [CONSOLIDATE] merge LEARNINGS.md and AGENT_LOG.md into AGENTS.md (5406579)
+- [ARROWS] use proper arrow/triangle characters for sort indicators (98384e0)
+- [SORTSTABLE] sort indicators render within existing column width (98384e0)
+- [STATUSBAR-ENTER] remove redundant `enter edit` from Normal mode status bar (98384e0)
+- [SORTPK] PK as implicit tiebreaker, skip priority number for single-column sorts (98384e0)
+- [EDITLABEL] shorten "edit mode" to "edit" in Normal mode status bar (98384e0)
+- [DELETEDANSI] fix ANSI leak on deleted rows (98384e0)
+- [SORT] multi-column sorting (98384e0)
+- [STRIKELEN] strikethrough length matches text, not full column width (d1720a0)
+- [STRIKECLR] softer color for deleted row strikethrough (d1720a0)
+- [XEDIT] move x (show deleted) to Edit mode only (d1720a0)
+- [DELITALIC] add italic to deleted rows (d1720a0)
+- [DTOGGLE] d toggles delete/restore instead of separate d/u keys (d1720a0)
+- [ORDINAL] press 1-9 to jump to Nth option in select fields (60ec495)
+- [ORDINAL-LABEL] show ordinal numbers next to select options (60ec495)
+- [UNDERWAY] rename "in_progress" status to "underway" (ef87b74)
+- [SELECTCOLOR] color status labels in select menus to match table cell colors (d05836d)
+- [UNDO] undo cell/form edits with u in Edit mode (c6b6739)
+- [REDO] redo undone edits with r in Edit mode (c6b6739)
+- [COLWIDTH] stable column widths for fixed-option columns (c6b6739)
+- [TABHANDLER] TabHandler interface eliminates switch dispatch on TabKind/FormKind (67bfbe3)
+- [HIDECOLS] hide/show columns with candy stacks, ladle edges, sparse ellipsis (7bf8835)
+- refactor forms.go and view.go: deduplicate submit/edit pairs, centering, inline edit boilerplate, form-data converters (9851c74)
+- scrap the log-on-dash-v approach, just enable logging dynamically (75b2c86)
+- remove the v1 in Logs; remove the forward slashes; ghost text reads type a Perl-compatible regex (1c623d4)
+- build a search engine with local UI, spinner and selection (1c623d4)
+- global search interface: pop up box, show matches, select and jump to row (1c623d4)
+- highlight the part of the string that the regex matched in log lines (4289fb7)
+- entry editing: make editing existing entries work (a457c44)
+- anchored status bar: keystroke info always at bottom of terminal (a457c44)
+- [BADGE-REFACTOR] replace candy stacks with single-line hidden-column badges (356abd4)
+- [BADGE-LEFTALIGN] left-align badges, color-only for cursor position (fef8e04)
+- [BADGE-TRIANGLES] triangle glyphs on outermost badges (4336fb2)
+- [BADGE-CENTER] center badge row relative to table width (c566cc6, 00bce3d)
+- [GHCR] nix container build + push to ghcr.io on release (59a8ba0)
+- [SEMREL] semantic-release workflow + container on release event (238b785)
+- [GHCR-META] docker/metadata-action semver cascade + SHA tags (f066639, 498b799)
+- [PURE-GO-SQLITE] pure-Go SQLite driver, no CGO (b96f7cd)
+- [SHOWCOL-HINT] shift+C hint in status bar when columns hidden (90a850d)
+- [CI-XPLAT] CI across Linux, macOS, Windows (6295c50)
+- [CI-SHUFFLE] -shuffle=on in CI tests (f0878c4)
+- [CI-BINARIES] cross-platform binary uploads on release (9303b94)
+- [CGO-OFF] CGO_ENABLED=0 everywhere: nix, dev shell, CI (a173788, bae0824, efe06d2)
+- [WIN-TEMPDIR] Store.Close() for Windows temp dir cleanup (2c132df)
+- [CI-PRECOMMIT] nix pre-commit hooks replace manual lint/tidy CI jobs (9479cce)
+- [RELEASE-CONSOLIDATE] consolidated binaries+container into release workflow to fix GITHUB_TOKEN event limitation
+- [WEBSITE-BUG] fix GitHub links on website: micasa/micasa -> cpcloud/micasa (3500195)
+- [WEBSITE-MAIN] move website from gh-pages branch to website/ on main with Actions deploy workflow (343e35a, 3c9bed3)
+- [WEBSITE-VIBES] typewriter heading, aspirational content, pitch tightening, polish (413e24a, b0bb6d9, cc0a955)
+- [MODULE-RENAME] Go module path corrected from micasa/micasa to cpcloud/micasa (f2fc33d)
+- [DASHBOARD] Dashboard landing screen with overdue/upcoming maintenance, active projects, expiring warranties, recent activity, YTD spending (271121c)
+- [WEBSITE-CHIMNEY] animated chimney smoke particle system on website hero house (75318ac)
+- [PARSE-ARGS] replaced manual arg parsing with alecthomas/kong
+- [XDG-LIB] switched to adrg/xdg for platform-aware data paths (Linux/macOS/Windows)
+- [PRINT-PATH] `--print-path` flag: resolves and prints db path to stdout, exits 0
 
 # Remaining work
 
