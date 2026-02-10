@@ -34,7 +34,7 @@ erDiagram
 ### Why this matters
 
 The `Type` column is a select drawn from pre-seeded project types. This keeps
-naming consistent -- you won't end up with "Renovation", "renovation", and
+**naming consistent** -- you won't end up with "Renovation", "renovation", and
 "Reno" as three separate categories.
 
 ## Quotes
@@ -57,12 +57,12 @@ erDiagram
 Every quote belongs to a project and comes from a vendor. In the UI this
 means:
 
-- The `Project` column is a live link -- press `enter` to jump straight to
+- The `Project` column is a **live link** -- press `enter` to jump straight to
   that project. The header shows `m:1` so you know it's navigable.
-- You can't accidentally create an orphan quote; micasa requires a project
+- You can't accidentally create an orphan quote; micasa **requires a project**
   before you can add one.
-- Vendor records are shared: the same vendor appears across all their quotes
-  and service log entries, so contact info stays in one place.
+- Vendor records are **shared**: the same vendor appears across all their
+  quotes and service log entries, so contact info stays in one place.
 
 ## Maintenance
 
@@ -83,15 +83,15 @@ erDiagram
 
 ### Why this matters
 
-Categories work like project types -- a fixed set so filtering and sorting
+Categories work like project types -- a **fixed set** so filtering and sorting
 stays clean. The appliance link is optional (not every task involves a specific
-piece of equipment), but when present it lets you:
+piece of equipment), but when present it enables **bidirectional navigation**:
 
 - Press `enter` on the `Appliance` column to jump to that appliance
 - See the `Maint` count on the Appliances tab, showing all tasks tied to it
 - Drill down from an appliance to its linked maintenance items
 
-The `Log` column is a drilldown -- press `enter` to open the full service
+The `Log` column is a **drilldown** -- press `enter` to open the full service
 history for that item.
 
 ## Service Log
@@ -112,10 +112,10 @@ erDiagram
 ### Why this matters
 
 Service log entries live inside a maintenance item (you get to them by
-drilling down from the `Log` column), so they always have context -- you never
-see a floating service record without knowing what it was for. The optional
-vendor link means you can track whether you did the work yourself or hired
-someone, and if hired, which vendor -- their contact info carries over
+drilling down from the `Log` column), so they **always have context** -- you
+never see a floating service record without knowing what it was for. The
+optional vendor link means you can track whether you did the work yourself or
+hired someone, and if hired, which vendor -- their contact info carries over
 automatically.
 
 ## Appliances
@@ -133,7 +133,7 @@ Physical equipment in your home. Each appliance tracks:
 Appliances are referenced by maintenance items, so the relationship flows the
 other way: you don't pick maintenance tasks from the appliance form, you pick
 an appliance from the maintenance form. But the `Maint` drilldown column gives
-you the reverse view -- from any appliance, see everything you're doing to
+you the **reverse view** -- from any appliance, see everything you're doing to
 keep it running.
 
 ## Vendors
@@ -145,7 +145,7 @@ phone, website, and notes.
 
 ### Why this matters
 
-Because vendors are shared, updating a vendor's phone number in one place
+Because vendors are shared, updating a vendor's phone number **in one place**
 updates it everywhere. You won't end up with "Acme Plumbing" and
 "Acme Plumbing LLC" as two separate contacts -- micasa matches on name and
 reuses the existing record.
