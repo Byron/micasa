@@ -10,11 +10,13 @@ how data is stored and how to manage it.
 
 ## Database file
 
-By default, the database lives at:
+By default, the database lives in your platform's data directory:
 
-```
-~/.local/share/micasa/micasa.db
-```
+| Platform | Default path |
+|----------|-------------|
+| Linux    | `~/.local/share/micasa/micasa.db` |
+| macOS    | `~/Library/Application Support/micasa/micasa.db` |
+| Windows  | `%LOCALAPPDATA%\micasa\micasa.db` |
 
 See [Configuration]({{< ref "/reference/configuration" >}}) for how to customize the path.
 

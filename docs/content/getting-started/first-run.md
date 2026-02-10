@@ -32,8 +32,8 @@ Just run:
 micasa
 ```
 
-On first launch, micasa creates its database at
-`~/.local/share/micasa/micasa.db` and presents you with the **house profile
+On first launch, micasa creates its database in your platform's data directory
+(e.g. `~/.local/share/micasa/micasa.db` on Linux) and presents you with the **house profile
 form**. Fill in your home's details -- nickname is the only required field,
 everything else is optional. You can always edit the profile later with `p` in
 Edit mode.

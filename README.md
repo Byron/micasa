@@ -24,7 +24,7 @@ Your house is quietly plotting to break while you sleep -- and you're dreaming a
 
 ## Install
 
-Requires Go 1.24+:
+Requires Go 1.25+:
 
 ```sh
 go install github.com/cpcloud/micasa/cmd/micasa@latest
@@ -37,7 +37,7 @@ micasa --demo   # poke around with sample data
 micasa          # start fresh with your own house
 ```
 
-> Your data stays yours. `~/.local/share/micasa/micasa.db`. One file. Back it up with `cp`.
+> Your data stays yours. One SQLite file in your platform's data directory. Back it up with `cp`.
 
 ## Documentation
 

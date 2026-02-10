@@ -10,7 +10,7 @@ method suits you.
 
 ## Go install
 
-Requires Go 1.24+:
+Requires Go 1.25+:
 
 ```sh
 go install github.com/cpcloud/micasa/cmd/micasa@latest

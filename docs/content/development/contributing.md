@@ -10,7 +10,7 @@ PRs welcome! Here's how to get set up and what to expect.
 ## Setup
 
 1. Fork and clone the repo
-2. Enter the dev shell: `nix develop` (or install Go 1.24+ manually)
+2. Enter the dev shell: `nix develop` (or install Go 1.25+ manually)
 3. The dev shell auto-installs pre-commit hooks on first entry
 
 ## Pre-commit hooks

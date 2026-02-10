@@ -53,22 +53,20 @@ export MICASA_DB_PATH=/path/to/my/house.db
 micasa   # uses /path/to/my/house.db
 ```
 
-### `XDG_DATA_HOME`
+### Platform data directory
 
-micasa follows the [XDG Base Directory
+micasa uses platform-aware data directories (via
+[adrg/xdg](https://github.com/adrg/xdg)). When no path is specified (via
+argument or `MICASA_DB_PATH`), the database is stored at:
+
+| Platform | Default path |
+|----------|-------------|
+| Linux    | `$XDG_DATA_HOME/micasa/micasa.db` (default `~/.local/share/micasa/micasa.db`) |
+| macOS    | `~/Library/Application Support/micasa/micasa.db` |
+| Windows  | `%LOCALAPPDATA%\micasa\micasa.db` |
+
+On Linux, `XDG_DATA_HOME` is respected per the [XDG Base Directory
 Specification](https://specifications.freedesktop.org/basedir-spec/latest/).
-When no path is specified (via argument or `MICASA_DB_PATH`), the database is
-stored at:
-
-```
-$XDG_DATA_HOME/micasa/micasa.db
-```
-
-If `XDG_DATA_HOME` is not set, it defaults to `~/.local/share`:
-
-```
-~/.local/share/micasa/micasa.db
-```
 
 ## Resolution order
 
@@ -76,7 +74,7 @@ The database path is resolved in this order:
 
 1. Positional CLI argument, if provided
 2. `MICASA_DB_PATH` environment variable, if set
-3. `$XDG_DATA_HOME/micasa/micasa.db` (or `~/.local/share/micasa/micasa.db`)
+3. Platform data directory (see table above)
 
 In `--demo` mode without a path argument, an in-memory database (`:memory:`)
 is used.

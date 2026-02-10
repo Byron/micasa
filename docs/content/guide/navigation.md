@@ -12,13 +12,14 @@ micasa uses vim-style modal keybindings. There are three modes: **Normal**,
 
 ## Normal mode
 
-Normal mode is the default. The status bar shows a blue **NAV** badge. You
+Normal mode is the default. The status bar shows a blue **NORMAL** badge. You
 have full table navigation:
 
 | Key         | Action               |
 |-------------|----------------------|
 | `j` / `k`   | Move row down / up   |
-| `h` / `l`   | Move column left / right |
+| `h` / `l`   | Move column left / right (clamps at edges) |
+| `^` / `$`   | Jump to first / last column |
 | `g` / `G`   | Jump to first / last row |
 | `d` / `u`   | Half-page down / up  |
 | `tab` / `shift+tab` | Next / previous tab |
@@ -84,6 +85,14 @@ For example:
 A breadcrumb bar replaces the tab bar while in a detail view (e.g.,
 `Maintenance > HVAC filter replacement`). Press `esc` to close the detail
 view and return to the parent tab.
+
+## Horizontal scrolling
+
+When a table has more columns than fit on screen, it scrolls horizontally as
+you move with `h`/`l` or `^`/`$`. Scroll indicators appear in the column
+headers: a **◀** on the leftmost header when columns are off-screen to the
+left, and a **▶** on the rightmost header when columns are off-screen to the
+right.
 
 ## Foreign key links
 

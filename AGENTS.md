@@ -281,6 +281,11 @@ These have been repeatedly requested. Violating them wastes the user's time.
   StrReplace, Grep, and Glob tools instead of shell equivalents (`cat`,
   `sed`, `grep`, `find`, `echo >`, etc.). Only use Shell for commands that
   genuinely need a shell (build, test, git, nix, etc.).
+- **Audit docs on feature/fix changes**: When features or fixes are
+  introduced, check whether documentation (Hugo docs, README, website)
+  needs updating. Also consider whether the demo GIF (`record-demo`) and
+  screenshot tapes (`docs/tapes/`) need re-recording to reflect changes.
+  If they do, re-record them -- don't leave it for the user.
 - **Nix vendorHash after dep changes**: After adding or updating a Go
   dependency, run `nix build '.#micasa'`. If it fails with a hash mismatch,
   temporarily set `vendorHash = lib.fakeHash;` (not `""`) to get the
@@ -843,6 +848,12 @@ in case things crash or otherwise go haywire, be diligent about this.
 - Audited `adrg/xdg` v0.5.3: no network calls, no file writes (only `MkdirAll` with `0o700`), rejects relative paths, only dep is `golang.org/x/sys` -- clean
 - [XDG-LIB] Replaced hand-rolled XDG logic in `internal/data/path.go` with `xdg.DataFile("micasa/micasa.db")`; gets correct macOS (`~/Library/Application Support`) and Windows (`%LOCALAPPDATA%`) paths for free; `MICASA_DB_PATH` override preserved
 - All 154 tests pass
+- Added `data.AppName` constant to eliminate hardcoded "micasa" strings
+- Bumped `go.mod` to `go 1.25`, dropped Go 1.24 from CI, updated release workflow
+- Full third-party dependency security audit (govulncheck + manual source review); no issues found
+- Added CodeQL and TruffleHog secret scanning to CI
+- Added hard rules: nix vendorHash after dep changes, pin Actions to version tags, prefer tools over shell, audit docs on feature changes
+- [DOC-SYNC] Updated docs/README/website for features from other machine: `^`/`$` keybindings and horizontal scroll arrows in navigation.md; Go 1.25+ version requirement across all surfaces; cross-platform XDG data paths in configuration, data-storage, first-run docs, README, website; fixed nav doc "NAV" badge to match code ("NORMAL")
 
 # Remaining work
 
