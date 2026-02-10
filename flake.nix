@@ -310,8 +310,11 @@
               fi
 
               # All tapes in parallel (skip debug)
+              ntapes=$(find "$TAPES" -name '*.tape' ! -name 'debug.tape' | wc -l)
+              nprocs=$(nproc)
+              jobs=$(( ntapes < nprocs ? ntapes : nprocs ))
               find "$TAPES" -name '*.tape' ! -name 'debug.tape' -print0 \
-                | parallel -0 -j4 --bar capture-one {}
+                | parallel -0 -j"$jobs" --bar capture-one {}
 
               echo ""
               echo "Done! Screenshots in docs/static/images/"
