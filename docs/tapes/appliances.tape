@@ -4,9 +4,9 @@ Output docs/static/images/appliances.gif
 
 Set Shell bash
 Set FontFamily "JetBrains Mono"
-Set FontSize 14
+Set FontSize 20
 Set Width 1800
-Set Height 900
+Set Height 1200
 Set Padding 20
 Set Theme "Dracula"
 Set CursorBlink false
