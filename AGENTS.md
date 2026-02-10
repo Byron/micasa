@@ -829,6 +829,21 @@ in case things crash or otherwise go haywire, be diligent about this.
 - Resolved trivial conflict in `ci.yml` (CodeQL block removed in both sides)
 - 4 unpushed commits reduced to 3: hard rule → security policy → remove CodeQL
 
+## 2026-02-09 Session 26
+
+**User request**: Rework website easter egg -- tried stick figure walking to house (block chars, then ASCII with walk cycle), user wasn't happy with animation quality. Simplified to: click house to crumble, click rubble to rebuild.
+
+**Work done**:
+- [WEBSITE-EASTER-EGG] Replaced stick figure + door animation with direct click-to-crumble
+  - Removed stick figure, side door, walk animation, door swing -- all that complexity gone
+  - First click: smoke stops, house blocks crumble with physics (row-staggered cascade, gravity, spin, drift), settle as smoldering rubble
+  - Smoldering rubble: ember flicker (random blocks pulse brighter terracotta/orange), rubble smoke particles (wispy `░`/`▒` rising with drift and fade)
+  - Caption "should've used micasa." centered over rubble
+  - Second click: stops smolder effects, blocks fly back to original positions (reverse animation, bottom rows first, cubic-bezier ease), restores house + chimney smoke
+  - Fixed ground level: blocks now stop at house foundation line, not below
+  - Fixed chimney smoke after rebuild: smoke particle system re-queries `smoke-bed` DOM element on each spawn instead of caching stale reference
+  - Removed all stick figure / side door CSS (`.stick-figure`, `.side-door`, `.walking`)
+
 # Completed work
 
 - [REF-SCROLL] Refactor width/scroll implementation (fb84d4e, a46f34a, 9ca4f6e, 1bfa3cb)

@@ -18,14 +18,9 @@
 <!-- ─── Hero ─── -->
 <header class="hero">
   <div class="container">
-    <div class="hero-house" aria-hidden="true">
-      &nbsp;&nbsp;&nbsp;&nbsp;&#x2584;&#x2593;&#x2584;<span class="chimney-anchor chimney">&#x2588;<span class="smoke-bed" id="smoke-bed" aria-hidden="true"></span></span>&nbsp;&nbsp;&nbsp;<br>
-      &#x2584;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2584;<br>
-      &#x2584;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2584;<br>
-      &#x2588;&#x2588; &#x2591;&#x2591; &#x2591;&#x2591; &#x2588;&#x2588;<br>
-      &#x2588;&#x2588; &nbsp;&#x2588;&#x2588;&#x2588;&#x2588; &#x2588;&#x2588;<br>
-      &#x2588;&#x2588; &nbsp;&#x2588;&nbsp;&nbsp;&#x2588; &#x2588;&#x2588;<br>
-      &#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;
+    <div class="hero-house-scene" id="house-scene">
+      <div class="hero-house" id="hero-house" aria-hidden="true">&nbsp;&nbsp;&nbsp;&nbsp;&#x2584;&#x2593;&#x2584;<span class="chimney-anchor chimney">&#x2588;<span class="smoke-bed" id="smoke-bed" aria-hidden="true"></span></span>&nbsp;&nbsp;&nbsp;<br>&#x2584;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2584;<br>&#x2584;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2593;&#x2584;<br>&#x2588;&#x2588; &#x2591;&#x2591; &#x2591;&#x2591; &#x2588;&#x2588;<br>&#x2588;&#x2588; &nbsp;&#x2588;&#x2588;&#x2588;&#x2588; &#x2588;&#x2588;<br>&#x2588;&#x2588; &nbsp;&#x2588;&nbsp;&nbsp;&#x2588; &#x2588;&#x2588;<br>&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;&#x2580;</div>
+      <div class="crumble-caption" id="crumble-caption">should've used micasa.</div>
     </div>
     <h1>micasa<span class="dot">.</span></h1>
     <p class="tagline">
@@ -221,10 +216,289 @@ micasa --print-path   # show where the database lives</code></pre>
 </script>
 
 <script>
+// Easter egg: click the house to crumble it
+(function () {
+  var scene = document.getElementById('house-scene');
+  var house = document.getElementById('hero-house');
+  var caption = document.getElementById('crumble-caption');
+  if (!scene || !house) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+  var animating = false;
+  var destroyed = false;
+  var rubbleEls = [];
+  var rubbleSmokeId = 0;
+  var rubbleSmokeParticles = [];
+  var emberInterval = 0;
+  var originalHTML = house.innerHTML;
+
+  scene.addEventListener('click', function () {
+    if (animating) return;
+
+    if (destroyed) {
+      rebuildHouse();
+    } else {
+      destroyHouse();
+    }
+  });
+
+  function destroyHouse() {
+    animating = true;
+
+    // Kill smoke
+    var smoke = document.getElementById('smoke-bed');
+    if (smoke) smoke.style.display = 'none';
+
+    var houseRect = house.getBoundingClientRect();
+    var sceneRect = scene.getBoundingClientRect();
+    var text = house.innerText;
+    var lines = text.split('\n');
+    var blocks = [];
+
+    var charW = houseRect.width / Math.max.apply(null, lines.map(function (l) { return l.length; }));
+    var charH = houseRect.height / lines.length;
+
+    var blockChars = /[\u2580-\u259F]/;
+    for (var row = 0; row < lines.length; row++) {
+      for (var col = 0; col < lines[row].length; col++) {
+        var ch = lines[row][col];
+        if (blockChars.test(ch)) {
+          blocks.push({
+            ch: ch,
+            x: (houseRect.left - sceneRect.left) + col * charW,
+            y: (houseRect.top - sceneRect.top) + row * charH,
+            row: row
+          });
+        }
+      }
+    }
+
+    house.style.visibility = 'hidden';
+
+    var els = [];
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      var el = document.createElement('span');
+      el.className = 'crumble-block';
+      el.textContent = b.ch;
+      el.style.left = b.x + 'px';
+      el.style.top = b.y + 'px';
+      scene.appendChild(el);
+      els.push({ el: el, b: b, vx: 0, vy: 0, va: 0, fallen: false });
+    }
+
+    // Ground = top of the last row, in scene-relative coordinates
+    var houseTopInScene = houseRect.top - sceneRect.top;
+    var groundY = houseTopInScene + (lines.length - 1) * charH;
+    var gravity = 800;
+    var started = performance.now();
+    var rowDelay = 120;
+
+    function tick(now) {
+      var t = (now - started) / 1000;
+      var allDone = true;
+
+      for (var j = 0; j < els.length; j++) {
+        var item = els[j];
+        if (item.fallen) continue;
+
+        var delay = item.b.row * rowDelay / 1000;
+        var localT = t - delay;
+        if (localT < 0) { allDone = false; continue; }
+
+        if (localT < 0.016 && item.vx === 0) {
+          item.vx = (Math.random() - 0.5) * 120;
+          item.va = (Math.random() - 0.5) * 400;
+        }
+
+        var dx = item.vx * localT;
+        var dy = 0.5 * gravity * localT * localT;
+        var angle = item.va * localT;
+
+        var newY = item.b.y + dy;
+        if (newY > groundY) {
+          newY = groundY;
+          item.fallen = true;
+        } else {
+          allDone = false;
+        }
+
+        var opacity = item.fallen ? Math.max(0, 1 - (localT - 0.5)) : 1;
+        item.el.style.transform =
+          'translate(' + dx.toFixed(1) + 'px, ' + (newY - item.b.y).toFixed(1) + 'px) rotate(' + angle.toFixed(0) + 'deg)';
+        item.el.style.opacity = opacity;
+      }
+
+      if (!allDone) {
+        requestAnimationFrame(tick);
+      } else {
+        // Settle into smoldering rubble
+        setTimeout(function () {
+          // Dim blocks and tint warm to look like embers
+          for (var k = 0; k < els.length; k++) {
+            els[k].el.style.transition = 'opacity 0.8s, color 0.8s';
+            els[k].el.style.opacity = '0.5';
+            els[k].el.style.color = '#a04e30';
+          }
+          rubbleEls = els;
+          if (caption) caption.classList.add('visible');
+
+          // Ember flicker: randomly pulse a few blocks brighter
+          emberInterval = setInterval(function () {
+            for (var e = 0; e < rubbleEls.length; e++) {
+              if (Math.random() < 0.08) {
+                var el = rubbleEls[e].el;
+                el.style.color = Math.random() < 0.5 ? '#c05e3c' : '#d4783c';
+                el.style.opacity = '0.7';
+                setTimeout((function (ref) {
+                  return function () {
+                    ref.style.color = '#a04e30';
+                    ref.style.opacity = '0.4';
+                  };
+                })(el), 300 + Math.random() * 400);
+              }
+            }
+          }, 150);
+
+          // Rubble smoke: wispy particles rising from the pile
+          var pileCenterX = houseRect.width / 2;
+          var pileY = groundY;
+          function spawnRubbleSmoke() {
+            if (!destroyed && rubbleSmokeParticles.length === 0) return;
+            var el = document.createElement('span');
+            el.className = 'smoke-particle';
+            el.textContent = Math.random() < 0.7 ? '\u2591' : '\u2592';
+            el.style.position = 'absolute';
+            el.style.left = (pileCenterX + (Math.random() - 0.5) * houseRect.width * 0.6) + 'px';
+            el.style.top = pileY + 'px';
+            el.style.color = '#9e958a';
+            el.style.fontSize = '0.7em';
+            el.style.opacity = '0';
+            scene.appendChild(el);
+
+            var p = {
+              el: el, age: 0,
+              lifetime: 1500 + Math.random() * 2000,
+              startX: parseFloat(el.style.left),
+              drift: (Math.random() - 0.5) * 30,
+              rise: 30 + Math.random() * 25
+            };
+            rubbleSmokeParticles.push(p);
+          }
+
+          var rubbleSmokeSpawnTimer = setInterval(function () {
+            if (rubbleSmokeParticles.length < 6) spawnRubbleSmoke();
+          }, 400);
+
+          var lastT = 0;
+          function tickRubbleSmoke(now) {
+            if (!lastT) lastT = now;
+            var dt = Math.min((now - lastT) / 1000, 0.1);
+            lastT = now;
+
+            for (var i = rubbleSmokeParticles.length - 1; i >= 0; i--) {
+              var sp = rubbleSmokeParticles[i];
+              sp.age += dt * 1000;
+              var t = sp.age / sp.lifetime;
+              if (t >= 1) {
+                sp.el.remove();
+                rubbleSmokeParticles.splice(i, 1);
+                continue;
+              }
+              var rise = sp.rise * t;
+              var drift = sp.drift * t;
+              var alpha = t < 0.15 ? (t / 0.15) * 0.4 : 0.4 * (1 - (t - 0.15) / 0.85);
+              sp.el.style.transform = 'translate(' + drift.toFixed(1) + 'px, -' + rise.toFixed(1) + 'px)';
+              sp.el.style.opacity = alpha.toFixed(3);
+            }
+
+            rubbleSmokeId = requestAnimationFrame(tickRubbleSmoke);
+          }
+          rubbleSmokeId = requestAnimationFrame(tickRubbleSmoke);
+
+          // Store spawn timer for cleanup
+          scene._rubbleSmokeSpawnTimer = rubbleSmokeSpawnTimer;
+
+          destroyed = true;
+          animating = false;
+        }, 200);
+      }
+    }
+
+    requestAnimationFrame(tick);
+  }
+
+  function rebuildHouse() {
+    animating = true;
+
+    // Stop smolder effects
+    clearInterval(emberInterval);
+    emberInterval = 0;
+    cancelAnimationFrame(rubbleSmokeId);
+    rubbleSmokeId = 0;
+    if (scene._rubbleSmokeSpawnTimer) {
+      clearInterval(scene._rubbleSmokeSpawnTimer);
+      scene._rubbleSmokeSpawnTimer = 0;
+    }
+    for (var s = 0; s < rubbleSmokeParticles.length; s++) {
+      rubbleSmokeParticles[s].el.remove();
+    }
+    rubbleSmokeParticles = [];
+
+    // Hide caption
+    if (caption) caption.classList.remove('visible');
+
+    // Find max row for reverse stagger (bottom rows rebuild first)
+    var maxRow = 0;
+    for (var k = 0; k < rubbleEls.length; k++) {
+      if (rubbleEls[k].b.row > maxRow) maxRow = rubbleEls[k].b.row;
+    }
+
+    var rowDelay = 100; // ms per row
+    var flightDuration = 0.5; // seconds
+
+    // Restore color/opacity and animate each block back to its original position
+    for (var k = 0; k < rubbleEls.length; k++) {
+      var item = rubbleEls[k];
+      var delay = (maxRow - item.b.row) * rowDelay; // bottom rows first
+      item.el.style.transition =
+        'transform ' + flightDuration + 's cubic-bezier(0.2, 0.8, 0.3, 1) ' + delay + 'ms, ' +
+        'opacity 0.3s ease ' + delay + 'ms, ' +
+        'color 0.3s ease ' + delay + 'ms';
+      item.el.style.opacity = '1';
+      item.el.style.color = '';
+      item.el.style.transform = 'translate(0, 0) rotate(0deg)';
+    }
+
+    // Total animation time: slowest row delay + flight
+    var totalMs = maxRow * rowDelay + flightDuration * 1000 + 100;
+
+    setTimeout(function () {
+      // Remove rubble, swap to real house
+      for (var k = 0; k < rubbleEls.length; k++) {
+        rubbleEls[k].el.remove();
+      }
+      rubbleEls = [];
+
+      house.innerHTML = originalHTML;
+      house.style.visibility = 'visible';
+      house.style.opacity = '1';
+
+      // Restart smoke
+      var newSmokeBed = document.getElementById('smoke-bed');
+      if (newSmokeBed) newSmokeBed.style.display = '';
+
+      destroyed = false;
+      animating = false;
+    }, totalMs);
+  }
+})();
+</script>
+
+<script>
 // Chimney smoke particle system
 (function () {
-  var bed = document.getElementById('smoke-bed');
-  if (!bed) return;
+  if (!document.getElementById('smoke-bed')) return;
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
   // Mostly light block chars for a wispy look
@@ -235,7 +509,9 @@ micasa --print-path   # show where the database lives</code></pre>
   function rand(lo, hi) { return lo + Math.random() * (hi - lo); }
 
   function spawn() {
-    if (particles.length < MAX_PARTICLES) {
+    // Re-query each spawn so it survives house DOM rebuilds
+    var bed = document.getElementById('smoke-bed');
+    if (bed && particles.length < MAX_PARTICLES) {
       var el = document.createElement('span');
       el.className = 'smoke-particle';
       el.textContent = glyphs[Math.floor(Math.random() * glyphs.length)];
