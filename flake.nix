@@ -179,86 +179,28 @@
             name = "record-demo";
             runtimeInputs = [
               micasa
-              pkgs.asciinema
-              pkgs.asciinema-agg
-              pkgs.tmux
-              pkgs.fontconfig
+              pkgs.vhs
               pkgs.jetbrains-mono
             ];
             text = ''
-              CAST_FILE="$(mktemp --suffix=.cast)"
-              GIF_FILE="images/demo.gif"
-              SESSION="micasa-demo"
-              COLS=132
-              ROWS=42
+              TMPDIR=$(mktemp -d)
+              trap 'rm -rf "$TMPDIR"' EXIT
 
-              cleanup() {
-                tmux kill-session -t "$SESSION" 2>/dev/null || true
-              }
-              trap cleanup EXIT
-              cleanup
+              # Make JetBrains Mono visible to Chrome inside VHS
+              FC_CONF="$TMPDIR/fonts.conf"
+              cat > "$FC_CONF" <<FCXML
+              <?xml version="1.0"?>
+              <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+              <fontconfig>
+                <include>/etc/fonts/fonts.conf</include>
+                <dir>${pkgs.jetbrains-mono}/share/fonts</dir>
+                <cachedir>$TMPDIR/fc-cache</cachedir>
+              </fontconfig>
+              FCXML
+              export FONTCONFIG_FILE="$FC_CONF"
 
-              send() { tmux send-keys -t "$SESSION" "$@"; }
-              pause() { sleep "''${1:-0.5}"; }
-
-              tmux new-session -d -s "$SESSION" -x "$COLS" -y "$ROWS"
-
-              send "TERM=xterm-256color asciinema rec --cols $COLS --rows $ROWS --overwrite '$CAST_FILE' -c 'micasa --demo'" Enter
-              pause 3
-
-              # Projects tab
-              pause 2
-              send j; pause 0.6
-              send j; pause 0.6
-              send j; pause 0.6
-              send j; pause 1
-
-              send l; pause 0.5
-              send l; pause 0.5
-              send s; pause 1.2
-              send s; pause 1.5
-
-              # Maintenance tab
-              send Tab; pause 2
-              send j; pause 0.5
-              send j; pause 0.5
-
-              send l; pause 0.4
-              send l; pause 0.4
-              send l; pause 0.4
-              send l; pause 0.4
-              send l; pause 1
-
-              send Enter; pause 3
-              send Escape; pause 1.5
-
-              # Appliances tab
-              send Tab; pause 2
-              send j; pause 0.5
-              send j; pause 0.5
-              send j; pause 1
-
-              # House profile
-              send H; pause 3
-              send H; pause 1.5
-
-              # Help overlay
-              send ?; pause 4
-              send Escape; pause 1
-
-              # Quit
-              send q; pause 1
-
-              echo "Converting to GIF..."
-              FONT_FILE=$(fc-list : file family | grep -i "JetBrains Mono" | head -1 | cut -d: -f1)
-              FONT_DIR=$(dirname "$FONT_FILE")
-              agg --font-dir "$FONT_DIR" \
-                  --font-family "JetBrains Mono" \
-                  --theme dracula \
-                  --cols "$COLS" --rows "$ROWS" \
-                  "$CAST_FILE" "$GIF_FILE"
-
-              echo "Done: $CAST_FILE and $GIF_FILE"
+              vhs docs/tapes/demo.tape
+              echo "Done: images/demo.gif"
             '';
           };
           # Captures a single VHS tape to PNG: capture-one <tape-file>
@@ -324,11 +266,11 @@
                 exit
               fi
 
-              # All tapes in parallel (skip debug)
-              ntapes=$(find "$TAPES" -name '*.tape' ! -name 'debug.tape' | wc -l)
+              # All tapes in parallel (skip debug + demo)
+              ntapes=$(find "$TAPES" -name '*.tape' ! -name 'debug.tape' ! -name 'demo.tape' | wc -l)
               nprocs=$(nproc)
               jobs=$(( ntapes < nprocs ? ntapes : nprocs ))
-              find "$TAPES" -name '*.tape' ! -name 'debug.tape' -print0 \
+              find "$TAPES" -name '*.tape' ! -name 'debug.tape' ! -name 'demo.tape' -print0 \
                 | parallel -0 -j"$jobs" --bar capture-one {}
 
               echo ""

@@ -1,0 +1,104 @@
+Require micasa
+
+Output images/demo.gif
+
+Set Shell bash
+Set FontFamily "JetBrains Mono"
+Set FontSize 22
+Set Width 2000
+Set Height 1400
+Set Padding 20
+Set Theme "Dracula"
+Set CursorBlink false
+Set TypingSpeed 75ms
+
+Env NO_COLOR ""
+Env TERM "xterm-256color"
+Env COLORTERM "truecolor"
+Env COLORFGBG "15;0"
+
+Hide
+Type "micasa --demo"
+Enter
+Sleep 4s
+# Dismiss dashboard
+Type "D"
+Sleep 1s
+Show
+
+# Projects tab -- browse rows
+Sleep 1.5s
+Type "j"
+Sleep 0.6s
+Type "j"
+Sleep 0.6s
+Type "j"
+Sleep 0.6s
+Type "j"
+Sleep 1s
+
+# Move to a column and sort
+Type "l"
+Sleep 0.5s
+Type "l"
+Sleep 0.5s
+Type "s"
+Sleep 1.2s
+Type "s"
+Sleep 1.5s
+
+# Maintenance tab
+Tab
+Sleep 2s
+Type "j"
+Sleep 0.5s
+Type "j"
+Sleep 0.5s
+
+# Navigate to Log column
+Type "l"
+Sleep 0.4s
+Type "l"
+Sleep 0.4s
+Type "l"
+Sleep 0.4s
+Type "l"
+Sleep 0.4s
+Type "l"
+Sleep 1s
+
+# Drilldown into service log
+Enter
+Sleep 3s
+Escape
+Sleep 1.5s
+
+# Appliances tab
+Tab
+Sleep 2s
+Type "j"
+Sleep 0.5s
+Type "j"
+Sleep 0.5s
+Type "j"
+Sleep 1s
+
+# House profile toggle
+Type "H"
+Sleep 3s
+Type "H"
+Sleep 1.5s
+
+# Help overlay
+Type "?"
+Sleep 4s
+Escape
+Sleep 1s
+
+# Dashboard
+Type "D"
+Sleep 3s
+
+# Quit
+Type "q"
+Sleep 1s
