@@ -156,6 +156,9 @@
             name = "micasa-build-docs";
             runtimeInputs = [ pkgs.hugo ];
             text = ''
+              mkdir -p website/images docs/static/images
+              cp images/favicon.svg website/images/favicon.svg
+              cp images/favicon.svg docs/static/images/favicon.svg
               rm -rf website/docs
               hugo --source docs --baseURL /docs/ --destination ../website/docs
             '';
@@ -175,6 +178,8 @@
             name = "micasa-docs";
             runtimeInputs = [ pkgs.hugo ];
             text = ''
+              mkdir -p docs/static/images
+              cp images/favicon.svg docs/static/images/favicon.svg
               hugo server --source docs --baseURL /docs/ --bind 0.0.0.0
             '';
           };
