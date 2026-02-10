@@ -46,7 +46,7 @@ Full docs at [micasa.dev/docs](https://micasa.dev/docs/) -- installation, user g
 
 ## Development
 
-Built with the [Charmbracelet](https://github.com/charmbracelet) TUI toolkit, [GORM](https://gorm.io), and [SQLite](https://sqlite.org). [Pure Go](https://go.dev), zero CGO.
+Built with the [Charmbracelet](https://github.com/charmbracelet) TUI toolkit, [GORM](https://gorm.io), and [SQLite](https://sqlite.org). [Pure Go](https://go.dev), zero CGO. Pair-programmed with [Claude](https://claude.ai) via [Cursor](https://cursor.com).
 
 PRs welcome. The repo uses a [Nix](https://nixos.org) dev shell with pre-commit hooks for formatting, linting, and tests:
 
