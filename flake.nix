@@ -250,7 +250,7 @@
             '';
           };
 
-          # Captures all VHS tapes in parallel: capture-screenshots [name]
+          # Captures VHS tapes in parallel: capture-screenshots [name ...]
           capture-screenshots = pkgs.writeShellApplication {
             name = "capture-screenshots";
             runtimeInputs = [
@@ -260,9 +260,9 @@
             text = ''
               TAPES="docs/tapes"
 
-              if [[ -n "''${1:-}" ]]; then
-                # Single tape by name
-                capture-one "$TAPES/$1.tape"
+              if [[ $# -gt 0 ]]; then
+                # Named tapes in parallel
+                printf '%s\n' "$@" | parallel --bar capture-one "$TAPES/{}.tape"
                 exit
               fi
 
