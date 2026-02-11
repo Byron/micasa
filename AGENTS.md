@@ -296,14 +296,12 @@ These have been repeatedly requested. Violating them wastes the user's time.
   expected hash from the error without a noisy warning, then paste in the
   real hash.
 - **Run `go mod tidy` before committing** to keep `go.mod`/`go.sum` clean.
-- **Record every user request** in the "Remaining work" section of this file
-  (with a unique ID) if it is not already there. **This includes small
-  one-liner asks and micro UI tweaks.** Do this immediately when the request
-  is made, not later in a batch. If you catch yourself having completed
-  something without recording it, add it retroactively right away.
-- **Completed tasks: move, don't strikethrough.** When a task is done, remove
-  it from "Remaining work" and add it to "Completed work" with a short commit
-  hash. Never use `~~strikethrough~~` to mark tasks done in place.
+- **Record every user request** as a GitHub issue
+  (`gh issue create --repo cpcloud/micasa`) if one doesn't already exist.
+  Use conventional-commit-style titles (e.g. `feat(ui): ...`,
+  `fix(data): ...`). **This includes small one-liner asks and micro UI
+  tweaks.** Do this immediately when the request is made, not later in a
+  batch.
 - **Website commits use `docs(website):`** not `feat(website):` to avoid
   triggering semantic-release version bumps.
 - **Keep README and website in sync**: when changing content on one (features,
@@ -388,29 +386,21 @@ doing the same thing in a loop and not making progress.
   `website/index.html`, Nix expressions, CI workflows, Hugo templates, etc.
   Don't skip inline `<script>` blocks in HTML just because they're not `.go`.
 
-Look at the "Remaining work" section of this file and work through those
-tasks. When you complete a task, pause and wait for the developer's input
-before continuing on. Be prepared for the user to veer off into other tasks.
+Look at the [GitHub issues](https://github.com/cpcloud/micasa/issues) and
+work through them. When you complete a task, pause and wait for the
+developer's input before continuing on. Be prepared for the user to veer
+off into other tasks.
 That's fine, go with the flow and soft nudges to get back to the original work
 stream are appreciated.
 
 Once allowed to move on, commit the current change set (fixing any pre-commit
 issues that show up).
 
-When you finish a task, move it to the "Completed work" section with the short
-commit hash trailing the task like:
+When you finish a task, reference the issue number in the commit message
+(e.g. `closes #42`) so GitHub auto-closes it.
 
-- TASK_DESCRIPTION (SHORT-SHA)
-
-and also note in the git log message that addresses the task what the original
-task description was.
-
-It's possible that remaining work has already been done, just leave those alone
-if you figure out that the task has already been done.
-
-Every time the user makes a request that is not in the "Remaining work"
-section, add it there as a new task with a unique ID. When you complete the
-task, mark it as done and add a note about the completion in the "Session log"
+Every time the user makes a request that doesn't have a GitHub issue,
+create one. When you complete the task, note it in the "Session log"
 section with the task ID and a brief description of what you did.
 
 For big features, write down the plan in `PLANS.md` before doing anything, just
@@ -1112,81 +1102,4 @@ in case things crash or otherwise go haywire, be diligent about this.
 
 # Remaining work
 
-## Features
-- [LINK-ARROWS] ~~Replace `m:1` with `→` for linked columns and add `↘` for
-  drilldown columns in headers/status bar. Add vendor link on service log
-  "Performed By" column. Audit for missing linked columns.~~ DONE
-- [WEBSITE] Help me build a `github-pages` website for this project. Modern,
-  simple, not AI sloppish, whimsical, funny, perhaps even a bit snarky and
-  irreverent. Ideally this wouldn't require a bunch of random javascript crap
-  like react and 500 MBs of deps, but ugh okay if that's needed to make the
-  thing awesome. make sure you setup the `github-pages` branch and all the
-  deployment configs so that I can just push to that branch to update the site.
-  The site should include a project overview, installation instructions,
-  feature list. Bonus points for a "demo" section with animated GIFs showing
-  off the terminal UI.
-- [HIDECOLS-INTERACTIVE] Make the collapsed column stacks interactive: navigate to
-  a candy-wrapper pill and press c to unhide just that column (peel it off the
-  stack). Currently c hides and C shows all; this would add per-column restore.
-- [NESTED-DRILL] Stack-based nested drilldown: push current detail onto a stack
-  when drilling deeper (e.g. Appliances > Dishwasher > Filter Replacement service
-  log), esc pops back one level, breadcrumb grows with each level.
-- [REPLACEMENT] let's add a feature to track replacing appliances based on age
-  and ideally we can gather some data to get a rough idea of when a thing is
-  due for replacement; would be sweet if we could pull that data based on the
-  model number; doesn't need to be super sophisticated, just plausible
-- [STATUS-MODE-VERBOSITY] is there a kind of verbose status bar we can add that
-  shows keystrokes and also more verbose context?
-- [PAINT-COLORS] Paint color tracking per room: brand, color name/code, finish,
-  room/area. "What paint did we use in the living room?" is a universal
-  homeowner question.
-- [SPENDING-SUMMARY] Aggregate spending view: total spend by year/month, by
-  category (projects, maintenance, appliances). Could live as a summary section
-  in the house profile or as its own dashboard panel.
-- [PROJECT-PRIORITY] Priority or manual ordering for projects. Status captures
-  lifecycle but not urgency. A simple priority field (or drag-to-reorder) would
-  let homeowners rank what matters most.
-- [SEASONAL-CHECKLISTS] Recurring seasonal reminders not tied to a specific
-  appliance or interval (e.g. "clean gutters in spring", "check weatherstripping
-  before winter"). Could be a lightweight checklist model with season/month tags.
-- [TABLE-FILTER] In-table row filtering: `/` opens a filter input, typed text
-  narrows visible rows across all columns, `esc` clears. Essential for tabs
-  with more than ~15 rows. (Search was previously removed; this is a simpler,
-  per-tab approach.)
-- [QUICK-CAPTURE] Lower-ceremony entry creation. Options: (a) minimal "just
-  title" add flow in the TUI that skips optional fields, (b) CLI subcommands
-  like `micasa add project "fix squeaky door"`, or (c) both.
-- [QUICK-ADD-FORM] Lighter-weight add forms: only require essential fields
-  (title + status for projects, name + interval for maintenance), let user fill
-  in optional details later via edit.
-- [DASH-OVERLAY-STYLE] Revisit dashboard overlay styling -- noodle on dim/bg
-  approach, make it feel polished.
-- [RECENT-ACTIVITY] Bring back recent service activity with better UX -- not
-  in the dashboard summary. Could be a dedicated view, a detail pane on
-  maintenance items, or a global activity feed.
-
-## Future / Tabled
-
-- [MICARRO] Sibling CLI for car maintenance (`micarro` or similar). Shares
-  data layer and SQLite format with micasa, same TUI patterns, but distinct
-  identity. Cars need mileage-based intervals (not just time-based), so the
-  scheduling model diverges. Decision: option 2 (sibling CLI sharing Go
-  packages), tabled for now.
-- [MISHERRAS] Sibling CLI (`misherras`) for tool/equipment tracking. Purchase
-  info, warranty, maintenance (blade/bit replacement, calibration),
-  lending/location. Same shared-core approach as micarro. Tabled.
-- [MISCOSAS] Umbrella name for the family of apps: `miscosas` ("my things").
-  Shared Go module (`github.com/cpcloud/miscosas`) with common TUI framework,
-  SQLite conventions, Wong palette, modal vim keys. Individual apps: micasa
-  (house), micarro (cars), misherras (tools). Tabled.
-
-## Questions
-- Why are some values pointers to numbers instead of just the number? E.g.,
-  HOAFeeCents and PropertyTaxCents. Why aren't those just plain int64s?
-
-## Moar
-- [HIDE-COMPLETED] would be nice to have a way to hide completed projects
-  easily. we'll get to the generic way to do that when we implement filter,
-  but i think it will still be useful as a standalone feature
-- [VENDOR-DRILLDOWN] vendors should have a drilldown link to quotes, that
-  would effectively show the quote history for a vendor
+Work items are tracked as [GitHub issues](https://github.com/cpcloud/micasa/issues).
