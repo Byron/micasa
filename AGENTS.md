@@ -347,6 +347,12 @@ These have been repeatedly requested. Violating them wastes the user's time.
 - **Keep README and website in sync**: when changing content on one (features,
   install instructions, keybindings, tech stack, pitch copy), update the other
   to match.
+- **Single-file backup principle**: Every feature must preserve the property
+  that `cp micasa.db backup.db` is a complete backup. Never store
+  application state outside the SQLite database (e.g. external file
+  references, sidecar directories). If a feature needs filesystem files
+  (document BLOBs, exports), the DB is the source of truth and the
+  filesystem is a disposable cache.
 - **Unix aesthetic -- silence is success**: If everything is as expected,
   don't display anything that says "all good". Like Unix commands: no news
   is good news. Skip empty-state placeholders, "nothing to do" messages,
