@@ -54,4 +54,6 @@ dev.md
 
 # Rust (legacy)
 target/
-.claude
+
+# Claude local settings
+.claude/settings.local.json
