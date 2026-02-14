@@ -106,6 +106,9 @@ a coding agent on a user's computer.
   under ALL circumstances. ZERO EXCEPTIONS. Force pushing rewrites shared
   history and can destroy other contributors' work. If you made a mistake on
   main, fix it with a new commit — never rewrite history.
+- **Skip CI for agent-docs-only commits**: When a commit changes ONLY
+  `AGENTS.md` and/or `CLAUDE.md` (no code, no CI, no other files), add
+  `[skip ci]` to the commit message. There's nothing to build or test.
 
 # Exploration and reading files
 
