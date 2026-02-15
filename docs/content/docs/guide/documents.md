@@ -7,6 +7,8 @@ linkTitle = "Documents"
 
 Attach files to your home records -- warranties, manuals, invoices, photos.
 
+![Documents table](/images/documents.webp)
+
 ## Adding a document
 
 1. Switch to the Docs tab (`f` to cycle forward)
