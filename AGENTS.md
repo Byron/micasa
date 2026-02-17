@@ -542,10 +542,12 @@ like `LEARNINGS.md` are not.
 - Make sure to run the appropriate testing and formatting commands when you
   need to (usually a logical stopping point).
 - Write the code as well factored and human readable as you possibly can.
-- Always run `go test -shuffle=on -v ./...` (all packages, not a
-  specific directory) to get the most information about which test failed
-  and to avoid introducing test order dependencies. Use `-shuffle=on`
-  not `-shuffle=$RANDOM` -- Go picks and prints the seed for you.
+- Always run `go test -shuffle=on ./...` (all packages, not a
+  specific directory) to avoid introducing test order dependencies.
+  **Do not use `-v`** -- verbose output wastes tokens and is rarely
+  needed; Go already prints failing test names and output on failure.
+  Use `-shuffle=on` not `-shuffle=$RANDOM` -- Go picks and prints the
+  seed for you.
 - **Run long commands in the background**: `go test`, `go vet`, `go build`,
   and `nix run '.#pre-commit'` can all be run as background tasks so you can
   continue working while they execute.
