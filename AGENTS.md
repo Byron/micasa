@@ -370,7 +370,9 @@ These have been repeatedly requested. Violating them wastes the user's time.
   tests (compile-time guards, invariant checks) are welcome as
   ADDITIONS but never as REPLACEMENTS for user-flow tests. If you're
   unsure whether a user-flow test is needed or would be overkill, STOP
-  and ask the developer before proceeding.
+  and ask the developer before proceeding. Existing tests that violate
+  this rule are tech debt, not precedent. Do not mimic their style. New
+  tests must follow this rule regardless of what neighboring tests do.
 - **Prefer tools over shell commands**: Use the dedicated Read, Write,
   StrReplace, Grep, and Glob tools instead of shell equivalents (`cat`,
   `sed`, `grep`, `find`, `echo >`, etc.). Only use Shell for commands that
