@@ -6,26 +6,172 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{execute, terminal};
 use micasa_app::{
-    AppCommand, AppEvent, AppMode, AppState, DashboardCounts, FormKind, FormPayload, TabKind,
+    AppCommand, AppEvent, AppMode, AppState, Appliance, DashboardCounts, Document, FormKind,
+    FormPayload, HouseProfile, Incident, MaintenanceItem, Project, Quote, ServiceLogEntry,
+    SortDirection, TabKind, Vendor,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Tabs};
+use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs};
+use std::cmp::Ordering;
 use std::io;
 use std::time::Duration;
+use time::Date;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TabSnapshot {
+    House(Box<Option<HouseProfile>>),
+    Projects(Vec<Project>),
+    Quotes(Vec<Quote>),
+    Maintenance(Vec<MaintenanceItem>),
+    ServiceLog(Vec<ServiceLogEntry>),
+    Incidents(Vec<Incident>),
+    Appliances(Vec<Appliance>),
+    Vendors(Vec<Vendor>),
+    Documents(Vec<Document>),
+}
+
+impl TabSnapshot {
+    pub const fn tab_kind(&self) -> TabKind {
+        match self {
+            Self::House(_) => TabKind::House,
+            Self::Projects(_) => TabKind::Projects,
+            Self::Quotes(_) => TabKind::Quotes,
+            Self::Maintenance(_) => TabKind::Maintenance,
+            Self::ServiceLog(_) => TabKind::ServiceLog,
+            Self::Incidents(_) => TabKind::Incidents,
+            Self::Appliances(_) => TabKind::Appliances,
+            Self::Vendors(_) => TabKind::Vendors,
+            Self::Documents(_) => TabKind::Documents,
+        }
+    }
+
+    pub fn row_count(&self) -> usize {
+        match self {
+            Self::House(profile) => usize::from(profile.as_ref().is_some()),
+            Self::Projects(rows) => rows.len(),
+            Self::Quotes(rows) => rows.len(),
+            Self::Maintenance(rows) => rows.len(),
+            Self::ServiceLog(rows) => rows.len(),
+            Self::Incidents(rows) => rows.len(),
+            Self::Appliances(rows) => rows.len(),
+            Self::Vendors(rows) => rows.len(),
+            Self::Documents(rows) => rows.len(),
+        }
+    }
+}
 
 pub trait AppRuntime {
     fn load_dashboard_counts(&mut self) -> Result<DashboardCounts>;
-    fn load_tab_row_count(&mut self, tab: TabKind, include_deleted: bool) -> Result<Option<usize>>;
+    fn load_tab_snapshot(
+        &mut self,
+        tab: TabKind,
+        include_deleted: bool,
+    ) -> Result<Option<TabSnapshot>>;
     fn submit_form(&mut self, payload: &FormPayload) -> Result<()>;
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq)]
+enum TableCell {
+    Text(String),
+    Integer(i64),
+    OptionalInteger(Option<i64>),
+    Decimal(Option<f64>),
+    Date(Option<Date>),
+    Money(Option<i64>),
+}
+
+impl TableCell {
+    fn display(&self) -> String {
+        match self {
+            Self::Text(value) => value.clone(),
+            Self::Integer(value) => value.to_string(),
+            Self::OptionalInteger(Some(value)) => value.to_string(),
+            Self::OptionalInteger(None) => String::new(),
+            Self::Decimal(Some(value)) => format!("{value:.1}"),
+            Self::Decimal(None) => String::new(),
+            Self::Date(Some(value)) => value.to_string(),
+            Self::Date(None) => String::new(),
+            Self::Money(Some(cents)) => format_money(*cents),
+            Self::Money(None) => String::new(),
+        }
+    }
+
+    fn cmp_value(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (Self::Integer(left), Self::Integer(right)) => left.cmp(right),
+            (Self::OptionalInteger(left), Self::OptionalInteger(right)) => left.cmp(right),
+            (Self::Decimal(left), Self::Decimal(right)) => match (left, right) {
+                (Some(left), Some(right)) => left.total_cmp(right),
+                (None, Some(_)) => Ordering::Less,
+                (Some(_), None) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            },
+            (Self::Date(left), Self::Date(right)) => left.cmp(right),
+            (Self::Money(left), Self::Money(right)) => left.cmp(right),
+            (Self::Text(left), Self::Text(right)) => {
+                left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase())
+            }
+            _ => self
+                .display()
+                .to_ascii_lowercase()
+                .cmp(&other.display().to_ascii_lowercase()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct TableRowProjection {
+    cells: Vec<TableCell>,
+    deleted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct TableProjection {
+    title: &'static str,
+    columns: Vec<&'static str>,
+    rows: Vec<TableRowProjection>,
+}
+
+impl TableProjection {
+    fn row_count(&self) -> usize {
+        self.rows.len()
+    }
+
+    fn column_count(&self) -> usize {
+        self.columns.len()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SortSpec {
+    column: usize,
+    direction: SortDirection,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct PinnedCell {
+    column: usize,
+    value: TableCell,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+struct TableUiState {
+    tab: Option<TabKind>,
+    selected_row: usize,
+    selected_col: usize,
+    sort: Option<SortSpec>,
+    pin: Option<PinnedCell>,
+    filter_active: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
 struct ViewData {
     dashboard_counts: DashboardCounts,
-    active_tab_row_count: Option<usize>,
+    active_tab_snapshot: Option<TabSnapshot>,
+    table_state: TableUiState,
 }
 
 pub fn run_app<R: AppRuntime>(state: &mut AppState, runtime: &mut R) -> Result<()> {
@@ -75,20 +221,21 @@ fn handle_key_event<R: AppRuntime>(
     view_data: &mut ViewData,
     key: KeyEvent,
 ) -> bool {
+    if handle_table_key(state, view_data, key) {
+        return false;
+    }
+
     match (key.code, key.modifiers) {
         (KeyCode::Char('c'), KeyModifiers::CONTROL) => return true,
         (KeyCode::Char('q'), _) => return true,
-        (KeyCode::Tab, _) => {
+        (KeyCode::Tab, _) | (KeyCode::Char('f'), _) => {
             dispatch_and_refresh(state, runtime, view_data, AppCommand::NextTab);
         }
-        (KeyCode::BackTab, _) => {
+        (KeyCode::BackTab, _) | (KeyCode::Char('b'), _) => {
             dispatch_and_refresh(state, runtime, view_data, AppCommand::PrevTab);
         }
-        (KeyCode::Char('e'), _) => {
+        (KeyCode::Char('e'), _) | (KeyCode::Char('i'), _) => {
             state.dispatch(AppCommand::EnterEditMode);
-        }
-        (KeyCode::Char('n'), _) => {
-            state.dispatch(AppCommand::ExitToNav);
         }
         (KeyCode::Char('a'), _) => {
             if let Some(form_kind) = form_for_tab(state.active_tab) {
@@ -116,7 +263,7 @@ fn handle_key_event<R: AppRuntime>(
                 dispatch_and_refresh(state, runtime, view_data, AppCommand::SubmitForm);
             }
         }
-        (KeyCode::Char('d'), _) => {
+        (KeyCode::Char('x'), _) | (KeyCode::Char('d'), _) => {
             dispatch_and_refresh(state, runtime, view_data, AppCommand::ToggleDeleted);
         }
         (KeyCode::Char('@'), _) => {
@@ -135,6 +282,84 @@ fn handle_key_event<R: AppRuntime>(
     }
 
     false
+}
+
+fn handle_table_key(state: &mut AppState, view_data: &mut ViewData, key: KeyEvent) -> bool {
+    let can_use_table_keys = state.chat == micasa_app::ChatVisibility::Hidden
+        && !matches!(state.mode, AppMode::Form(_))
+        && state.active_tab != TabKind::Dashboard
+        && view_data.active_tab_snapshot.is_some();
+    if !can_use_table_keys {
+        return false;
+    }
+
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+            move_row(view_data, 1);
+            true
+        }
+        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+            move_row(view_data, -1);
+            true
+        }
+        (KeyCode::Char('h'), _) | (KeyCode::Left, _) => {
+            move_col(view_data, -1);
+            true
+        }
+        (KeyCode::Char('l'), _) | (KeyCode::Right, _) => {
+            move_col(view_data, 1);
+            true
+        }
+        (KeyCode::Char('g'), _) => {
+            view_data.table_state.selected_row = 0;
+            true
+        }
+        (KeyCode::Char('G'), _) => {
+            if let Some(projection) = active_projection(view_data) {
+                view_data.table_state.selected_row = projection.row_count().saturating_sub(1);
+            }
+            true
+        }
+        (KeyCode::Char('^'), _) => {
+            view_data.table_state.selected_col = 0;
+            true
+        }
+        (KeyCode::Char('$'), _) => {
+            if let Some(projection) = active_projection(view_data) {
+                view_data.table_state.selected_col = projection.column_count().saturating_sub(1);
+            }
+            true
+        }
+        (KeyCode::Char('s'), KeyModifiers::NONE) => {
+            let status = cycle_sort(view_data);
+            state.dispatch(AppCommand::SetStatus(status));
+            true
+        }
+        (KeyCode::Char('S'), _) => {
+            view_data.table_state.sort = None;
+            clamp_table_cursor(view_data);
+            state.dispatch(AppCommand::SetStatus("sort cleared".to_owned()));
+            true
+        }
+        (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+            view_data.table_state.pin = None;
+            view_data.table_state.filter_active = false;
+            clamp_table_cursor(view_data);
+            state.dispatch(AppCommand::SetStatus("pins cleared".to_owned()));
+            true
+        }
+        (KeyCode::Char('n'), KeyModifiers::NONE) => {
+            let status = toggle_pin(view_data);
+            state.dispatch(AppCommand::SetStatus(status));
+            true
+        }
+        (KeyCode::Char('N'), _) => {
+            let status = toggle_filter(view_data);
+            state.dispatch(AppCommand::SetStatus(status));
+            true
+        }
+        _ => false,
+    }
 }
 
 fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData) {
@@ -167,9 +392,13 @@ fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData
         .select(selected);
     frame.render_widget(tabs, layout[0]);
 
-    let body = Paragraph::new(render_body_text(state, view_data))
-        .block(Block::default().borders(Borders::ALL).title("view"));
-    frame.render_widget(body, layout[1]);
+    if state.active_tab == TabKind::Dashboard {
+        let body = Paragraph::new(render_dashboard_text(state, view_data))
+            .block(Block::default().borders(Borders::ALL).title("dashboard"));
+        frame.render_widget(body, layout[1]);
+    } else {
+        render_table(frame, layout[1], state, view_data);
+    }
 
     let status = status_text(state);
     let status_widget = Paragraph::new(status)
@@ -186,57 +415,588 @@ fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData
     }
 }
 
-fn render_body_text(state: &AppState, view_data: &ViewData) -> String {
-    let mut lines = Vec::new();
-    lines.push(format!("mode: {}", mode_label(state.mode)));
-    lines.push(format!(
-        "deleted: {}",
-        if state.show_deleted {
-            "shown"
-        } else {
-            "hidden"
-        }
-    ));
-
-    match state.active_tab {
-        TabKind::Dashboard => {
-            lines.push(String::new());
-            lines.push(format!(
-                "projects due: {}",
-                view_data.dashboard_counts.projects_due
-            ));
-            lines.push(format!(
-                "maintenance due: {}",
-                view_data.dashboard_counts.maintenance_due
-            ));
-            lines.push(format!(
-                "incidents open: {}",
-                view_data.dashboard_counts.incidents_open
-            ));
-        }
-        _ => {
-            lines.push(String::new());
-            if let Some(row_count) = view_data.active_tab_row_count {
-                lines.push(format!("rows: {row_count}"));
+fn render_dashboard_text(state: &AppState, view_data: &ViewData) -> String {
+    [
+        format!("mode: {}", mode_label(state.mode)),
+        format!(
+            "deleted: {}",
+            if state.show_deleted {
+                "shown"
             } else {
-                lines.push("rows: n/a".to_owned());
+                "hidden"
+            }
+        ),
+        String::new(),
+        format!("projects due: {}", view_data.dashboard_counts.projects_due),
+        format!(
+            "maintenance due: {}",
+            view_data.dashboard_counts.maintenance_due
+        ),
+        format!(
+            "incidents open: {}",
+            view_data.dashboard_counts.incidents_open
+        ),
+    ]
+    .join("\n")
+}
+
+fn render_table(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    state: &AppState,
+    view_data: &ViewData,
+) {
+    let Some(snapshot) = &view_data.active_tab_snapshot else {
+        let empty = Paragraph::new(String::new()).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(state.active_tab.label()),
+        );
+        frame.render_widget(empty, area);
+        return;
+    };
+
+    let projection = projection_for_snapshot(snapshot, &view_data.table_state);
+    let columns = projection.columns.len();
+    let widths = vec![Constraint::Min(8); columns.max(1)];
+
+    let header_cells = projection
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(index, column)| {
+            let mut label = (*column).to_owned();
+            if let Some(sort) = view_data.table_state.sort
+                && sort.column == index
+            {
+                let suffix = match sort.direction {
+                    SortDirection::Asc => " ↑",
+                    SortDirection::Desc => " ↓",
+                };
+                label.push_str(suffix);
+            }
+            Cell::from(label).style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
+        });
+    let header = Row::new(header_cells);
+
+    let rows = projection.rows.iter().enumerate().map(|(row_index, row)| {
+        let selected_row = row_index == view_data.table_state.selected_row;
+        let pin_match = row_matches_pin(row, &view_data.table_state);
+        let preview_dim = view_data.table_state.pin.is_some()
+            && !view_data.table_state.filter_active
+            && !pin_match;
+
+        let cells = row
+            .cells
+            .iter()
+            .enumerate()
+            .map(|(column_index, value)| {
+                let mut style = Style::default();
+                if row.deleted {
+                    style = style
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::CROSSED_OUT);
+                }
+                if preview_dim {
+                    style = style.fg(Color::DarkGray);
+                }
+                if selected_row {
+                    style = style.bg(Color::DarkGray);
+                }
+                if selected_row && column_index == view_data.table_state.selected_col {
+                    style = Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD);
+                }
+                Cell::from(value.display()).style(style)
+            })
+            .collect::<Vec<_>>();
+
+        Row::new(cells)
+    });
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        .column_spacing(1)
+        .block(
+            Block::default()
+                .title(table_title(&projection, &view_data.table_state))
+                .borders(Borders::ALL),
+        );
+    frame.render_widget(table, area);
+}
+
+fn table_title(projection: &TableProjection, table_state: &TableUiState) -> String {
+    let mut parts = vec![format!(
+        "{} r:{} c:{}",
+        projection.title,
+        projection.row_count(),
+        projection.column_count()
+    )];
+
+    if let Some(sort) = table_state.sort
+        && let Some(label) = projection.columns.get(sort.column)
+    {
+        let direction = match sort.direction {
+            SortDirection::Asc => "asc",
+            SortDirection::Desc => "desc",
+        };
+        parts.push(format!("sort {label} {direction}"));
+    }
+
+    if let Some(pin) = &table_state.pin
+        && let Some(label) = projection.columns.get(pin.column)
+    {
+        let value = pin.value.display();
+        parts.push(format!("pin {label}={}", truncate_label(&value, 12)));
+    }
+
+    if table_state.filter_active {
+        parts.push("filter on".to_owned());
+    }
+
+    parts.join(" | ")
+}
+
+fn truncate_label(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let truncated: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_some() {
+        format!("{truncated}…")
+    } else {
+        truncated
+    }
+}
+
+fn row_matches_pin(row: &TableRowProjection, table_state: &TableUiState) -> bool {
+    match &table_state.pin {
+        Some(pin) => row
+            .cells
+            .get(pin.column)
+            .map(|value| value == &pin.value)
+            .unwrap_or(false),
+        None => true,
+    }
+}
+
+fn active_projection(view_data: &ViewData) -> Option<TableProjection> {
+    view_data
+        .active_tab_snapshot
+        .as_ref()
+        .map(|snapshot| projection_for_snapshot(snapshot, &view_data.table_state))
+}
+
+fn projection_for_snapshot(snapshot: &TabSnapshot, table_state: &TableUiState) -> TableProjection {
+    let mut projection = base_projection(snapshot);
+
+    if let Some(sort) = table_state.sort
+        && sort.column < projection.column_count()
+    {
+        projection.rows.sort_by(|left, right| {
+            let left_value = left.cells.get(sort.column);
+            let right_value = right.cells.get(sort.column);
+            let order = match (left_value, right_value) {
+                (Some(left), Some(right)) => left.cmp_value(right),
+                (None, Some(_)) => Ordering::Less,
+                (Some(_), None) => Ordering::Greater,
+                (None, None) => Ordering::Equal,
+            };
+            match sort.direction {
+                SortDirection::Asc => order,
+                SortDirection::Desc => order.reverse(),
+            }
+        });
+    }
+
+    if table_state.filter_active
+        && let Some(pin) = &table_state.pin
+    {
+        projection.rows.retain(|row| {
+            row.cells
+                .get(pin.column)
+                .map(|value| value == &pin.value)
+                .unwrap_or(false)
+        });
+    }
+
+    projection
+}
+
+fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
+    match snapshot {
+        TabSnapshot::House(profile) => {
+            let rows = profile
+                .as_ref()
+                .as_ref()
+                .map(|profile| {
+                    vec![TableRowProjection {
+                        cells: vec![
+                            TableCell::Text(profile.nickname.clone()),
+                            TableCell::Text(profile.city.clone()),
+                            TableCell::Text(profile.state.clone()),
+                            TableCell::OptionalInteger(profile.bedrooms.map(i64::from)),
+                            TableCell::Decimal(profile.bathrooms),
+                            TableCell::OptionalInteger(profile.square_feet.map(i64::from)),
+                            TableCell::OptionalInteger(profile.year_built.map(i64::from)),
+                            TableCell::Date(profile.insurance_renewal),
+                            TableCell::Money(profile.property_tax_cents),
+                        ],
+                        deleted: false,
+                    }]
+                })
+                .unwrap_or_default();
+            TableProjection {
+                title: "house",
+                columns: vec![
+                    "nickname",
+                    "city",
+                    "state",
+                    "bed",
+                    "bath",
+                    "sqft",
+                    "year",
+                    "ins renew",
+                    "tax",
+                ],
+                rows,
             }
         }
+        TabSnapshot::Projects(rows) => TableProjection {
+            title: "projects",
+            columns: vec!["id", "title", "status", "budget", "actual"],
+            rows: rows
+                .iter()
+                .map(|row| TableRowProjection {
+                    cells: vec![
+                        TableCell::Integer(row.id.get()),
+                        TableCell::Text(row.title.clone()),
+                        TableCell::Text(row.status.as_str().to_owned()),
+                        TableCell::Money(row.budget_cents),
+                        TableCell::Money(row.actual_cents),
+                    ],
+                    deleted: row.deleted_at.is_some(),
+                })
+                .collect(),
+        },
+        TabSnapshot::Quotes(rows) => TableProjection {
+            title: "quotes",
+            columns: vec!["id", "project", "vendor", "total", "recv"],
+            rows: rows
+                .iter()
+                .map(|row| TableRowProjection {
+                    cells: vec![
+                        TableCell::Integer(row.id.get()),
+                        TableCell::Integer(row.project_id.get()),
+                        TableCell::Integer(row.vendor_id.get()),
+                        TableCell::Money(Some(row.total_cents)),
+                        TableCell::Date(row.received_date),
+                    ],
+                    deleted: row.deleted_at.is_some(),
+                })
+                .collect(),
+        },
+        TabSnapshot::Maintenance(rows) => TableProjection {
+            title: "maintenance",
+            columns: vec!["id", "item", "cat", "appliance", "last", "every", "cost"],
+            rows: rows
+                .iter()
+                .map(|row| TableRowProjection {
+                    cells: vec![
+                        TableCell::Integer(row.id.get()),
+                        TableCell::Text(row.name.clone()),
+                        TableCell::Integer(row.category_id.get()),
+                        TableCell::OptionalInteger(row.appliance_id.map(|id| id.get())),
+                        TableCell::Date(row.last_serviced_at),
+                        TableCell::Integer(i64::from(row.interval_months)),
+                        TableCell::Money(row.cost_cents),
+                    ],
+                    deleted: row.deleted_at.is_some(),
+                })
+                .collect(),
+        },
+        TabSnapshot::ServiceLog(rows) => TableProjection {
+            title: "service",
+            columns: vec!["id", "maint", "date", "vendor", "cost"],
+            rows: rows
+                .iter()
+                .map(|row| TableRowProjection {
+                    cells: vec![
+                        TableCell::Integer(row.id.get()),
+                        TableCell::Integer(row.maintenance_item_id.get()),
+                        TableCell::Date(Some(row.serviced_at)),
+                        TableCell::OptionalInteger(row.vendor_id.map(|id| id.get())),
+                        TableCell::Money(row.cost_cents),
+                    ],
+                    deleted: row.deleted_at.is_some(),
+                })
+                .collect(),
+        },
+        TabSnapshot::Incidents(rows) => TableProjection {
+            title: "incidents",
+            columns: vec![
+                "id", "title", "status", "sev", "noticed", "resolved", "cost",
+            ],
+            rows: rows
+                .iter()
+                .map(|row| TableRowProjection {
+                    cells: vec![
+                        TableCell::Integer(row.id.get()),
+                        TableCell::Text(row.title.clone()),
+                        TableCell::Text(row.status.as_str().to_owned()),
+                        TableCell::Text(row.severity.as_str().to_owned()),
+                        TableCell::Date(Some(row.date_noticed)),
+                        TableCell::Date(row.date_resolved),
+                        TableCell::Money(row.cost_cents),
+                    ],
+                    deleted: row.deleted_at.is_some(),
+                })
+                .collect(),
+        },
+        TabSnapshot::Appliances(rows) => TableProjection {
+            title: "appliances",
+            columns: vec!["id", "name", "brand", "location", "warranty", "cost"],
+            rows: rows
+                .iter()
+                .map(|row| TableRowProjection {
+                    cells: vec![
+                        TableCell::Integer(row.id.get()),
+                        TableCell::Text(row.name.clone()),
+                        TableCell::Text(row.brand.clone()),
+                        TableCell::Text(row.location.clone()),
+                        TableCell::Date(row.warranty_expiry),
+                        TableCell::Money(row.cost_cents),
+                    ],
+                    deleted: row.deleted_at.is_some(),
+                })
+                .collect(),
+        },
+        TabSnapshot::Vendors(rows) => TableProjection {
+            title: "vendors",
+            columns: vec!["id", "name", "contact", "email", "phone"],
+            rows: rows
+                .iter()
+                .map(|row| TableRowProjection {
+                    cells: vec![
+                        TableCell::Integer(row.id.get()),
+                        TableCell::Text(row.name.clone()),
+                        TableCell::Text(row.contact_name.clone()),
+                        TableCell::Text(row.email.clone()),
+                        TableCell::Text(row.phone.clone()),
+                    ],
+                    deleted: row.deleted_at.is_some(),
+                })
+                .collect(),
+        },
+        TabSnapshot::Documents(rows) => TableProjection {
+            title: "documents",
+            columns: vec!["id", "title", "file", "entity", "size"],
+            rows: rows
+                .iter()
+                .map(|row| TableRowProjection {
+                    cells: vec![
+                        TableCell::Integer(row.id.get()),
+                        TableCell::Text(row.title.clone()),
+                        TableCell::Text(row.file_name.clone()),
+                        TableCell::Text(row.entity_kind.as_str().to_owned()),
+                        TableCell::Integer(row.size_bytes),
+                    ],
+                    deleted: row.deleted_at.is_some(),
+                })
+                .collect(),
+        },
+    }
+}
+
+fn format_money(cents: i64) -> String {
+    let sign = if cents < 0 { "-" } else { "" };
+    let absolute = cents.unsigned_abs();
+    let dollars = absolute / 100;
+    let cents_component = absolute % 100;
+    format!("{sign}${dollars}.{cents_component:02}")
+}
+
+fn move_row(view_data: &mut ViewData, delta: isize) {
+    let Some(projection) = active_projection(view_data) else {
+        return;
+    };
+    let row_count = projection.row_count();
+    if row_count == 0 {
+        view_data.table_state.selected_row = 0;
+        return;
     }
 
-    if let AppMode::Form(kind) = state.mode {
-        lines.push(String::new());
-        lines.push(format!("form: {:?}", kind));
-        if let Some(payload) = &state.form_payload {
-            lines.push(format!("payload: {:?}", payload.kind()));
+    let current = view_data.table_state.selected_row;
+    let next = if delta.is_negative() {
+        current.saturating_sub(delta.unsigned_abs())
+    } else {
+        current.saturating_add(delta as usize)
+    };
+    view_data.table_state.selected_row = next.min(row_count.saturating_sub(1));
+}
+
+fn move_col(view_data: &mut ViewData, delta: isize) {
+    let Some(projection) = active_projection(view_data) else {
+        return;
+    };
+    let column_count = projection.column_count();
+    if column_count == 0 {
+        view_data.table_state.selected_col = 0;
+        return;
+    }
+
+    let current = view_data.table_state.selected_col;
+    let next = if delta.is_negative() {
+        current.saturating_sub(delta.unsigned_abs())
+    } else {
+        current.saturating_add(delta as usize)
+    };
+    view_data.table_state.selected_col = next.min(column_count.saturating_sub(1));
+}
+
+fn selected_cell(view_data: &ViewData) -> Option<(usize, TableCell)> {
+    let projection = active_projection(view_data)?;
+    let row = projection.rows.get(view_data.table_state.selected_row)?;
+    let col = view_data
+        .table_state
+        .selected_col
+        .min(projection.column_count().saturating_sub(1));
+    let cell = row.cells.get(col)?;
+    Some((col, cell.clone()))
+}
+
+fn cycle_sort(view_data: &mut ViewData) -> String {
+    let Some(projection) = active_projection(view_data) else {
+        return "sort unavailable".to_owned();
+    };
+    if projection.column_count() == 0 {
+        return "sort unavailable".to_owned();
+    }
+
+    let column = view_data
+        .table_state
+        .selected_col
+        .min(projection.column_count().saturating_sub(1));
+    let label = projection.columns[column];
+
+    view_data.table_state.sort = match view_data.table_state.sort {
+        Some(existing) if existing.column == column && existing.direction == SortDirection::Asc => {
+            Some(SortSpec {
+                column,
+                direction: SortDirection::Desc,
+            })
         }
+        Some(existing)
+            if existing.column == column && existing.direction == SortDirection::Desc =>
+        {
+            None
+        }
+        _ => Some(SortSpec {
+            column,
+            direction: SortDirection::Asc,
+        }),
+    };
+
+    clamp_table_cursor(view_data);
+    match view_data.table_state.sort {
+        Some(SortSpec {
+            direction: SortDirection::Asc,
+            ..
+        }) => format!("sort {label} asc"),
+        Some(SortSpec {
+            direction: SortDirection::Desc,
+            ..
+        }) => format!("sort {label} desc"),
+        None => "sort cleared".to_owned(),
+    }
+}
+
+fn toggle_pin(view_data: &mut ViewData) -> String {
+    let Some((column, value)) = selected_cell(view_data) else {
+        return "pin unavailable".to_owned();
+    };
+
+    if let Some(existing) = &view_data.table_state.pin
+        && existing.column == column
+        && existing.value == value
+    {
+        view_data.table_state.pin = None;
+        view_data.table_state.filter_active = false;
+        clamp_table_cursor(view_data);
+        return "pin off".to_owned();
     }
 
-    lines.join("\n")
+    view_data.table_state.pin = Some(PinnedCell {
+        column,
+        value: value.clone(),
+    });
+    clamp_table_cursor(view_data);
+    format!("pin on ({})", truncate_label(&value.display(), 14))
+}
+
+fn toggle_filter(view_data: &mut ViewData) -> String {
+    if view_data.table_state.pin.is_none() {
+        return "set a pin first".to_owned();
+    }
+
+    view_data.table_state.filter_active = !view_data.table_state.filter_active;
+    clamp_table_cursor(view_data);
+    if view_data.table_state.filter_active {
+        "filter on".to_owned()
+    } else {
+        "filter off".to_owned()
+    }
+}
+
+fn clamp_table_cursor(view_data: &mut ViewData) {
+    let Some(snapshot) = &view_data.active_tab_snapshot else {
+        view_data.table_state.selected_col = 0;
+        view_data.table_state.selected_row = 0;
+        return;
+    };
+
+    let mut projection = projection_for_snapshot(snapshot, &view_data.table_state);
+
+    if let Some(sort) = view_data.table_state.sort
+        && sort.column >= projection.column_count()
+    {
+        view_data.table_state.sort = None;
+        projection = projection_for_snapshot(snapshot, &view_data.table_state);
+    }
+
+    if let Some(pin) = &view_data.table_state.pin
+        && pin.column >= projection.column_count()
+    {
+        view_data.table_state.pin = None;
+        view_data.table_state.filter_active = false;
+        projection = projection_for_snapshot(snapshot, &view_data.table_state);
+    }
+
+    if projection.column_count() == 0 {
+        view_data.table_state.selected_col = 0;
+    } else {
+        view_data.table_state.selected_col = view_data
+            .table_state
+            .selected_col
+            .min(projection.column_count().saturating_sub(1));
+    }
+
+    if projection.row_count() == 0 {
+        view_data.table_state.selected_row = 0;
+    } else {
+        view_data.table_state.selected_row = view_data
+            .table_state
+            .selected_row
+            .min(projection.row_count().saturating_sub(1));
+    }
 }
 
 fn status_text(state: &AppState) -> String {
-    let default = "tab/backtab nav | e edit | a form | enter submit | esc cancel | d deleted | @ chat | q quit";
+    let default = "tab/backtab tabs | j/k/h/l g/G ^/$ | s/S sort | n/N pin/filter | ctrl+n clear | a form | enter submit | x deleted | @ chat | q quit";
     match &state.status_line {
         Some(status) => format!("{status} | {default}"),
         None => default.to_owned(),
@@ -412,10 +1172,15 @@ fn refresh_view_data<R: AppRuntime>(
     match state.active_tab {
         TabKind::Dashboard => {
             view_data.dashboard_counts = runtime.load_dashboard_counts()?;
-            view_data.active_tab_row_count = None;
+            view_data.active_tab_snapshot = None;
         }
         tab => {
-            view_data.active_tab_row_count = runtime.load_tab_row_count(tab, state.show_deleted)?;
+            if view_data.table_state.tab != Some(tab) {
+                view_data.table_state = TableUiState::default();
+                view_data.table_state.tab = Some(tab);
+            }
+            view_data.active_tab_snapshot = runtime.load_tab_snapshot(tab, state.show_deleted)?;
+            clamp_table_cursor(view_data);
         }
     }
     Ok(())
@@ -443,15 +1208,36 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::handle_key_event;
+    use super::{TabSnapshot, ViewData, handle_key_event, refresh_view_data};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
-        AppMode, AppState, ChatVisibility, DashboardCounts, FormKind, FormPayload, TabKind,
+        AppMode, AppState, ChatVisibility, DashboardCounts, FormKind, FormPayload, Project,
+        ProjectStatus, ProjectTypeId, TabKind,
     };
+    use time::OffsetDateTime;
 
     #[derive(Debug, Default)]
     struct TestRuntime {
         submit_count: usize,
+    }
+
+    impl TestRuntime {
+        fn sample_project(id: i64, title: &str) -> Project {
+            Project {
+                id: micasa_app::ProjectId::new(id),
+                title: title.to_owned(),
+                project_type_id: ProjectTypeId::new(1),
+                status: ProjectStatus::Planned,
+                description: String::new(),
+                start_date: None,
+                end_date: None,
+                budget_cents: Some(id * 1000),
+                actual_cents: None,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+                deleted_at: None,
+            }
+        }
     }
 
     impl super::AppRuntime for TestRuntime {
@@ -463,24 +1249,27 @@ mod tests {
             })
         }
 
-        fn load_tab_row_count(
+        fn load_tab_snapshot(
             &mut self,
             tab: TabKind,
             _include_deleted: bool,
-        ) -> anyhow::Result<Option<usize>> {
-            let count = match tab {
+        ) -> anyhow::Result<Option<TabSnapshot>> {
+            let snapshot = match tab {
                 TabKind::Dashboard => None,
-                TabKind::House => None,
-                TabKind::Projects => Some(5),
-                TabKind::Quotes => Some(4),
-                TabKind::Maintenance => Some(3),
-                TabKind::ServiceLog => Some(2),
-                TabKind::Incidents => Some(1),
-                TabKind::Appliances => Some(6),
-                TabKind::Vendors => Some(7),
-                TabKind::Documents => Some(8),
+                TabKind::House => Some(TabSnapshot::House(Box::new(None))),
+                TabKind::Projects => Some(TabSnapshot::Projects(vec![
+                    Self::sample_project(1, "Alpha"),
+                    Self::sample_project(2, "Beta"),
+                ])),
+                TabKind::Quotes => Some(TabSnapshot::Quotes(Vec::new())),
+                TabKind::Maintenance => Some(TabSnapshot::Maintenance(Vec::new())),
+                TabKind::ServiceLog => Some(TabSnapshot::ServiceLog(Vec::new())),
+                TabKind::Incidents => Some(TabSnapshot::Incidents(Vec::new())),
+                TabKind::Appliances => Some(TabSnapshot::Appliances(Vec::new())),
+                TabKind::Vendors => Some(TabSnapshot::Vendors(Vec::new())),
+                TabKind::Documents => Some(TabSnapshot::Documents(Vec::new())),
             };
-            Ok(count)
+            Ok(snapshot)
         }
 
         fn submit_form(&mut self, payload: &FormPayload) -> anyhow::Result<()> {
@@ -490,8 +1279,8 @@ mod tests {
         }
     }
 
-    fn view_data_for_test() -> super::ViewData {
-        super::ViewData::default()
+    fn view_data_for_test() -> ViewData {
+        ViewData::default()
     }
 
     #[test]
@@ -576,6 +1365,93 @@ mod tests {
         );
         assert_eq!(state.mode, AppMode::Nav);
         assert_eq!(runtime.submit_count, 1);
+    }
+
+    #[test]
+    fn movement_keys_adjust_table_cursor() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(view_data.table_state.selected_row, 1);
+        assert_eq!(view_data.table_state.selected_col, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
+        );
+        assert_eq!(view_data.table_state.selected_row, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            KeyEvent::new(KeyCode::Char('^'), KeyModifiers::SHIFT),
+        );
+        assert_eq!(view_data.table_state.selected_col, 0);
+    }
+
+    #[test]
+    fn sort_and_filter_toggles_update_state() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+        assert!(view_data.table_state.sort.is_some());
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+        assert!(view_data.table_state.pin.is_some());
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.table_state.filter_active);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.table_state.pin.is_none());
+        assert!(!view_data.table_state.filter_active);
     }
 
     #[test]

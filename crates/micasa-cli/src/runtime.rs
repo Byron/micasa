@@ -7,6 +7,7 @@ use micasa_db::{
     HouseProfileInput, NewAppliance, NewDocument, NewIncident, NewMaintenanceItem, NewProject,
     NewQuote, NewServiceLogEntry, NewVendor, Store,
 };
+use micasa_tui::TabSnapshot;
 
 pub struct DbRuntime<'a> {
     store: &'a Store,
@@ -23,22 +24,42 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
         self.store.dashboard_counts()
     }
 
-    fn load_tab_row_count(&mut self, tab: TabKind, include_deleted: bool) -> Result<Option<usize>> {
-        let count = match tab {
+    fn load_tab_snapshot(
+        &mut self,
+        tab: TabKind,
+        include_deleted: bool,
+    ) -> Result<Option<TabSnapshot>> {
+        let snapshot = match tab {
             TabKind::Dashboard => None,
-            TabKind::House => Some(usize::from(self.store.get_house_profile()?.is_some())),
-            TabKind::Projects => Some(self.store.list_projects(include_deleted)?.len()),
-            TabKind::Quotes => Some(self.store.list_quotes(include_deleted)?.len()),
-            TabKind::Maintenance => Some(self.store.list_maintenance_items(include_deleted)?.len()),
-            TabKind::ServiceLog => {
-                Some(self.store.list_service_log_entries(include_deleted)?.len())
-            }
-            TabKind::Incidents => Some(self.store.list_incidents(include_deleted)?.len()),
-            TabKind::Appliances => Some(self.store.list_appliances(include_deleted)?.len()),
-            TabKind::Vendors => Some(self.store.list_vendors(include_deleted)?.len()),
-            TabKind::Documents => Some(self.store.list_documents(include_deleted)?.len()),
+            TabKind::House => Some(TabSnapshot::House(Box::new(
+                self.store.get_house_profile()?,
+            ))),
+            TabKind::Projects => Some(TabSnapshot::Projects(
+                self.store.list_projects(include_deleted)?,
+            )),
+            TabKind::Quotes => Some(TabSnapshot::Quotes(
+                self.store.list_quotes(include_deleted)?,
+            )),
+            TabKind::Maintenance => Some(TabSnapshot::Maintenance(
+                self.store.list_maintenance_items(include_deleted)?,
+            )),
+            TabKind::ServiceLog => Some(TabSnapshot::ServiceLog(
+                self.store.list_service_log_entries(include_deleted)?,
+            )),
+            TabKind::Incidents => Some(TabSnapshot::Incidents(
+                self.store.list_incidents(include_deleted)?,
+            )),
+            TabKind::Appliances => Some(TabSnapshot::Appliances(
+                self.store.list_appliances(include_deleted)?,
+            )),
+            TabKind::Vendors => Some(TabSnapshot::Vendors(
+                self.store.list_vendors(include_deleted)?,
+            )),
+            TabKind::Documents => Some(TabSnapshot::Documents(
+                self.store.list_documents(include_deleted)?,
+            )),
         };
-        Ok(count)
+        Ok(snapshot)
     }
 
     fn submit_form(&mut self, payload: &FormPayload) -> Result<()> {
@@ -213,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn row_count_respects_deleted_filter() -> Result<()> {
+    fn snapshot_respects_deleted_filter() -> Result<()> {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
@@ -231,24 +252,27 @@ mod tests {
         store.soft_delete_project(project_id)?;
 
         let mut runtime = DbRuntime::new(&store);
-        assert_eq!(
-            runtime.load_tab_row_count(TabKind::Projects, false)?,
-            Some(0)
-        );
-        assert_eq!(
-            runtime.load_tab_row_count(TabKind::Projects, true)?,
-            Some(1)
-        );
+        let visible = runtime
+            .load_tab_snapshot(TabKind::Projects, false)?
+            .expect("projects snapshot");
+        let with_deleted = runtime
+            .load_tab_snapshot(TabKind::Projects, true)?
+            .expect("projects snapshot");
+        assert_eq!(visible.row_count(), 0);
+        assert_eq!(with_deleted.row_count(), 1);
         Ok(())
     }
 
     #[test]
-    fn house_row_count_tracks_profile_presence() -> Result<()> {
+    fn house_snapshot_tracks_profile_presence() -> Result<()> {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
         let mut runtime = DbRuntime::new(&store);
-        assert_eq!(runtime.load_tab_row_count(TabKind::House, false)?, Some(0));
+        let before = runtime
+            .load_tab_snapshot(TabKind::House, false)?
+            .expect("house snapshot");
+        assert_eq!(before.row_count(), 0);
 
         runtime.submit_form(&FormPayload::HouseProfile(Box::new(
             HouseProfileFormInput {
@@ -282,12 +306,15 @@ mod tests {
             },
         )))?;
 
-        assert_eq!(runtime.load_tab_row_count(TabKind::House, false)?, Some(1));
+        let after = runtime
+            .load_tab_snapshot(TabKind::House, false)?
+            .expect("house snapshot");
+        assert_eq!(after.row_count(), 1);
         Ok(())
     }
 
     #[test]
-    fn service_log_row_count_respects_deleted_filter() -> Result<()> {
+    fn service_log_snapshot_respects_deleted_filter() -> Result<()> {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
@@ -316,14 +343,14 @@ mod tests {
         let entry_id = store.list_service_log_entries(false)?[0].id;
         store.soft_delete_service_log_entry(entry_id)?;
 
-        assert_eq!(
-            runtime.load_tab_row_count(TabKind::ServiceLog, false)?,
-            Some(0)
-        );
-        assert_eq!(
-            runtime.load_tab_row_count(TabKind::ServiceLog, true)?,
-            Some(1)
-        );
+        let visible = runtime
+            .load_tab_snapshot(TabKind::ServiceLog, false)?
+            .expect("service log snapshot");
+        let with_deleted = runtime
+            .load_tab_snapshot(TabKind::ServiceLog, true)?
+            .expect("service log snapshot");
+        assert_eq!(visible.row_count(), 0);
+        assert_eq!(with_deleted.row_count(), 1);
         Ok(())
     }
 }
