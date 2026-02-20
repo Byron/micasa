@@ -169,6 +169,104 @@ fn query_api_validates_identifiers_and_caps_rows() -> Result<()> {
 }
 
 #[test]
+fn table_names_include_core_tables_and_exclude_sqlite_internals() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let names = store.table_names()?;
+    assert!(names.iter().any(|name| name == "house_profiles"));
+    assert!(names.iter().any(|name| name == "projects"));
+    assert!(names.iter().any(|name| name == "vendors"));
+    assert!(names.iter().any(|name| name == "maintenance_items"));
+    assert!(names.iter().any(|name| name == "appliances"));
+    for name in names {
+        assert!(
+            !name.contains("sqlite_"),
+            "unexpected internal table {name}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn table_columns_include_primary_key_metadata() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let columns = store.table_columns("projects")?;
+    assert!(!columns.is_empty());
+
+    let id_col = columns
+        .iter()
+        .find(|column| column.name == "id")
+        .expect("projects.id should exist");
+    assert!(id_col.primary_key > 0);
+    Ok(())
+}
+
+#[test]
+fn read_only_query_rejects_attach_and_pragma_keywords() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let attach_error = store
+        .read_only_query("SELECT * FROM (SELECT 1) ATTACH DATABASE '/tmp/x' AS x")
+        .expect_err("attach should be rejected");
+    assert!(
+        attach_error
+            .to_string()
+            .contains("disallowed keyword: ATTACH")
+    );
+
+    let pragma_error = store
+        .read_only_query(
+            "SELECT * FROM pragma_table_info('projects') WHERE 1=1 PRAGMA journal_mode",
+        )
+        .expect_err("pragma keyword should be rejected");
+    assert!(
+        pragma_error
+            .to_string()
+            .contains("disallowed keyword: PRAGMA")
+    );
+    Ok(())
+}
+
+#[test]
+fn read_only_query_rejects_empty_query() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let error = store
+        .read_only_query("")
+        .expect_err("empty query should fail");
+    assert!(error.to_string().contains("empty query"));
+    Ok(())
+}
+
+#[test]
+fn read_only_query_allows_deleted_at_identifier() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let (columns, _rows) =
+        store.read_only_query("SELECT id FROM projects WHERE deleted_at IS NULL LIMIT 1")?;
+    assert_eq!(columns, vec!["id".to_owned()]);
+    Ok(())
+}
+
+#[test]
+fn read_only_query_select_returns_expected_columns_and_row_count() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let (columns, rows) =
+        store.read_only_query("SELECT name FROM project_types ORDER BY name LIMIT 3")?;
+    assert_eq!(columns, vec!["name".to_owned()]);
+    assert_eq!(rows.len(), 3);
+    Ok(())
+}
+
+#[test]
 fn data_dump_and_column_hints_skip_deleted_rows() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -206,6 +304,28 @@ fn data_dump_and_column_hints_skip_deleted_rows() -> Result<()> {
 
     let keep = store.get_project(keep_id)?;
     assert_eq!(keep.title, "Keep Project");
+    Ok(())
+}
+
+#[test]
+fn data_dump_includes_row_headers_and_bullets() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let dump = store.data_dump();
+    assert!(!dump.is_empty());
+    assert!(dump.contains("rows)"));
+    assert!(dump.contains("- "));
+    Ok(())
+}
+
+#[test]
+fn column_hints_on_unpopulated_db_omit_vendor_names() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let hints = store.column_hints();
+    assert!(!hints.contains("vendor names"));
     Ok(())
 }
 

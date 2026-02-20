@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 145 tests
+- Rust tests currently (`crates/`): 159 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -92,7 +92,9 @@
 - Added new `cmd` parser tests in `crates/micasa-cli/src/main.rs`.
 - Expanded config tests in `crates/micasa-cli/src/config.rs`.
 - Expanded LLM client tests in `crates/micasa-llm/tests/client_tests.rs`.
+- Expanded LLM prompt construction/extraction tests in `crates/micasa-llm/src/lib.rs`.
 - Expanded document/data regression tests in `crates/micasa-db/tests/store_tests.rs`.
+- Added Rust unit parity tests for `is_safe_identifier`/`contains_word` in `crates/micasa-db/src/lib.rs`.
 
 ## Known Gaps
 

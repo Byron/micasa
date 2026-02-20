@@ -629,6 +629,67 @@ mod tests {
     }
 
     #[test]
+    fn build_sql_prompt_includes_expected_rules() {
+        let prompt = build_sql_prompt(
+            &[TableInfo {
+                name: "projects".to_owned(),
+                columns: vec![ColumnInfo {
+                    name: "id".to_owned(),
+                    column_type: "INTEGER".to_owned(),
+                    not_null: true,
+                    primary_key: true,
+                }],
+            }],
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+            None,
+        );
+        assert!(prompt.contains("Output only a single SELECT statement"));
+        assert!(prompt.contains("Never emit INSERT/UPDATE/DELETE/DDL."));
+        assert!(prompt.contains("Exclude soft-deleted rows"));
+        assert!(prompt.contains("divide by 100.0"));
+    }
+
+    #[test]
+    fn build_sql_prompt_includes_known_values_heading_when_hints_present() {
+        let prompt = build_sql_prompt(
+            &[TableInfo {
+                name: "projects".to_owned(),
+                columns: vec![ColumnInfo {
+                    name: "status".to_owned(),
+                    column_type: "TEXT".to_owned(),
+                    not_null: false,
+                    primary_key: false,
+                }],
+            }],
+            OffsetDateTime::UNIX_EPOCH,
+            Some("- project statuses: planned, underway"),
+            None,
+        );
+        assert!(prompt.contains("## Known values"));
+        assert!(prompt.contains("planned, underway"));
+    }
+
+    #[test]
+    fn build_sql_prompt_omits_known_values_heading_when_hints_empty() {
+        let prompt = build_sql_prompt(
+            &[TableInfo {
+                name: "projects".to_owned(),
+                columns: vec![ColumnInfo {
+                    name: "status".to_owned(),
+                    column_type: "TEXT".to_owned(),
+                    not_null: false,
+                    primary_key: false,
+                }],
+            }],
+            OffsetDateTime::UNIX_EPOCH,
+            Some(""),
+            None,
+        );
+        assert!(!prompt.contains("## Known values"));
+    }
+
+    #[test]
     fn build_summary_prompt_includes_question_sql_results_and_context() {
         let prompt = build_summary_prompt(
             "How many active projects?",
@@ -688,6 +749,12 @@ mod tests {
             extract_sql("\nSELECT * FROM projects;;\n"),
             "SELECT * FROM projects"
         );
+    }
+
+    #[test]
+    fn extract_sql_handles_bare_fenced_blocks() {
+        let raw = "```\nSELECT COUNT(*) FROM appliances\n```";
+        assert_eq!(extract_sql(raw), "SELECT COUNT(*) FROM appliances");
     }
 
     #[test]

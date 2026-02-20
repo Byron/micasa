@@ -3562,7 +3562,7 @@ fn set_private_permissions(path: &Path) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::Store;
+    use super::{Store, contains_word, is_safe_identifier};
     use anyhow::Result;
     use micasa_app::{SettingKey, SettingValue};
 
@@ -3618,5 +3618,23 @@ mod tests {
             .expect_err("invalid bool should be rejected");
         assert!(error.to_string().contains("set a valid value in Settings"));
         Ok(())
+    }
+
+    #[test]
+    fn is_safe_identifier_matches_expected_rules() {
+        assert!(is_safe_identifier("projects"));
+        assert!(is_safe_identifier("house_profiles"));
+        assert!(is_safe_identifier("table123"));
+        assert!(!is_safe_identifier(""));
+        assert!(!is_safe_identifier("table; DROP"));
+        assert!(!is_safe_identifier("table'name"));
+    }
+
+    #[test]
+    fn contains_word_matches_keyword_boundaries_only() {
+        assert!(contains_word("SELECT * DELETE FROM", "DELETE"));
+        assert!(!contains_word("WHERE DELETED_AT IS NULL", "DELETE"));
+        assert!(contains_word("DROP TABLE x", "DROP"));
+        assert!(!contains_word("BACKDROP", "DROP"));
     }
 }
