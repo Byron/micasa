@@ -10,6 +10,15 @@ use micasa_db::{
 };
 use time::{Date, Month};
 
+fn index_exists(store: &Store, name: &str) -> Result<bool> {
+    let exists: i64 = store.raw_connection().query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?)",
+        rusqlite::params![name],
+        |row| row.get(0),
+    )?;
+    Ok(exists == 1)
+}
+
 #[test]
 fn validate_db_path_rejects_uri_forms() {
     assert!(validate_db_path("file:test.db").is_err());
@@ -74,6 +83,98 @@ fn bootstrap_rejects_schema_missing_required_column() -> Result<()> {
 }
 
 #[test]
+fn bootstrap_recreates_missing_required_index() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    store
+        .raw_connection()
+        .execute_batch("DROP INDEX idx_quotes_vendor_id;")?;
+    assert!(!index_exists(&store, "idx_quotes_vendor_id")?);
+
+    store.bootstrap()?;
+    assert!(index_exists(&store, "idx_quotes_vendor_id")?);
+    Ok(())
+}
+
+#[test]
+fn query_api_validates_identifiers_and_caps_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let names = store.table_names()?;
+    assert!(names.iter().any(|name| name == "projects"));
+
+    let columns = store.table_columns("projects")?;
+    assert!(columns.iter().any(|column| column.name == "status"));
+    let invalid = store.table_columns("projects;DROP TABLE projects");
+    assert!(invalid.is_err());
+
+    for idx in 0..220 {
+        store.append_chat_input(&format!("prompt-{idx}"))?;
+    }
+
+    let (query_columns, rows) =
+        store.read_only_query("SELECT id FROM chat_inputs ORDER BY id ASC")?;
+    assert_eq!(query_columns, vec!["id".to_owned()]);
+    assert_eq!(rows.len(), 200);
+
+    assert!(
+        store
+            .read_only_query("SELECT * FROM projects; SELECT * FROM vendors")
+            .is_err()
+    );
+    assert!(
+        store
+            .read_only_query("UPDATE projects SET title = 'x'")
+            .is_err()
+    );
+
+    Ok(())
+}
+
+#[test]
+fn data_dump_and_column_hints_skip_deleted_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let keep_id = store.create_project(&NewProject {
+        title: "Keep Project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: Some(12_345),
+    })?;
+    let remove_id = store.create_project(&NewProject {
+        title: "Remove Project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Abandoned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: Some(22_222),
+    })?;
+    store.soft_delete_project(remove_id)?;
+
+    let dump = store.data_dump();
+    assert!(dump.contains("title: Keep Project"));
+    assert!(!dump.contains("title: Remove Project"));
+
+    let hints = store.column_hints();
+    assert!(hints.contains("project statuses (stored values)"));
+    assert!(hints.contains("planned"));
+
+    let keep = store.get_project(keep_id)?;
+    assert_eq!(keep.title, "Keep Project");
+    Ok(())
+}
+
+#[test]
 fn list_projects_uses_deterministic_tiebreaker() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -109,6 +210,198 @@ fn list_projects_uses_deterministic_tiebreaker() -> Result<()> {
     assert_eq!(projects.len(), 2);
     assert_eq!(projects[0].id, second);
     assert_eq!(projects[1].id, first);
+    Ok(())
+}
+
+#[test]
+fn dashboard_query_helpers_filter_and_summarize() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let underway_id = store.create_project(&NewProject {
+        title: "Underway".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Underway,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: Some(10_000),
+    })?;
+    let delayed_id = store.create_project(&NewProject {
+        title: "Delayed".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Delayed,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: Some(20_000),
+    })?;
+    store.create_project(&NewProject {
+        title: "Completed".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Completed,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: Some(30_000),
+    })?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_active = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Scheduled".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    store.create_maintenance_item(&NewMaintenanceItem {
+        name: "No schedule".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 0,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    let warranty_in = Date::from_calendar_date(2026, Month::January, 20)?;
+    let warranty_out = Date::from_calendar_date(2026, Month::April, 1)?;
+    let appliance_in = store.create_appliance(&NewAppliance {
+        name: "Washer".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: Some(warranty_in),
+        location: "Laundry".to_owned(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    store.create_appliance(&NewAppliance {
+        name: "Old unit".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: Some(warranty_out),
+        location: "Garage".to_owned(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Tech".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_active,
+        serviced_at: Date::from_calendar_date(2025, Month::December, 25)?,
+        vendor_id: Some(vendor_id),
+        cost_cents: Some(4_000),
+        notes: String::new(),
+    })?;
+    store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_active,
+        serviced_at: Date::from_calendar_date(2026, Month::January, 10)?,
+        vendor_id: Some(vendor_id),
+        cost_cents: Some(6_000),
+        notes: String::new(),
+    })?;
+
+    store.create_incident(&NewIncident {
+        title: "Urgent leak".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Urgent,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 5)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: Some(appliance_in),
+        vendor_id: Some(vendor_id),
+        notes: String::new(),
+    })?;
+    store.create_incident(&NewIncident {
+        title: "Soon issue".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::InProgress,
+        severity: IncidentSeverity::Soon,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 6)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: Some(appliance_in),
+        vendor_id: Some(vendor_id),
+        notes: String::new(),
+    })?;
+    store.create_incident(&NewIncident {
+        title: "Closed issue".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Resolved,
+        severity: IncidentSeverity::Urgent,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 7)?,
+        date_resolved: Some(Date::from_calendar_date(2026, Month::January, 8)?),
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: Some(appliance_in),
+        vendor_id: Some(vendor_id),
+        notes: String::new(),
+    })?;
+
+    let active_projects = store.list_active_projects()?;
+    assert_eq!(active_projects.len(), 2);
+    assert!(
+        active_projects
+            .iter()
+            .any(|project| project.id == underway_id)
+    );
+    assert!(
+        active_projects
+            .iter()
+            .any(|project| project.id == delayed_id)
+    );
+
+    let scheduled = store.list_maintenance_with_schedule()?;
+    assert_eq!(scheduled.len(), 1);
+    assert_eq!(scheduled[0].id, maintenance_active);
+
+    let open_incidents = store.list_open_incidents()?;
+    assert_eq!(open_incidents.len(), 2);
+    assert_eq!(open_incidents[0].severity, IncidentSeverity::Urgent);
+
+    let expiring = store.list_expiring_warranties(
+        Date::from_calendar_date(2026, Month::January, 15)?,
+        30,
+        30,
+    )?;
+    assert_eq!(expiring.len(), 1);
+    assert_eq!(expiring[0].id, appliance_in);
+
+    let recent_logs = store.list_recent_service_logs(1)?;
+    assert_eq!(recent_logs.len(), 1);
+    assert_eq!(
+        recent_logs[0].serviced_at,
+        Date::from_calendar_date(2026, Month::January, 10)?
+    );
+
+    let ytd = store.ytd_service_spend_cents(Date::from_calendar_date(2026, Month::January, 1)?)?;
+    assert_eq!(ytd, 6_000);
+    assert_eq!(store.total_project_spend_cents()?, 60_000);
+
     Ok(())
 }
 

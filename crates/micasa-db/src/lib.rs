@@ -9,6 +9,7 @@ use micasa_app::{
     ProjectStatus, ProjectTypeId, Quote, QuoteId, ServiceLogEntry, ServiceLogEntryId, Vendor,
     VendorId,
 };
+use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -25,6 +26,7 @@ pub const APP_NAME: &str = "micasa";
 pub const MAX_DOCUMENT_SIZE: i64 = 50 << 20;
 
 const CHAT_HISTORY_MAX: i64 = 200;
+const MAX_QUERY_ROWS: usize = 200;
 
 const SETTING_LLM_MODEL: &str = "llm.model";
 const SETTING_SHOW_DASHBOARD: &str = "ui.show_dashboard";
@@ -193,10 +195,160 @@ const REQUIRED_SCHEMA: &[(&str, &[&str])] = &[
     ("chat_inputs", &["id", "input", "created_at"]),
 ];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RequiredIndex {
+    name: &'static str,
+    create_sql: &'static str,
+}
+
+const REQUIRED_INDEXES: &[RequiredIndex] = &[
+    RequiredIndex {
+        name: "idx_project_types_name",
+        create_sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_project_types_name ON project_types (name);",
+    },
+    RequiredIndex {
+        name: "idx_vendors_name",
+        create_sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_vendors_name ON vendors (name);",
+    },
+    RequiredIndex {
+        name: "idx_vendors_deleted_at",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_vendors_deleted_at ON vendors (deleted_at);",
+    },
+    RequiredIndex {
+        name: "idx_projects_project_type_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_projects_project_type_id ON projects (project_type_id);",
+    },
+    RequiredIndex {
+        name: "idx_projects_deleted_at",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_projects_deleted_at ON projects (deleted_at);",
+    },
+    RequiredIndex {
+        name: "idx_quotes_project_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_quotes_project_id ON quotes (project_id);",
+    },
+    RequiredIndex {
+        name: "idx_quotes_vendor_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_quotes_vendor_id ON quotes (vendor_id);",
+    },
+    RequiredIndex {
+        name: "idx_quotes_deleted_at",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_quotes_deleted_at ON quotes (deleted_at);",
+    },
+    RequiredIndex {
+        name: "idx_maintenance_categories_name",
+        create_sql: "CREATE UNIQUE INDEX IF NOT EXISTS idx_maintenance_categories_name ON maintenance_categories (name);",
+    },
+    RequiredIndex {
+        name: "idx_appliances_warranty_expiry",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_appliances_warranty_expiry ON appliances (warranty_expiry);",
+    },
+    RequiredIndex {
+        name: "idx_appliances_deleted_at",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_appliances_deleted_at ON appliances (deleted_at);",
+    },
+    RequiredIndex {
+        name: "idx_maintenance_items_category_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_maintenance_items_category_id ON maintenance_items (category_id);",
+    },
+    RequiredIndex {
+        name: "idx_maintenance_items_appliance_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_maintenance_items_appliance_id ON maintenance_items (appliance_id);",
+    },
+    RequiredIndex {
+        name: "idx_maintenance_items_deleted_at",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_maintenance_items_deleted_at ON maintenance_items (deleted_at);",
+    },
+    RequiredIndex {
+        name: "idx_incidents_appliance_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_incidents_appliance_id ON incidents (appliance_id);",
+    },
+    RequiredIndex {
+        name: "idx_incidents_vendor_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_incidents_vendor_id ON incidents (vendor_id);",
+    },
+    RequiredIndex {
+        name: "idx_incidents_deleted_at",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_incidents_deleted_at ON incidents (deleted_at);",
+    },
+    RequiredIndex {
+        name: "idx_service_log_entries_maintenance_item_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_service_log_entries_maintenance_item_id ON service_log_entries (maintenance_item_id);",
+    },
+    RequiredIndex {
+        name: "idx_service_log_entries_vendor_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_service_log_entries_vendor_id ON service_log_entries (vendor_id);",
+    },
+    RequiredIndex {
+        name: "idx_service_log_entries_deleted_at",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_service_log_entries_deleted_at ON service_log_entries (deleted_at);",
+    },
+    RequiredIndex {
+        name: "idx_doc_entity",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_doc_entity ON documents (entity_kind, entity_id);",
+    },
+    RequiredIndex {
+        name: "idx_documents_deleted_at",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_documents_deleted_at ON documents (deleted_at);",
+    },
+    RequiredIndex {
+        name: "idx_deletion_records_entity",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_deletion_records_entity ON deletion_records (entity);",
+    },
+    RequiredIndex {
+        name: "idx_deletion_records_target_id",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_deletion_records_target_id ON deletion_records (target_id);",
+    },
+    RequiredIndex {
+        name: "idx_deletion_records_deleted_at",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_deletion_records_deleted_at ON deletion_records (deleted_at);",
+    },
+    RequiredIndex {
+        name: "idx_entity_restored",
+        create_sql: "CREATE INDEX IF NOT EXISTS idx_entity_restored ON deletion_records (entity, restored_at);",
+    },
+];
+
+const COLUMN_HINTS: &[(&str, &str)] = &[
+    (
+        "project statuses (stored values)",
+        "SELECT DISTINCT status FROM projects WHERE deleted_at IS NULL ORDER BY status ASC",
+    ),
+    (
+        "project types",
+        "SELECT DISTINCT name FROM project_types ORDER BY name ASC",
+    ),
+    (
+        "vendor names",
+        "SELECT DISTINCT name FROM vendors WHERE deleted_at IS NULL ORDER BY name ASC",
+    ),
+    (
+        "appliance names",
+        "SELECT DISTINCT name FROM appliances WHERE deleted_at IS NULL ORDER BY name ASC",
+    ),
+    (
+        "maintenance categories",
+        "SELECT DISTINCT name FROM maintenance_categories ORDER BY name ASC",
+    ),
+    (
+        "maintenance item names",
+        "SELECT DISTINCT name FROM maintenance_items WHERE deleted_at IS NULL ORDER BY name ASC",
+    ),
+];
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LookupValue<Id> {
     pub id: Id,
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PragmaColumn {
+    pub cid: i32,
+    pub name: String,
+    pub column_type: String,
+    pub not_null: bool,
+    pub default_value: Option<String>,
+    pub primary_key: i32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -614,6 +766,8 @@ impl Store {
                 .context("create schema")?;
         }
 
+        ensure_required_indexes(&self.conn)?;
+
         self.seed_defaults()?;
         Ok(())
     }
@@ -689,6 +843,200 @@ impl Store {
 
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("collect maintenance categories")
+    }
+
+    pub fn table_names(&self) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "
+                SELECT name
+                FROM sqlite_master
+                WHERE type = 'table'
+                  AND name NOT LIKE 'sqlite_%'
+                ORDER BY name ASC
+                ",
+            )
+            .context("prepare table names query")?;
+        let rows = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("query table names")?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect table names")
+    }
+
+    pub fn table_columns(&self, table: &str) -> Result<Vec<PragmaColumn>> {
+        if !is_safe_identifier(table) {
+            bail!("invalid table name: {table:?}");
+        }
+
+        let mut stmt = self
+            .conn
+            .prepare(&format!("PRAGMA table_info({table})"))
+            .with_context(|| format!("inspect columns for {table}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let not_null: i32 = row.get(3)?;
+                let primary_key: i32 = row.get(5)?;
+                Ok(PragmaColumn {
+                    cid: row.get(0)?,
+                    name: row.get(1)?,
+                    column_type: row.get(2)?,
+                    not_null: not_null != 0,
+                    default_value: row.get(4)?,
+                    primary_key,
+                })
+            })
+            .with_context(|| format!("query column info for {table}"))?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .with_context(|| format!("collect columns for {table}"))
+    }
+
+    pub fn read_only_query(&self, query: &str) -> Result<(Vec<String>, Vec<Vec<String>>)> {
+        let trimmed = query.trim();
+        if trimmed.is_empty() {
+            bail!("empty query");
+        }
+        if trimmed.contains(';') {
+            bail!("multiple statements are not allowed");
+        }
+
+        let upper = trimmed.to_ascii_uppercase();
+        if !upper.starts_with("SELECT") {
+            bail!("only SELECT queries are allowed");
+        }
+
+        const DISALLOWED_KEYWORDS: &[&str] = &[
+            "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "ATTACH", "DETACH", "PRAGMA",
+            "REINDEX", "VACUUM",
+        ];
+        for keyword in DISALLOWED_KEYWORDS {
+            if contains_word(&upper, keyword) {
+                bail!("query contains disallowed keyword: {keyword}");
+            }
+        }
+
+        let mut stmt = self
+            .conn
+            .prepare(trimmed)
+            .context("prepare read-only query")?;
+        let columns = stmt
+            .column_names()
+            .iter()
+            .map(|column| (*column).to_owned())
+            .collect::<Vec<_>>();
+        let mut rows = stmt.query([]).context("execute read-only query")?;
+
+        let mut output_rows = Vec::new();
+        while let Some(row) = rows.next().context("scan read-only query rows")? {
+            if output_rows.len() >= MAX_QUERY_ROWS {
+                break;
+            }
+
+            let mut output = Vec::with_capacity(columns.len());
+            for index in 0..columns.len() {
+                let value = row
+                    .get_ref(index)
+                    .map(value_ref_to_string)
+                    .with_context(|| format!("read column {index} from query result"))?;
+                output.push(value);
+            }
+            output_rows.push(output);
+        }
+
+        Ok((columns, output_rows))
+    }
+
+    pub fn data_dump(&self) -> String {
+        let names = match self.table_names() {
+            Ok(names) => names,
+            Err(_) => return String::new(),
+        };
+
+        let mut output = String::new();
+        for table in names {
+            let mut stmt = match self.conn.prepare(&format!("SELECT * FROM {table}")) {
+                Ok(stmt) => stmt,
+                Err(_) => continue,
+            };
+            let columns = stmt
+                .column_names()
+                .iter()
+                .map(|column| (*column).to_owned())
+                .collect::<Vec<_>>();
+            let deleted_at_index = columns
+                .iter()
+                .position(|column| column.eq_ignore_ascii_case("deleted_at"));
+            let mut query = match stmt.query([]) {
+                Ok(query) => query,
+                Err(_) => continue,
+            };
+
+            let mut rows = Vec::new();
+            while let Ok(Some(row)) = query.next() {
+                if let Some(index) = deleted_at_index
+                    && !matches!(row.get_ref(index), Ok(ValueRef::Null))
+                {
+                    continue;
+                }
+
+                let mut values = Vec::with_capacity(columns.len());
+                let mut failed = false;
+                for index in 0..columns.len() {
+                    match row.get_ref(index) {
+                        Ok(value) => values.push(value_ref_to_string(value)),
+                        Err(_) => {
+                            failed = true;
+                            break;
+                        }
+                    }
+                }
+                if !failed {
+                    rows.push(values);
+                }
+            }
+
+            if rows.is_empty() {
+                continue;
+            }
+
+            output.push_str(&format!("### {table} ({} rows)\n\n", rows.len()));
+            for row in rows {
+                let mut parts = Vec::new();
+                for (column, value) in columns.iter().zip(row.iter()) {
+                    if value.is_empty() || is_noise_column(column) {
+                        continue;
+                    }
+                    parts.push(format_column_value(column, value));
+                }
+                output.push_str(&format!("- {}\n", parts.join(", ")));
+            }
+            output.push('\n');
+        }
+
+        output
+    }
+
+    pub fn column_hints(&self) -> String {
+        let mut output = String::new();
+
+        for (label, query) in COLUMN_HINTS {
+            let mut stmt = match self.conn.prepare(query) {
+                Ok(stmt) => stmt,
+                Err(_) => continue,
+            };
+            let values = match stmt.query_map([], |row| row.get::<_, String>(0)) {
+                Ok(values) => values,
+                Err(_) => continue,
+            };
+            let values = match values.collect::<rusqlite::Result<Vec<_>>>() {
+                Ok(values) if !values.is_empty() => values,
+                _ => continue,
+            };
+            output.push_str(&format!("- {label}: {}\n", values.join(", ")));
+        }
+
+        output
     }
 
     pub fn get_house_profile(&self) -> Result<Option<HouseProfile>> {
@@ -2057,6 +2405,109 @@ impl Store {
         })
     }
 
+    pub fn list_maintenance_with_schedule(&self) -> Result<Vec<MaintenanceItem>> {
+        let mut items = self.list_maintenance_items(false)?;
+        items.retain(|item| item.interval_months > 0);
+        Ok(items)
+    }
+
+    pub fn list_active_projects(&self) -> Result<Vec<Project>> {
+        let mut projects = self.list_projects(false)?;
+        projects.retain(|project| {
+            matches!(
+                project.status,
+                ProjectStatus::Underway | ProjectStatus::Delayed
+            )
+        });
+        Ok(projects)
+    }
+
+    pub fn list_open_incidents(&self) -> Result<Vec<Incident>> {
+        let mut incidents = self.list_incidents(false)?;
+        incidents.retain(|incident| {
+            matches!(
+                incident.status,
+                IncidentStatus::Open | IncidentStatus::InProgress
+            )
+        });
+        incidents.sort_by(|left, right| {
+            severity_rank(left.severity)
+                .cmp(&severity_rank(right.severity))
+                .then_with(|| right.updated_at.cmp(&left.updated_at))
+                .then_with(|| right.id.cmp(&left.id))
+        });
+        Ok(incidents)
+    }
+
+    pub fn list_expiring_warranties(
+        &self,
+        now: Date,
+        look_back_days: i64,
+        horizon_days: i64,
+    ) -> Result<Vec<Appliance>> {
+        if look_back_days < 0 {
+            bail!("look_back_days must be non-negative, got {look_back_days}");
+        }
+        if horizon_days < 0 {
+            bail!("horizon_days must be non-negative, got {horizon_days}");
+        }
+
+        let from = now - time::Duration::days(look_back_days);
+        let to = now + time::Duration::days(horizon_days);
+
+        let mut appliances = self.list_appliances(false)?;
+        appliances.retain(|appliance| {
+            appliance
+                .warranty_expiry
+                .is_some_and(|warranty| warranty >= from && warranty <= to)
+        });
+        appliances.sort_by(|left, right| {
+            left.warranty_expiry
+                .cmp(&right.warranty_expiry)
+                .then_with(|| right.id.cmp(&left.id))
+        });
+        Ok(appliances)
+    }
+
+    pub fn list_recent_service_logs(&self, limit: usize) -> Result<Vec<ServiceLogEntry>> {
+        let mut logs = self.list_service_log_entries(false)?;
+        logs.truncate(limit);
+        Ok(logs)
+    }
+
+    pub fn ytd_service_spend_cents(&self, year_start: Date) -> Result<i64> {
+        let total: i64 = self
+            .conn
+            .query_row(
+                "
+                SELECT COALESCE(SUM(cost_cents), 0)
+                FROM service_log_entries
+                WHERE deleted_at IS NULL
+                  AND serviced_at >= ?
+                ",
+                params![format_date(year_start)],
+                |row| row.get(0),
+            )
+            .context("sum year-to-date service spend")?;
+        Ok(total)
+    }
+
+    pub fn total_project_spend_cents(&self) -> Result<i64> {
+        let total: i64 = self
+            .conn
+            .query_row(
+                "
+                SELECT COALESCE(SUM(actual_cents), 0)
+                FROM projects
+                WHERE deleted_at IS NULL
+                ",
+                [],
+                |row| row.get(0),
+            )
+            .context("sum total project spend")?;
+        Ok(total)
+    }
+
     pub fn list_documents(&self, include_deleted: bool) -> Result<Vec<Document>> {
         let mut sql = String::from(
             "
@@ -2223,17 +2674,23 @@ impl Store {
             .to_string_lossy();
         let cache_path = cache_dir.join(format!("{checksum}-{file_name}"));
 
-        // We intentionally rewrite the cache file on access to refresh mtime.
-        let should_write = match fs::metadata(&cache_path) {
-            Ok(metadata) => metadata.len() != u64::try_from(size_bytes).unwrap_or(0),
-            Err(_) => true,
+        // Refresh mtime on every access so TTL eviction treats active files as in-use.
+        let cache_hit = match fs::metadata(&cache_path) {
+            Ok(metadata) => metadata.len() == u64::try_from(size_bytes).unwrap_or(0),
+            Err(_) => false,
         };
 
-        if should_write {
+        if cache_hit {
+            // stdlib has no portable chtime API, so rewrite to refresh mtime.
             fs::write(&cache_path, &data)
-                .with_context(|| format!("write cache file {}", cache_path.display()))?;
+                .with_context(|| format!("refresh cache file {}", cache_path.display()))?;
             set_private_permissions(&cache_path)?;
+            return Ok(cache_path);
         }
+
+        fs::write(&cache_path, &data)
+            .with_context(|| format!("write cache file {}", cache_path.display()))?;
+        set_private_permissions(&cache_path)?;
 
         Ok(cache_path)
     }
@@ -2721,6 +3178,74 @@ pub fn validate_db_path(path: &str) -> Result<()> {
     Ok(())
 }
 
+fn value_ref_to_string(value: ValueRef<'_>) -> String {
+    match value {
+        ValueRef::Null => String::new(),
+        ValueRef::Integer(value) => value.to_string(),
+        ValueRef::Real(value) => value.to_string(),
+        ValueRef::Text(value) => String::from_utf8_lossy(value).into_owned(),
+        ValueRef::Blob(value) => format!("{value:?}"),
+    }
+}
+
+fn severity_rank(severity: IncidentSeverity) -> i32 {
+    match severity {
+        IncidentSeverity::Urgent => 0,
+        IncidentSeverity::Soon => 1,
+        IncidentSeverity::Whenever => 2,
+    }
+}
+
+fn is_noise_column(column: &str) -> bool {
+    matches!(
+        column.to_ascii_lowercase().as_str(),
+        "id" | "created_at" | "updated_at" | "deleted_at" | "data"
+    )
+}
+
+fn format_column_value(column: &str, value: &str) -> String {
+    if column.to_ascii_lowercase().ends_with("_cents")
+        && let Ok(cents) = value.parse::<i64>()
+    {
+        let dollars = (cents as f64) / 100.0;
+        let label = column.strip_suffix("_cents").unwrap_or(column);
+        return format!("{label}: ${dollars:.2}");
+    }
+    format!("{column}: {value}")
+}
+
+fn is_safe_identifier(identifier: &str) -> bool {
+    !identifier.is_empty()
+        && identifier
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
+fn contains_word(source: &str, keyword: &str) -> bool {
+    let bytes = source.as_bytes();
+    let keyword_len = keyword.len();
+    if keyword_len == 0 || keyword_len > bytes.len() {
+        return false;
+    }
+
+    let mut index = 0usize;
+    while let Some(offset) = source[index..].find(keyword) {
+        let start = index + offset;
+        let end = start + keyword_len;
+        let left_ok = start == 0 || !is_identifier_char(bytes[start - 1]);
+        let right_ok = end >= bytes.len() || !is_identifier_char(bytes[end]);
+        if left_ok && right_ok {
+            return true;
+        }
+        index = start + 1;
+    }
+    false
+}
+
+fn is_identifier_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
 fn has_user_tables(conn: &Connection) -> Result<bool> {
     let count: i64 = conn
         .query_row(
@@ -2763,6 +3288,28 @@ fn validate_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+fn ensure_required_indexes(conn: &Connection) -> Result<()> {
+    for index in REQUIRED_INDEXES {
+        conn.execute_batch(index.create_sql)
+            .with_context(|| format!("ensure required index `{}`", index.name))?;
+    }
+
+    let existing_indexes = index_names(conn)?;
+    let missing = REQUIRED_INDEXES
+        .iter()
+        .filter(|index| !existing_indexes.contains(index.name))
+        .map(|index| index.name)
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        bail!(
+            "database is missing required indexes: {}; run migration before launching",
+            missing.join(", ")
+        );
+    }
+
+    Ok(())
+}
+
 fn table_exists(conn: &Connection, table: &str) -> Result<bool> {
     let exists = conn
         .query_row(
@@ -2792,6 +3339,25 @@ fn table_columns(conn: &Connection, table: &str) -> Result<BTreeSet<String>> {
         .collect::<rusqlite::Result<BTreeSet<_>>>()
         .with_context(|| format!("collect columns for {table}"))?;
     Ok(names)
+}
+
+fn index_names(conn: &Connection) -> Result<BTreeSet<String>> {
+    let mut stmt = conn
+        .prepare(
+            "
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'index'
+              AND name NOT LIKE 'sqlite_%'
+            ORDER BY name ASC
+            ",
+        )
+        .context("prepare index names query")?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .context("query index names")?;
+    rows.collect::<rusqlite::Result<BTreeSet<_>>>()
+        .context("collect index names")
 }
 
 fn configure_connection(conn: &Connection) -> Result<()> {
