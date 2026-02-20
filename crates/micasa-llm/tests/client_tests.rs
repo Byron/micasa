@@ -91,3 +91,54 @@ fn chat_stream_parses_server_sent_events() -> Result<()> {
     handle.join().expect("server thread should join");
     Ok(())
 }
+
+#[test]
+fn chat_stream_handles_partial_tokens_and_done_chunks() -> Result<()> {
+    let server =
+        Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+    let addr = format!("http://{}/v1", server.server_addr());
+
+    let handle = thread::spawn(move || {
+        let request = server.recv().expect("request expected");
+        assert_eq!(request.url(), "/v1/chat/completions");
+
+        let body = concat!(
+            "event: message\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"\"},\"finish_reason\":null}]}\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Par\"},\"finish_reason\":null}]}\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"tial\"},\"finish_reason\":null}]}\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"\"},\"finish_reason\":\"stop\"}]}\n",
+            "data: [DONE]\n",
+        );
+        let response = Response::from_string(body)
+            .with_status_code(200)
+            .with_header(
+                Header::from_bytes("Content-Type", "text/event-stream")
+                    .expect("valid content type header"),
+            );
+        request.respond(response).expect("response should succeed");
+    });
+
+    let client = Client::new(&addr, "qwen3", Duration::from_secs(1))?;
+    let mut stream = client.chat_stream(&[Message {
+        role: Role::User,
+        content: "Say partial".to_owned(),
+    }])?;
+
+    let first = stream.next().expect("first chunk should exist")?;
+    assert_eq!(first.content, "Par");
+    assert!(!first.done);
+
+    let second = stream.next().expect("second chunk should exist")?;
+    assert_eq!(second.content, "tial");
+    assert!(!second.done);
+
+    let done = stream.next().expect("done chunk should exist")?;
+    assert!(done.content.is_empty());
+    assert!(done.done);
+
+    assert!(stream.next().is_none());
+
+    handle.join().expect("server thread should join");
+    Ok(())
+}

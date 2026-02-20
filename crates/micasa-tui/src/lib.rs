@@ -4857,6 +4857,7 @@ mod tests {
         DashboardSnapshot, LifecycleAction, TabSnapshot, TableCommand, TableEvent, TableStatus,
         ViewData, apply_mag_mode_to_text, apply_table_command, contextual_enter_hint,
         handle_key_event, header_label_for_column, highlight_column_label, refresh_view_data,
+        render_chat_overlay_text, render_dashboard_overlay_text, render_dashboard_text,
         table_command_for_key,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -5256,6 +5257,20 @@ mod tests {
         rx: &mpsc::Receiver<super::InternalEvent>,
     ) {
         super::process_internal_events(state, view_data, tx, rx);
+    }
+
+    fn run_key_script(
+        state: &mut AppState,
+        runtime: &mut TestRuntime,
+        view_data: &mut ViewData,
+        tx: &mpsc::Sender<super::InternalEvent>,
+        rx: &mpsc::Receiver<super::InternalEvent>,
+        keys: &[KeyEvent],
+    ) {
+        for key in keys {
+            let _ = handle_key_event(state, runtime, view_data, tx, *key);
+            pump_internal(state, view_data, tx, rx);
+        }
     }
 
     #[test]
@@ -7047,6 +7062,148 @@ mod tests {
         );
         assert_eq!(state.active_tab, TabKind::Incidents);
         assert!(!view_data.dashboard.visible);
+    }
+
+    #[test]
+    fn dashboard_and_overlay_text_snapshots_match_expected_content() {
+        let state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        let dashboard = render_dashboard_text(&state, &view_data);
+        assert_eq!(
+            dashboard,
+            "mode: nav\n\
+             deleted: hidden\n\
+             \n\
+             projects due: 2\n\
+             maintenance due: 1\n\
+             incidents open: 3"
+        );
+
+        let overlay = render_dashboard_overlay_text(
+            &view_data.dashboard.snapshot,
+            view_data.dashboard.cursor,
+            false,
+        );
+        assert!(overlay.contains("incidents (1)"));
+        assert!(overlay.contains("Leak | urgent | 2d"));
+    }
+
+    #[test]
+    fn chat_overlay_text_snapshot_shows_sql_and_history() {
+        let mut view_data = view_data_for_test();
+        view_data.chat.show_sql = true;
+        view_data.chat.history = vec!["/help".to_owned(), "show projects".to_owned()];
+        view_data.chat.input = "/sql".to_owned();
+        view_data.chat.transcript.push(super::ChatMessage {
+            role: super::ChatRole::User,
+            body: "show projects".to_owned(),
+            sql: None,
+        });
+        view_data.chat.transcript.push(super::ChatMessage {
+            role: super::ChatRole::Assistant,
+            body: "2 active projects".to_owned(),
+            sql: Some("SELECT title\nFROM projects".to_owned()),
+        });
+
+        let rendered = render_chat_overlay_text(&view_data.chat, false);
+        assert!(rendered.contains("sql: on | history: 2"));
+        assert!(rendered.contains("you: show projects"));
+        assert!(rendered.contains("llm: 2 active projects"));
+        assert!(rendered.contains("  sql: SELECT title"));
+        assert!(rendered.contains("  sql: FROM projects"));
+        assert!(rendered.contains("> /sql"));
+    }
+
+    #[test]
+    fn keybinding_script_edit_and_dashboard_flow_matches_docs() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime {
+            can_undo: true,
+            can_redo: true,
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        let (tx, rx) = internal_channel();
+        run_key_script(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            &rx,
+            &[
+                KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT),
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            ],
+        );
+
+        assert_eq!(state.mode, AppMode::Nav);
+        assert!(state.show_deleted);
+        assert_eq!(runtime.undo_count, 1);
+        assert_eq!(runtime.redo_count, 1);
+        assert_eq!(state.active_tab, TabKind::Incidents);
+        assert_eq!(state.status_line.as_deref(), Some("dashboard -> incidents"));
+    }
+
+    #[test]
+    fn keybinding_script_chat_overlay_flow_matches_docs() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let (tx, rx) = internal_channel();
+
+        run_key_script(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            &rx,
+            &[KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE)],
+        );
+
+        run_key_script(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            &rx,
+            &[
+                KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+            ],
+        );
+
+        assert_eq!(state.chat, ChatVisibility::Hidden);
+        assert!(!view_data.chat.show_sql);
+        assert_eq!(state.status_line.as_deref(), Some("chat hidden"));
+        assert!(
+            view_data
+                .chat
+                .transcript
+                .iter()
+                .any(|message| message.role == super::ChatRole::User && message.body == "/sql")
+        );
     }
 
     #[test]

@@ -1090,17 +1090,21 @@ fn days_from_to(from: Date, to: Date) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::DbRuntime;
-    use anyhow::Result;
+    use anyhow::{Result, anyhow};
     use micasa_app::{
         FormPayload, HouseProfileFormInput, IncidentSeverity, ProjectFormInput, ProjectStatus,
         ProjectTypeId, ServiceLogEntryFormInput, SettingKey, SettingValue, TabKind,
     };
     use micasa_db::{NewMaintenanceItem, NewProject, Store};
-    use micasa_llm::Role as LlmRole;
+    use micasa_llm::{Client as LlmClient, Message as LlmMessage, Role as LlmRole};
     use micasa_tui::{
         AppRuntime, ChatHistoryMessage, ChatHistoryRole, LifecycleAction, TabSnapshot,
     };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+    use std::time::Duration;
     use time::{Date, Month};
+    use tiny_http::{Header, Response, Server};
 
     #[test]
     fn submit_form_creates_project_row() -> Result<()> {
@@ -1435,6 +1439,95 @@ mod tests {
             _ => panic!("expected settings snapshot"),
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn llm_stream_partial_tokens_can_be_short_circuited_by_callback() -> Result<()> {
+        let server =
+            Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+        let addr = format!("http://{}/v1", server.server_addr());
+
+        let handle = thread::spawn(move || {
+            let request = server.recv().expect("request expected");
+            assert_eq!(request.url(), "/v1/chat/completions");
+
+            let body = concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Par\"},\"finish_reason\":null}]}\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"tial\"},\"finish_reason\":null}]}\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"\"},\"finish_reason\":\"stop\"}]}\n",
+                "data: [DONE]\n",
+            );
+            let response = Response::from_string(body)
+                .with_status_code(200)
+                .with_header(
+                    Header::from_bytes("Content-Type", "text/event-stream")
+                        .expect("valid content type header"),
+                );
+            request.respond(response).expect("response should succeed");
+        });
+
+        let client = LlmClient::new(&addr, "qwen3", Duration::from_secs(1))?;
+        let cancel = AtomicBool::new(false);
+        let messages = [LlmMessage {
+            role: LlmRole::User,
+            content: "Say partial".to_owned(),
+        }];
+
+        let mut chunks = Vec::new();
+        let response = DbRuntime::stream_chat_with_events(&client, &messages, &cancel, |chunk| {
+            chunks.push(chunk.clone());
+            false
+        })?;
+
+        assert_eq!(chunks, vec!["Par".to_owned()]);
+        assert_eq!(response, "Par");
+        handle.join().expect("server thread should join");
+        Ok(())
+    }
+
+    #[test]
+    fn llm_stream_cancellation_stops_after_first_partial_chunk() -> Result<()> {
+        let server =
+            Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+        let addr = format!("http://{}/v1", server.server_addr());
+
+        let handle = thread::spawn(move || {
+            let request = server.recv().expect("request expected");
+            assert_eq!(request.url(), "/v1/chat/completions");
+
+            let body = concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Par\"},\"finish_reason\":null}]}\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"tial\"},\"finish_reason\":null}]}\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"\"},\"finish_reason\":\"stop\"}]}\n",
+                "data: [DONE]\n",
+            );
+            let response = Response::from_string(body)
+                .with_status_code(200)
+                .with_header(
+                    Header::from_bytes("Content-Type", "text/event-stream")
+                        .expect("valid content type header"),
+                );
+            request.respond(response).expect("response should succeed");
+        });
+
+        let client = LlmClient::new(&addr, "qwen3", Duration::from_secs(1))?;
+        let cancel = AtomicBool::new(false);
+        let messages = [LlmMessage {
+            role: LlmRole::User,
+            content: "Say partial".to_owned(),
+        }];
+
+        let mut chunks = Vec::new();
+        let response = DbRuntime::stream_chat_with_events(&client, &messages, &cancel, |chunk| {
+            chunks.push(chunk.clone());
+            cancel.store(true, Ordering::Release);
+            true
+        })?;
+
+        assert_eq!(chunks, vec!["Par".to_owned()]);
+        assert_eq!(response, "Par");
+        handle.join().expect("server thread should join");
         Ok(())
     }
 }

@@ -8,6 +8,7 @@ use micasa_db::{
     NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, Store, UpdateProject,
     UpdateServiceLogEntry, UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
 };
+use std::fs;
 use time::{Date, Month};
 
 fn index_exists(store: &Store, name: &str) -> Result<bool> {
@@ -94,6 +95,40 @@ fn bootstrap_recreates_missing_required_index() -> Result<()> {
 
     store.bootstrap()?;
     assert!(index_exists(&store, "idx_quotes_vendor_id")?);
+    Ok(())
+}
+
+#[test]
+fn bootstrap_accepts_go_schema_fixture_db() -> Result<()> {
+    let fixture_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("go-schema-v1.db");
+    assert!(
+        fixture_path.exists(),
+        "expected fixture at {}",
+        fixture_path.display()
+    );
+
+    let temp_dir = tempfile::tempdir()?;
+    let db_path = temp_dir.path().join("go-schema-v1-copy.db");
+    fs::copy(&fixture_path, &db_path)?;
+
+    let store = Store::open(&db_path)?;
+    store.bootstrap()?;
+
+    let project_types = store.list_project_types()?;
+    let categories = store.list_maintenance_categories()?;
+    assert!(!project_types.is_empty());
+    assert!(!categories.is_empty());
+    assert!(
+        project_types.iter().any(|entry| entry.name == "Plumbing"),
+        "fixture should include seeded project types"
+    );
+    assert!(
+        categories.iter().any(|entry| entry.name == "Safety"),
+        "fixture should include seeded maintenance categories"
+    );
     Ok(())
 }
 
@@ -429,6 +464,32 @@ fn document_blob_round_trip_and_cache_extract() -> Result<()> {
     assert!(extracted_path.exists());
     let extracted = std::fs::read(extracted_path)?;
     assert_eq!(extracted, from_db.data);
+    Ok(())
+}
+
+#[test]
+fn document_cache_extract_refreshes_existing_cache_file() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let payload = b"123456789".to_vec();
+    let document_id = store.insert_document(&NewDocument {
+        title: "Manual".to_owned(),
+        file_name: "manual.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::Appliance,
+        entity_id: 4,
+        mime_type: "application/pdf".to_owned(),
+        data: payload.clone(),
+        notes: String::new(),
+    })?;
+
+    let extracted_path = store.extract_document(document_id)?;
+    fs::write(&extracted_path, b"xxxxxxxxx")?;
+
+    let extracted_again = store.extract_document(document_id)?;
+    assert_eq!(extracted_again, extracted_path);
+    let refreshed = fs::read(extracted_again)?;
+    assert_eq!(refreshed, payload);
     Ok(())
 }
 
