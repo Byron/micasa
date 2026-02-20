@@ -7,9 +7,9 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{execute, terminal};
 use micasa_app::{
     AppCommand, AppEvent, AppMode, AppState, Appliance, ApplianceId, DashboardCounts, Document,
-    FormKind, FormPayload, HouseProfile, Incident, IncidentId, IncidentSeverity, MaintenanceItem,
-    MaintenanceItemId, Project, ProjectId, ProjectStatus, Quote, ServiceLogEntry,
-    ServiceLogEntryId, SortDirection, TabKind, Vendor,
+    DocumentEntityKind, FormKind, FormPayload, HouseProfile, Incident, IncidentId,
+    IncidentSeverity, MaintenanceItem, MaintenanceItemId, Project, ProjectId, ProjectStatus, Quote,
+    ServiceLogEntry, ServiceLogEntryId, SortDirection, TabKind, Vendor, VendorId,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -248,6 +248,13 @@ enum ColumnActionKind {
 enum DrillRequest {
     ServiceLogForMaintenance(MaintenanceItemId),
     MaintenanceForAppliance(ApplianceId),
+    QuotesForProject(ProjectId),
+    QuotesForVendor(VendorId),
+    ServiceLogForVendor(VendorId),
+    DocumentsForEntity {
+        kind: DocumentEntityKind,
+        entity_id: i64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -284,7 +291,7 @@ struct TableUiState {
     tab: Option<TabKind>,
     selected_row: usize,
     selected_col: usize,
-    sort: Option<SortSpec>,
+    sorts: Vec<SortSpec>,
     pin: Option<PinnedCell>,
     filter_active: bool,
     hidden_columns: BTreeSet<usize>,
@@ -1220,10 +1227,38 @@ fn filter_snapshot_for_drill(snapshot: TabSnapshot, request: DrillRequest) -> Ta
                     .collect(),
             )
         }
+        (TabSnapshot::ServiceLog(rows), DrillRequest::ServiceLogForVendor(vendor_id)) => {
+            TabSnapshot::ServiceLog(
+                rows.into_iter()
+                    .filter(|row| row.vendor_id == Some(vendor_id))
+                    .collect(),
+            )
+        }
         (TabSnapshot::Maintenance(rows), DrillRequest::MaintenanceForAppliance(appliance_id)) => {
             TabSnapshot::Maintenance(
                 rows.into_iter()
                     .filter(|row| row.appliance_id == Some(appliance_id))
+                    .collect(),
+            )
+        }
+        (TabSnapshot::Quotes(rows), DrillRequest::QuotesForProject(project_id)) => {
+            TabSnapshot::Quotes(
+                rows.into_iter()
+                    .filter(|row| row.project_id == project_id)
+                    .collect(),
+            )
+        }
+        (TabSnapshot::Quotes(rows), DrillRequest::QuotesForVendor(vendor_id)) => {
+            TabSnapshot::Quotes(
+                rows.into_iter()
+                    .filter(|row| row.vendor_id == vendor_id)
+                    .collect(),
+            )
+        }
+        (TabSnapshot::Documents(rows), DrillRequest::DocumentsForEntity { kind, entity_id }) => {
+            TabSnapshot::Documents(
+                rows.into_iter()
+                    .filter(|row| row.entity_kind == kind && row.entity_id == entity_id)
                     .collect(),
             )
         }
@@ -1448,7 +1483,11 @@ fn handle_nav_enter<R: AppRuntime>(
     {
         let target_tab = match request {
             DrillRequest::ServiceLogForMaintenance(_) => TabKind::ServiceLog,
+            DrillRequest::ServiceLogForVendor(_) => TabKind::ServiceLog,
             DrillRequest::MaintenanceForAppliance(_) => TabKind::Maintenance,
+            DrillRequest::QuotesForProject(_) => TabKind::Quotes,
+            DrillRequest::QuotesForVendor(_) => TabKind::Quotes,
+            DrillRequest::DocumentsForEntity { .. } => TabKind::Documents,
         };
         match runtime.load_tab_snapshot(target_tab, state.show_deleted) {
             Ok(Some(snapshot)) => {
@@ -1534,12 +1573,27 @@ fn drill_request_for(tab: TabKind, column: usize, row_id: i64) -> Option<DrillRe
         return None;
     }
     match (tab, column) {
+        (TabKind::Projects, 5) => Some(DrillRequest::QuotesForProject(ProjectId::new(row_id))),
+        (TabKind::Projects, 6) => Some(DrillRequest::DocumentsForEntity {
+            kind: DocumentEntityKind::Project,
+            entity_id: row_id,
+        }),
         (TabKind::Maintenance, 7) => Some(DrillRequest::ServiceLogForMaintenance(
             MaintenanceItemId::new(row_id),
         )),
+        (TabKind::Incidents, 7) => Some(DrillRequest::DocumentsForEntity {
+            kind: DocumentEntityKind::Incident,
+            entity_id: row_id,
+        }),
         (TabKind::Appliances, 6) => Some(DrillRequest::MaintenanceForAppliance(ApplianceId::new(
             row_id,
         ))),
+        (TabKind::Appliances, 7) => Some(DrillRequest::DocumentsForEntity {
+            kind: DocumentEntityKind::Appliance,
+            entity_id: row_id,
+        }),
+        (TabKind::Vendors, 5) => Some(DrillRequest::QuotesForVendor(VendorId::new(row_id))),
+        (TabKind::Vendors, 6) => Some(DrillRequest::ServiceLogForVendor(VendorId::new(row_id))),
         _ => None,
     }
 }
@@ -1559,6 +1613,30 @@ fn drill_title_for(tab: TabKind, selected_label: String, request: DrillRequest) 
                 "maintenance".to_owned()
             } else {
                 format!("maintenance ({label})")
+            }
+        }
+        (TabKind::Projects, DrillRequest::QuotesForProject(_))
+        | (TabKind::Vendors, DrillRequest::QuotesForVendor(_)) => {
+            if label.is_empty() {
+                "quotes".to_owned()
+            } else {
+                format!("quotes ({label})")
+            }
+        }
+        (TabKind::Projects, DrillRequest::DocumentsForEntity { .. })
+        | (TabKind::Incidents, DrillRequest::DocumentsForEntity { .. })
+        | (TabKind::Appliances, DrillRequest::DocumentsForEntity { .. }) => {
+            if label.is_empty() {
+                "documents".to_owned()
+            } else {
+                format!("documents ({label})")
+            }
+        }
+        (TabKind::Vendors, DrillRequest::ServiceLogForVendor(_)) => {
+            if label.is_empty() {
+                "jobs".to_owned()
+            } else {
+                format!("jobs ({label})")
             }
         }
         _ => "detail".to_owned(),
@@ -1595,7 +1673,14 @@ fn column_action_for(tab: TabKind, column: usize) -> Option<ColumnActionKind> {
     }
     if matches!(
         (tab, column),
-        (TabKind::Maintenance, 7) | (TabKind::Appliances, 6)
+        (TabKind::Projects, 5)
+            | (TabKind::Projects, 6)
+            | (TabKind::Maintenance, 7)
+            | (TabKind::Incidents, 7)
+            | (TabKind::Appliances, 6)
+            | (TabKind::Appliances, 7)
+            | (TabKind::Vendors, 5)
+            | (TabKind::Vendors, 6)
     ) {
         return Some(ColumnActionKind::Drill);
     }
@@ -1780,7 +1865,7 @@ fn apply_table_command(view_data: &mut ViewData, command: TableCommand) -> Table
         }
         TableCommand::CycleSort => TableEvent::Status(cycle_sort(view_data)),
         TableCommand::ClearSort => {
-            view_data.table_state.sort = None;
+            view_data.table_state.sorts.clear();
             clamp_table_cursor(view_data);
             TableEvent::Status(TableStatus::SortCleared)
         }
@@ -2374,14 +2459,26 @@ fn header_label_for_column(
         }
     }
 
-    if let Some(sort) = table_state.sort
-        && sort.column == column_index
+    if let Some((position, sort)) = table_state
+        .sorts
+        .iter()
+        .enumerate()
+        .find(|(_, sort)| sort.column == column_index)
     {
-        let suffix = match sort.direction {
-            SortDirection::Asc => " ↑",
-            SortDirection::Desc => " ↓",
-        };
-        label.push_str(suffix);
+        if table_state.sorts.len() == 1 {
+            let suffix = match sort.direction {
+                SortDirection::Asc => " ↑",
+                SortDirection::Desc => " ↓",
+            };
+            label.push_str(suffix);
+        } else {
+            let marker = match sort.direction {
+                SortDirection::Asc => " ▲",
+                SortDirection::Desc => " ▼",
+            };
+            label.push_str(marker);
+            label.push_str(&(position + 1).to_string());
+        }
     }
 
     label
@@ -2402,14 +2499,24 @@ fn table_title(projection: &TableProjection, table_state: &TableUiState) -> Stri
         projection.column_count(),
     )];
 
-    if let Some(sort) = table_state.sort
-        && let Some(label) = projection.columns.get(sort.column)
-    {
-        let direction = match sort.direction {
-            SortDirection::Asc => "asc",
-            SortDirection::Desc => "desc",
-        };
-        parts.push(format!("sort {label} {direction}"));
+    if !table_state.sorts.is_empty() {
+        let labels = table_state
+            .sorts
+            .iter()
+            .enumerate()
+            .filter_map(|(index, sort)| {
+                projection.columns.get(sort.column).map(|label| {
+                    let direction = match sort.direction {
+                        SortDirection::Asc => "asc",
+                        SortDirection::Desc => "desc",
+                    };
+                    format!("{label}:{direction}#{}", index + 1)
+                })
+            })
+            .collect::<Vec<_>>();
+        if !labels.is_empty() {
+            parts.push(format!("sort {}", labels.join(",")));
+        }
     }
 
     if let Some(pin) = &table_state.pin
@@ -2475,22 +2582,38 @@ fn projection_for_snapshot(snapshot: &TabSnapshot, table_state: &TableUiState) -
         });
     }
 
-    if let Some(sort) = table_state.sort
-        && sort.column < projection.column_count()
-    {
+    if !table_state.sorts.is_empty() {
+        let column_count = projection.column_count();
         projection.rows.sort_by(|left, right| {
-            let left_value = left.cells.get(sort.column);
-            let right_value = right.cells.get(sort.column);
-            let order = match (left_value, right_value) {
-                (Some(left), Some(right)) => left.cmp_value(right),
-                (None, Some(_)) => Ordering::Less,
-                (Some(_), None) => Ordering::Greater,
-                (None, None) => Ordering::Equal,
-            };
-            match sort.direction {
-                SortDirection::Asc => order,
-                SortDirection::Desc => order.reverse(),
+            for sort in &table_state.sorts {
+                if sort.column >= column_count {
+                    continue;
+                }
+                let left_value = left.cells.get(sort.column);
+                let right_value = right.cells.get(sort.column);
+                let order = match (left_value, right_value) {
+                    (Some(left), Some(right)) => match sort.direction {
+                        SortDirection::Asc => left.cmp_value(right),
+                        SortDirection::Desc => left.cmp_value(right).reverse(),
+                    },
+                    (None, Some(_)) => Ordering::Greater,
+                    (Some(_), None) => Ordering::Less,
+                    (None, None) => Ordering::Equal,
+                };
+                if order != Ordering::Equal {
+                    return order;
+                }
             }
+
+            let left_id = match left.cells.first() {
+                Some(TableCell::Integer(id)) => Some(*id),
+                _ => None,
+            };
+            let right_id = match right.cells.first() {
+                Some(TableCell::Integer(id)) => Some(*id),
+                _ => None,
+            };
+            left_id.cmp(&right_id)
         });
     }
 
@@ -2599,7 +2722,9 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
         }
         TabSnapshot::Projects(rows) => TableProjection {
             title: "projects",
-            columns: vec!["id", "title", "status", "budget", "actual"],
+            columns: vec![
+                "id", "title", "status", "budget", "actual", "quotes", "docs",
+            ],
             rows: rows
                 .iter()
                 .map(|row| TableRowProjection {
@@ -2609,6 +2734,8 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Text(row.status.as_str().to_owned()),
                         TableCell::Money(row.budget_cents),
                         TableCell::Money(row.actual_cents),
+                        TableCell::Text(String::new()),
+                        TableCell::Text(String::new()),
                     ],
                     deleted: row.deleted_at.is_some(),
                     tag: Some(RowTag::ProjectStatus(row.status)),
@@ -2685,7 +2812,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
         TabSnapshot::Incidents(rows) => TableProjection {
             title: "incidents",
             columns: vec![
-                "id", "title", "status", "sev", "noticed", "resolved", "cost",
+                "id", "title", "status", "sev", "noticed", "resolved", "cost", "docs",
             ],
             rows: rows
                 .iter()
@@ -2698,6 +2825,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Date(Some(row.date_noticed)),
                         TableCell::Date(row.date_resolved),
                         TableCell::Money(row.cost_cents),
+                        TableCell::Text(String::new()),
                     ],
                     deleted: row.deleted_at.is_some(),
                     tag: None,
@@ -2707,7 +2835,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
         TabSnapshot::Appliances(rows) => TableProjection {
             title: "appliances",
             columns: vec![
-                "id", "name", "brand", "location", "warranty", "cost", "maint",
+                "id", "name", "brand", "location", "warranty", "cost", "maint", "docs",
             ],
             rows: rows
                 .iter()
@@ -2720,6 +2848,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Date(row.warranty_expiry),
                         TableCell::Money(row.cost_cents),
                         TableCell::Text(String::new()),
+                        TableCell::Text(String::new()),
                     ],
                     deleted: row.deleted_at.is_some(),
                     tag: None,
@@ -2728,7 +2857,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
         },
         TabSnapshot::Vendors(rows) => TableProjection {
             title: "vendors",
-            columns: vec!["id", "name", "contact", "email", "phone"],
+            columns: vec!["id", "name", "contact", "email", "phone", "quotes", "jobs"],
             rows: rows
                 .iter()
                 .map(|row| TableRowProjection {
@@ -2738,6 +2867,8 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Text(row.contact_name.clone()),
                         TableCell::Text(row.email.clone()),
                         TableCell::Text(row.phone.clone()),
+                        TableCell::Text(String::new()),
+                        TableCell::Text(String::new()),
                     ],
                     deleted: row.deleted_at.is_some(),
                     tag: None,
@@ -2850,34 +2981,37 @@ fn cycle_sort(view_data: &mut ViewData) -> TableStatus {
     };
     let label = projection.columns[column];
 
-    view_data.table_state.sort = match view_data.table_state.sort {
-        Some(existing) if existing.column == column && existing.direction == SortDirection::Asc => {
-            Some(SortSpec {
-                column,
-                direction: SortDirection::Desc,
-            })
+    if let Some(index) = view_data
+        .table_state
+        .sorts
+        .iter()
+        .position(|sort| sort.column == column)
+    {
+        match view_data.table_state.sorts[index].direction {
+            SortDirection::Asc => {
+                view_data.table_state.sorts[index].direction = SortDirection::Desc;
+            }
+            SortDirection::Desc => {
+                view_data.table_state.sorts.remove(index);
+            }
         }
-        Some(existing)
-            if existing.column == column && existing.direction == SortDirection::Desc =>
-        {
-            None
-        }
-        _ => Some(SortSpec {
+    } else {
+        view_data.table_state.sorts.push(SortSpec {
             column,
             direction: SortDirection::Asc,
-        }),
-    };
+        });
+    }
 
     clamp_table_cursor(view_data);
-    match view_data.table_state.sort {
-        Some(SortSpec {
-            direction: SortDirection::Asc,
-            ..
-        }) => TableStatus::SortAsc(label),
-        Some(SortSpec {
-            direction: SortDirection::Desc,
-            ..
-        }) => TableStatus::SortDesc(label),
+    match view_data
+        .table_state
+        .sorts
+        .iter()
+        .find(|sort| sort.column == column)
+        .map(|sort| sort.direction)
+    {
+        Some(SortDirection::Asc) => TableStatus::SortAsc(label),
+        Some(SortDirection::Desc) => TableStatus::SortDesc(label),
         None => TableStatus::SortCleared,
     }
 }
@@ -2928,10 +3062,12 @@ fn clamp_table_cursor(view_data: &mut ViewData) {
 
     let mut projection = projection_for_snapshot(snapshot, &view_data.table_state);
 
-    if let Some(sort) = view_data.table_state.sort
-        && sort.column >= projection.column_count()
-    {
-        view_data.table_state.sort = None;
+    let original_sort_len = view_data.table_state.sorts.len();
+    view_data
+        .table_state
+        .sorts
+        .retain(|sort| sort.column < projection.column_count());
+    if view_data.table_state.sorts.len() != original_sort_len {
         projection = projection_for_snapshot(snapshot, &view_data.table_state);
     }
 
@@ -3237,7 +3373,7 @@ fn apply_pending_row_selection(view_data: &mut ViewData) {
 
     view_data.table_state.pin = None;
     view_data.table_state.filter_active = false;
-    view_data.table_state.sort = None;
+    view_data.table_state.sorts.clear();
     projection = projection_for_snapshot(snapshot, &view_data.table_state);
     if let Some(index) = find_row_index_by_id(&projection, selection.row_id) {
         view_data.table_state.selected_row = index;
@@ -3285,7 +3421,7 @@ mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
         AppMode, AppState, ChatVisibility, DashboardCounts, FormKind, FormPayload,
-        IncidentSeverity, Project, ProjectStatus, ProjectTypeId, TabKind,
+        IncidentSeverity, Project, ProjectStatus, ProjectTypeId, SortDirection, TabKind,
     };
     use std::sync::mpsc;
     use time::{Date, Month, OffsetDateTime};
@@ -3339,13 +3475,14 @@ mod tests {
         fn sample_service_log(
             id: i64,
             maintenance_item_id: i64,
+            vendor_id: Option<i64>,
             notes: &str,
         ) -> micasa_app::ServiceLogEntry {
             micasa_app::ServiceLogEntry {
                 id: micasa_app::ServiceLogEntryId::new(id),
                 maintenance_item_id: micasa_app::MaintenanceItemId::new(maintenance_item_id),
                 serviced_at: Date::from_calendar_date(2026, Month::January, 5).expect("valid date"),
-                vendor_id: Some(micasa_app::VendorId::new(7)),
+                vendor_id: vendor_id.map(micasa_app::VendorId::new),
                 cost_cents: Some(25_00),
                 notes: notes.to_owned(),
                 created_at: OffsetDateTime::UNIX_EPOCH,
@@ -3393,6 +3530,66 @@ mod tests {
                 deleted_at: None,
             }
         }
+
+        fn sample_vendor(id: i64, name: &str) -> micasa_app::Vendor {
+            micasa_app::Vendor {
+                id: micasa_app::VendorId::new(id),
+                name: name.to_owned(),
+                contact_name: "Alex".to_owned(),
+                email: format!("{name}@example.com").to_ascii_lowercase(),
+                phone: "555-1000".to_owned(),
+                website: "https://example.com".to_owned(),
+                notes: String::new(),
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+                deleted_at: None,
+            }
+        }
+
+        fn sample_incident(id: i64, title: &str) -> micasa_app::Incident {
+            micasa_app::Incident {
+                id: micasa_app::IncidentId::new(id),
+                title: title.to_owned(),
+                description: String::new(),
+                status: micasa_app::IncidentStatus::Open,
+                severity: IncidentSeverity::Soon,
+                date_noticed: Date::from_calendar_date(2026, Month::January, 3)
+                    .expect("valid date"),
+                date_resolved: None,
+                location: "basement".to_owned(),
+                cost_cents: Some(50_00),
+                appliance_id: Some(micasa_app::ApplianceId::new(4)),
+                vendor_id: Some(micasa_app::VendorId::new(7)),
+                notes: String::new(),
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+                deleted_at: None,
+            }
+        }
+
+        fn sample_document(
+            id: i64,
+            kind: micasa_app::DocumentEntityKind,
+            entity_id: i64,
+            title: &str,
+            notes: &str,
+        ) -> micasa_app::Document {
+            micasa_app::Document {
+                id: micasa_app::DocumentId::new(id),
+                title: title.to_owned(),
+                file_name: format!("{title}.pdf").to_ascii_lowercase(),
+                entity_kind: kind,
+                entity_id,
+                mime_type: "application/pdf".to_owned(),
+                size_bytes: 1_024,
+                checksum_sha256: format!("sha256-{id}"),
+                data: vec![id as u8],
+                notes: notes.to_owned(),
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+                deleted_at: None,
+            }
+        }
     }
 
     impl AppRuntime for TestRuntime {
@@ -3428,27 +3625,61 @@ mod tests {
                     Self::sample_project(1, "Alpha"),
                     Self::sample_project(2, "Beta"),
                 ])),
-                TabKind::Quotes => Some(TabSnapshot::Quotes(vec![Self::sample_quote(11, 2, 7)])),
-                TabKind::Maintenance => {
-                    Some(TabSnapshot::Maintenance(vec![Self::sample_maintenance(
+                TabKind::Quotes => Some(TabSnapshot::Quotes(vec![
+                    Self::sample_quote(11, 2, 7),
+                    Self::sample_quote(12, 1, 7),
+                    Self::sample_quote(13, 1, 8),
+                ])),
+                TabKind::Maintenance => Some(TabSnapshot::Maintenance(vec![
+                    Self::sample_maintenance(2, Some(4), "HVAC filter"),
+                    Self::sample_maintenance(3, Some(5), "Water softener clean"),
+                ])),
+                TabKind::ServiceLog => Some(TabSnapshot::ServiceLog(vec![
+                    Self::sample_service_log(19, 2, Some(7), "Inspect vent before summer."),
+                    Self::sample_service_log(20, 3, Some(8), "Flush brine tank."),
+                ])),
+                TabKind::Incidents => Some(TabSnapshot::Incidents(vec![
+                    Self::sample_incident(6, "Basement leak"),
+                    Self::sample_incident(7, "Sump alarm"),
+                ])),
+                TabKind::Appliances => Some(TabSnapshot::Appliances(vec![
+                    Self::sample_appliance(4, "Furnace"),
+                    Self::sample_appliance(5, "Water softener"),
+                ])),
+                TabKind::Vendors => Some(TabSnapshot::Vendors(vec![
+                    Self::sample_vendor(7, "Acme HVAC"),
+                    Self::sample_vendor(8, "Budget Plumbing"),
+                ])),
+                TabKind::Documents => Some(TabSnapshot::Documents(vec![
+                    Self::sample_document(
+                        31,
+                        micasa_app::DocumentEntityKind::Project,
                         2,
-                        Some(4),
-                        "HVAC filter",
-                    )]))
-                }
-                TabKind::ServiceLog => {
-                    Some(TabSnapshot::ServiceLog(vec![Self::sample_service_log(
-                        19,
-                        2,
-                        "Inspect vent before summer.",
-                    )]))
-                }
-                TabKind::Incidents => Some(TabSnapshot::Incidents(Vec::new())),
-                TabKind::Appliances => Some(TabSnapshot::Appliances(vec![Self::sample_appliance(
-                    4, "Furnace",
-                )])),
-                TabKind::Vendors => Some(TabSnapshot::Vendors(Vec::new())),
-                TabKind::Documents => Some(TabSnapshot::Documents(Vec::new())),
+                        "Project Scope",
+                        "Scope notes",
+                    ),
+                    Self::sample_document(
+                        32,
+                        micasa_app::DocumentEntityKind::Appliance,
+                        4,
+                        "Furnace Manual",
+                        "Maintenance guidance",
+                    ),
+                    Self::sample_document(
+                        33,
+                        micasa_app::DocumentEntityKind::Incident,
+                        6,
+                        "Leak Photo",
+                        "Basement leak evidence",
+                    ),
+                    Self::sample_document(
+                        34,
+                        micasa_app::DocumentEntityKind::Project,
+                        1,
+                        "Alpha Estimate",
+                        "Older estimate",
+                    ),
+                ])),
             };
             Ok(snapshot)
         }
@@ -3729,7 +3960,7 @@ mod tests {
             &tx,
             KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
         );
-        assert!(view_data.table_state.sort.is_some());
+        assert!(!view_data.table_state.sorts.is_empty());
 
         handle_key_event(
             &mut state,
@@ -3758,6 +3989,78 @@ mod tests {
         );
         assert!(view_data.table_state.pin.is_none());
         assert!(!view_data.table_state.filter_active);
+    }
+
+    #[test]
+    fn multi_column_sort_cycles_per_column_and_keeps_priority() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.sorts.len(), 1);
+        assert_eq!(view_data.table_state.sorts[0].column, 1);
+        assert_eq!(view_data.table_state.sorts[0].direction, SortDirection::Asc);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.sorts.len(), 2);
+        assert_eq!(view_data.table_state.sorts[0].column, 1);
+        assert_eq!(view_data.table_state.sorts[1].column, 2);
+        assert_eq!(view_data.table_state.sorts[1].direction, SortDirection::Asc);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.sorts.len(), 2);
+        assert_eq!(
+            view_data.table_state.sorts[1].direction,
+            SortDirection::Desc
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.sorts.len(), 1);
+        assert_eq!(view_data.table_state.sorts[0].column, 1);
     }
 
     #[test]
@@ -3920,7 +4223,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
         );
 
-        assert!(view_data.table_state.sort.is_none());
+        assert!(view_data.table_state.sorts.is_empty());
         assert!(view_data.table_state.hidden_columns.is_empty());
 
         handle_key_event(
@@ -4040,6 +4343,208 @@ mod tests {
     }
 
     #[test]
+    fn project_drilldowns_filter_quotes_and_documents() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_row, 1);
+
+        for _ in 0..5 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        assert_eq!(view_data.table_state.selected_col, 5);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Quotes));
+        match view_data.active_tab_snapshot.as_ref() {
+            Some(TabSnapshot::Quotes(rows)) => {
+                assert_eq!(rows.len(), 1);
+                assert!(rows.iter().all(|row| row.project_id.get() == 2));
+            }
+            _ => panic!("expected quote drill snapshot"),
+        }
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Projects));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_col, 6);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Documents));
+        match view_data.active_tab_snapshot.as_ref() {
+            Some(TabSnapshot::Documents(rows)) => {
+                assert_eq!(rows.len(), 1);
+                assert!(rows.iter().all(|row| {
+                    row.entity_kind == micasa_app::DocumentEntityKind::Project && row.entity_id == 2
+                }));
+            }
+            _ => panic!("expected document drill snapshot"),
+        }
+    }
+
+    #[test]
+    fn vendor_drilldowns_filter_quotes_and_jobs() {
+        let mut state = AppState {
+            active_tab: TabKind::Vendors,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..5 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        assert_eq!(view_data.table_state.selected_col, 5);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Quotes));
+        match view_data.active_tab_snapshot.as_ref() {
+            Some(TabSnapshot::Quotes(rows)) => {
+                assert_eq!(rows.len(), 2);
+                assert!(rows.iter().all(|row| row.vendor_id.get() == 7));
+            }
+            _ => panic!("expected quote drill snapshot"),
+        }
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Vendors));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_col, 6);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::ServiceLog));
+        match view_data.active_tab_snapshot.as_ref() {
+            Some(TabSnapshot::ServiceLog(rows)) => {
+                assert_eq!(rows.len(), 1);
+                assert!(
+                    rows.iter()
+                        .all(|row| row.vendor_id.map(|id| id.get()) == Some(7))
+                );
+            }
+            _ => panic!("expected service log drill snapshot"),
+        }
+    }
+
+    #[test]
+    fn incident_document_drilldown_filters_rows() {
+        let mut state = AppState {
+            active_tab: TabKind::Incidents,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..7 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        assert_eq!(view_data.table_state.selected_col, 7);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Documents));
+        match view_data.active_tab_snapshot.as_ref() {
+            Some(TabSnapshot::Documents(rows)) => {
+                assert_eq!(rows.len(), 1);
+                assert!(rows.iter().all(|row| {
+                    row.entity_kind == micasa_app::DocumentEntityKind::Incident
+                        && row.entity_id == 6
+                }));
+            }
+            _ => panic!("expected document drill snapshot"),
+        }
+    }
+
+    #[test]
     fn header_indicators_and_contextual_enter_hints_follow_column_semantics() {
         let mut state = AppState {
             active_tab: TabKind::Quotes,
@@ -4055,6 +4560,21 @@ mod tests {
             project_header.contains(super::LINK_ARROW),
             "linked quote project column should display link indicator"
         );
+        view_data.table_state.sorts = vec![
+            super::SortSpec {
+                column: 1,
+                direction: SortDirection::Asc,
+            },
+            super::SortSpec {
+                column: 2,
+                direction: SortDirection::Desc,
+            },
+        ];
+        let sorted_primary = header_label_for_column(&projection, &view_data.table_state, 1);
+        let sorted_secondary = header_label_for_column(&projection, &view_data.table_state, 2);
+        assert!(sorted_primary.contains("▲1"));
+        assert!(sorted_secondary.contains("▼2"));
+        view_data.table_state.sorts.clear();
         assert_eq!(contextual_enter_hint(&view_data), "open");
 
         view_data.table_state.selected_col = 1;

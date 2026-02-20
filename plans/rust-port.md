@@ -37,29 +37,29 @@
 
 ### Navigation and modes
 
-- [ ] Nav mode tables and cursor behavior
-- [ ] Edit mode table edits
-- [ ] Form mode create/edit flows
-- [ ] Status bar messaging for toggles
-- [ ] Keybinding parity from `docs/content/docs/reference/keybindings.md`
+- [x] Nav mode tables and cursor behavior
+- [x] Edit mode table edits
+- [x] Form mode create/edit flows
+- [x] Status bar messaging for toggles
+- [x] Keybinding parity from `docs/content/docs/reference/keybindings.md`
 
 ### Data surfaces
 
-- [ ] Dashboard
-- [ ] House profile
-- [ ] Projects
-- [ ] Quotes
-- [ ] Maintenance items
-- [ ] Maintenance logs
-- [ ] Incidents
-- [ ] Appliances
-- [ ] Vendors
-- [ ] Documents
+- [x] Dashboard
+- [x] House profile
+- [x] Projects
+- [x] Quotes
+- [x] Maintenance items
+- [x] Maintenance logs
+- [x] Incidents
+- [x] Appliances
+- [x] Vendors
+- [x] Documents
 
 ### LLM chat
 
-- [ ] `@` chat overlay and session context
-- [ ] Slash commands
+- [x] `@` chat overlay and session context
+- [x] Slash commands
 - [ ] Model list/pull behavior
 - [ ] NL -> SQL -> summary pipeline
 - [ ] Streaming and cancellation
