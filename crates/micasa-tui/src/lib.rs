@@ -6,9 +6,10 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{execute, terminal};
 use micasa_app::{
-    AppCommand, AppEvent, AppMode, AppState, Appliance, DashboardCounts, Document, FormKind,
-    FormPayload, HouseProfile, Incident, MaintenanceItem, Project, Quote, ServiceLogEntry,
-    SortDirection, TabKind, Vendor,
+    AppCommand, AppEvent, AppMode, AppState, Appliance, ApplianceId, DashboardCounts, Document,
+    FormKind, FormPayload, HouseProfile, Incident, IncidentId, IncidentSeverity, MaintenanceItem,
+    MaintenanceItemId, Project, ProjectId, ProjectStatus, Quote, ServiceLogEntry,
+    ServiceLogEntryId, SortDirection, TabKind, Vendor,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -17,6 +18,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs};
 use std::cmp::Ordering;
 use std::io;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 use std::time::Duration;
 use time::Date;
 
@@ -63,14 +66,106 @@ impl TabSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DashboardSection {
+    Incidents,
+    Overdue,
+    Upcoming,
+    ActiveProjects,
+    ExpiringSoon,
+    RecentActivity,
+}
+
+impl DashboardSection {
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Incidents => "incidents",
+            Self::Overdue => "overdue",
+            Self::Upcoming => "upcoming",
+            Self::ActiveProjects => "active projects",
+            Self::ExpiringSoon => "expiring soon",
+            Self::RecentActivity => "recent activity",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardIncident {
+    pub incident_id: IncidentId,
+    pub title: String,
+    pub severity: IncidentSeverity,
+    pub days_open: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardMaintenance {
+    pub maintenance_item_id: MaintenanceItemId,
+    pub item_name: String,
+    pub days_from_now: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardProject {
+    pub project_id: ProjectId,
+    pub title: String,
+    pub status: ProjectStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardWarranty {
+    pub appliance_id: ApplianceId,
+    pub appliance_name: String,
+    pub days_from_now: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardServiceEntry {
+    pub service_log_entry_id: ServiceLogEntryId,
+    pub maintenance_item_id: MaintenanceItemId,
+    pub serviced_at: Date,
+    pub cost_cents: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct DashboardSnapshot {
+    pub incidents: Vec<DashboardIncident>,
+    pub overdue: Vec<DashboardMaintenance>,
+    pub upcoming: Vec<DashboardMaintenance>,
+    pub active_projects: Vec<DashboardProject>,
+    pub expiring_warranties: Vec<DashboardWarranty>,
+    pub recent_activity: Vec<DashboardServiceEntry>,
+}
+
+impl DashboardSnapshot {
+    fn has_rows(&self) -> bool {
+        !(self.incidents.is_empty()
+            && self.overdue.is_empty()
+            && self.upcoming.is_empty()
+            && self.active_projects.is_empty()
+            && self.expiring_warranties.is_empty()
+            && self.recent_activity.is_empty())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleAction {
+    Delete,
+    Restore,
+}
+
 pub trait AppRuntime {
     fn load_dashboard_counts(&mut self) -> Result<DashboardCounts>;
+    fn load_dashboard_snapshot(&mut self) -> Result<DashboardSnapshot>;
     fn load_tab_snapshot(
         &mut self,
         tab: TabKind,
         include_deleted: bool,
     ) -> Result<Option<TabSnapshot>>;
     fn submit_form(&mut self, payload: &FormPayload) -> Result<()>;
+    fn apply_lifecycle(&mut self, tab: TabKind, row_id: i64, action: LifecycleAction)
+    -> Result<()>;
+    fn undo_last_edit(&mut self) -> Result<bool>;
+    fn redo_last_edit(&mut self) -> Result<bool>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -221,11 +316,78 @@ enum TableEvent {
     Status(TableStatus),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DashboardNavEntry {
+    Section(DashboardSection),
+    Incident(IncidentId),
+    Overdue(MaintenanceItemId),
+    Upcoming(MaintenanceItemId),
+    ActiveProject(ProjectId),
+    ExpiringWarranty(ApplianceId),
+    RecentService(ServiceLogEntryId),
+}
+
+impl DashboardNavEntry {
+    const fn target(self) -> Option<DashboardTarget> {
+        match self {
+            Self::Section(_) => None,
+            Self::Incident(id) => Some(DashboardTarget {
+                tab: TabKind::Incidents,
+                row_id: id.get(),
+            }),
+            Self::Overdue(id) | Self::Upcoming(id) => Some(DashboardTarget {
+                tab: TabKind::Maintenance,
+                row_id: id.get(),
+            }),
+            Self::ActiveProject(id) => Some(DashboardTarget {
+                tab: TabKind::Projects,
+                row_id: id.get(),
+            }),
+            Self::ExpiringWarranty(id) => Some(DashboardTarget {
+                tab: TabKind::Appliances,
+                row_id: id.get(),
+            }),
+            Self::RecentService(id) => Some(DashboardTarget {
+                tab: TabKind::ServiceLog,
+                row_id: id.get(),
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DashboardTarget {
+    tab: TabKind,
+    row_id: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+struct DashboardUiState {
+    visible: bool,
+    cursor: usize,
+    snapshot: DashboardSnapshot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct PendingRowSelection {
+    tab: TabKind,
+    row_id: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InternalEvent {
+    ClearStatus { token: u64 },
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 struct ViewData {
     dashboard_counts: DashboardCounts,
+    dashboard: DashboardUiState,
+    help_visible: bool,
     active_tab_snapshot: Option<TabSnapshot>,
     table_state: TableUiState,
+    status_token: u64,
+    pending_row_selection: Option<PendingRowSelection>,
 }
 
 pub fn run_app<R: AppRuntime>(state: &mut AppState, runtime: &mut R) -> Result<()> {
@@ -236,31 +398,38 @@ pub fn run_app<R: AppRuntime>(state: &mut AppState, runtime: &mut R) -> Result<(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend).context("create terminal")?;
 
-    let mut result = Ok(());
     let mut view_data = ViewData::default();
+    let (internal_tx, internal_rx) = mpsc::channel();
+
+    if state.active_tab == TabKind::Dashboard {
+        state.active_tab = TabKind::Projects;
+        view_data.dashboard.visible = true;
+    }
+
     if let Err(error) = refresh_view_data(state, runtime, &mut view_data) {
         state.dispatch(AppCommand::SetStatus(format!("load failed: {error}")));
     }
 
+    let mut result = Ok(());
     loop {
+        process_internal_events(state, &mut view_data, &internal_rx);
+
         if let Err(error) = terminal.draw(|frame| render(frame, state, &view_data)) {
             result = Err(error).context("draw frame");
             break;
         }
 
-        let has_event = event::poll(Duration::from_millis(200)).context("poll event")?;
-        if !has_event {
-            continue;
-        }
-
-        match event::read().context("read event")? {
-            Event::Key(key) => {
-                if handle_key_event(state, runtime, &mut view_data, key) {
-                    break;
+        let has_event = event::poll(Duration::from_millis(120)).context("poll event")?;
+        if has_event {
+            match event::read().context("read event")? {
+                Event::Key(key) => {
+                    if handle_key_event(state, runtime, &mut view_data, &internal_tx, key) {
+                        break;
+                    }
                 }
+                Event::Resize(_, _) => {}
+                _ => {}
             }
-            Event::Resize(_, _) => {}
-            _ => {}
         }
     }
 
@@ -269,77 +438,451 @@ pub fn run_app<R: AppRuntime>(state: &mut AppState, runtime: &mut R) -> Result<(
     result
 }
 
+fn process_internal_events(
+    state: &mut AppState,
+    view_data: &mut ViewData,
+    rx: &Receiver<InternalEvent>,
+) {
+    while let Ok(event) = rx.try_recv() {
+        match event {
+            InternalEvent::ClearStatus { token } if token == view_data.status_token => {
+                state.dispatch(AppCommand::ClearStatus);
+            }
+            InternalEvent::ClearStatus { .. } => {}
+        }
+    }
+}
+
+fn schedule_status_clear(internal_tx: &Sender<InternalEvent>, token: u64) {
+    let sender = internal_tx.clone();
+    thread::spawn(move || {
+        thread::sleep(Duration::from_secs(4));
+        let _ = sender.send(InternalEvent::ClearStatus { token });
+    });
+}
+
+fn emit_status(
+    state: &mut AppState,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+    message: impl Into<String>,
+) {
+    state.dispatch(AppCommand::SetStatus(message.into()));
+    view_data.status_token = view_data.status_token.saturating_add(1);
+    schedule_status_clear(internal_tx, view_data.status_token);
+}
+
 fn handle_key_event<R: AppRuntime>(
     state: &mut AppState,
     runtime: &mut R,
     view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
     key: KeyEvent,
 ) -> bool {
-    if handle_table_key(state, view_data, key) {
+    if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        return true;
+    }
+
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        emit_status(
+            state,
+            view_data,
+            internal_tx,
+            "cancel requested; no in-flight LLM operation",
+        );
         return false;
     }
 
-    match (key.code, key.modifiers) {
-        (KeyCode::Char('c'), KeyModifiers::CONTROL) => return true,
-        (KeyCode::Char('q'), _) => return true,
-        (KeyCode::Tab, _) | (KeyCode::Char('f'), _) => {
-            dispatch_and_refresh(state, runtime, view_data, AppCommand::NextTab);
+    if view_data.help_visible {
+        if key.code == KeyCode::Esc || key.code == KeyCode::Char('?') {
+            view_data.help_visible = false;
+            emit_status(state, view_data, internal_tx, "help hidden");
         }
-        (KeyCode::BackTab, _) | (KeyCode::Char('b'), _) => {
-            dispatch_and_refresh(state, runtime, view_data, AppCommand::PrevTab);
+        return false;
+    }
+
+    if state.chat == micasa_app::ChatVisibility::Visible {
+        if key.code == KeyCode::Esc {
+            dispatch_and_refresh(
+                state,
+                runtime,
+                view_data,
+                AppCommand::CloseChat,
+                internal_tx,
+            );
         }
-        (KeyCode::Char('e'), _) | (KeyCode::Char('i'), _) => {
-            state.dispatch(AppCommand::EnterEditMode);
+        return false;
+    }
+
+    if view_data.dashboard.visible {
+        return handle_dashboard_overlay_key(state, runtime, view_data, internal_tx, key);
+    }
+
+    if handle_table_key(state, view_data, internal_tx, key) {
+        return false;
+    }
+
+    if !matches!(state.mode, AppMode::Form(_)) {
+        match (key.code, key.modifiers) {
+            (KeyCode::Char('f'), KeyModifiers::NONE) => {
+                dispatch_and_refresh(state, runtime, view_data, AppCommand::NextTab, internal_tx);
+                return false;
+            }
+            (KeyCode::Char('b'), KeyModifiers::NONE) => {
+                dispatch_and_refresh(state, runtime, view_data, AppCommand::PrevTab, internal_tx);
+                return false;
+            }
+            (KeyCode::Char('F'), _) => {
+                dispatch_and_refresh(state, runtime, view_data, AppCommand::LastTab, internal_tx);
+                return false;
+            }
+            (KeyCode::Char('B'), _) => {
+                dispatch_and_refresh(state, runtime, view_data, AppCommand::FirstTab, internal_tx);
+                return false;
+            }
+            (KeyCode::Char('@'), KeyModifiers::NONE) => {
+                dispatch_and_refresh(state, runtime, view_data, AppCommand::OpenChat, internal_tx);
+                return false;
+            }
+            (KeyCode::Char('?'), KeyModifiers::NONE) => {
+                view_data.help_visible = true;
+                emit_status(state, view_data, internal_tx, "help open");
+                return false;
+            }
+            _ => {}
         }
-        (KeyCode::Char('a'), _) => {
-            if let Some(form_kind) = form_for_tab(state.active_tab) {
-                state.dispatch(AppCommand::OpenForm(form_kind));
-                if let Some(payload) = template_payload_for_form(form_kind) {
-                    state.dispatch(AppCommand::SetFormPayload(payload));
+    }
+
+    match state.mode {
+        AppMode::Nav => match (key.code, key.modifiers) {
+            (KeyCode::Char('i'), KeyModifiers::NONE) => {
+                dispatch_and_refresh(
+                    state,
+                    runtime,
+                    view_data,
+                    AppCommand::EnterEditMode,
+                    internal_tx,
+                );
+            }
+            (KeyCode::Tab, KeyModifiers::NONE) => {
+                let target = if state.active_tab == TabKind::House {
+                    TabKind::Projects
+                } else {
+                    TabKind::House
+                };
+                dispatch_and_refresh(
+                    state,
+                    runtime,
+                    view_data,
+                    AppCommand::SetActiveTab(target),
+                    internal_tx,
+                );
+            }
+            (KeyCode::Char('D'), _) => {
+                view_data.dashboard.visible = !view_data.dashboard.visible;
+                view_data.dashboard.cursor = 0;
+                if let Err(error) = refresh_view_data(state, runtime, view_data) {
+                    emit_status(
+                        state,
+                        view_data,
+                        internal_tx,
+                        format!("load failed: {error}"),
+                    );
+                } else if view_data.dashboard.visible {
+                    emit_status(state, view_data, internal_tx, "dashboard open");
+                } else {
+                    emit_status(state, view_data, internal_tx, "dashboard hidden");
                 }
             }
-        }
-        (KeyCode::Enter, _) => {
-            if matches!(state.mode, AppMode::Form(_)) {
+            (KeyCode::Esc, _) => {
+                state.dispatch(AppCommand::ClearStatus);
+            }
+            _ => {}
+        },
+        AppMode::Edit => match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) => {
+                dispatch_and_refresh(
+                    state,
+                    runtime,
+                    view_data,
+                    AppCommand::ExitToNav,
+                    internal_tx,
+                );
+            }
+            (KeyCode::Char('x'), _) => {
+                dispatch_and_refresh(
+                    state,
+                    runtime,
+                    view_data,
+                    AppCommand::ToggleDeleted,
+                    internal_tx,
+                );
+            }
+            (KeyCode::Char('a'), _) | (KeyCode::Char('e'), _) => {
+                if let Some(form_kind) = form_for_tab(state.active_tab) {
+                    dispatch_and_refresh(
+                        state,
+                        runtime,
+                        view_data,
+                        AppCommand::OpenForm(form_kind),
+                        internal_tx,
+                    );
+                    if let Some(payload) = template_payload_for_form(form_kind) {
+                        dispatch_and_refresh(
+                            state,
+                            runtime,
+                            view_data,
+                            AppCommand::SetFormPayload(payload),
+                            internal_tx,
+                        );
+                    }
+                } else {
+                    emit_status(state, view_data, internal_tx, "form unavailable");
+                }
+            }
+            (KeyCode::Char('p'), _) => {
+                dispatch_and_refresh(
+                    state,
+                    runtime,
+                    view_data,
+                    AppCommand::OpenForm(FormKind::HouseProfile),
+                    internal_tx,
+                );
+                if let Some(payload) = template_payload_for_form(FormKind::HouseProfile) {
+                    dispatch_and_refresh(
+                        state,
+                        runtime,
+                        view_data,
+                        AppCommand::SetFormPayload(payload),
+                        internal_tx,
+                    );
+                }
+            }
+            (KeyCode::Char('d'), _) => {
+                if let Some((row_id, deleted)) = selected_row_metadata(view_data) {
+                    let action = if deleted {
+                        LifecycleAction::Restore
+                    } else {
+                        LifecycleAction::Delete
+                    };
+                    match runtime.apply_lifecycle(state.active_tab, row_id, action) {
+                        Ok(()) => {
+                            if let Err(error) = refresh_view_data(state, runtime, view_data) {
+                                emit_status(
+                                    state,
+                                    view_data,
+                                    internal_tx,
+                                    format!("reload failed: {error}"),
+                                );
+                            } else {
+                                let status = match action {
+                                    LifecycleAction::Delete => "row deleted",
+                                    LifecycleAction::Restore => "row restored",
+                                };
+                                emit_status(state, view_data, internal_tx, status);
+                            }
+                        }
+                        Err(error) => {
+                            emit_status(
+                                state,
+                                view_data,
+                                internal_tx,
+                                format!("delete failed: {error}"),
+                            );
+                        }
+                    }
+                } else {
+                    emit_status(state, view_data, internal_tx, "no row selected");
+                }
+            }
+            (KeyCode::Char('u'), _) => match runtime.undo_last_edit() {
+                Ok(true) => {
+                    if let Err(error) = refresh_view_data(state, runtime, view_data) {
+                        emit_status(
+                            state,
+                            view_data,
+                            internal_tx,
+                            format!("reload failed: {error}"),
+                        );
+                    } else {
+                        emit_status(state, view_data, internal_tx, "undo applied");
+                    }
+                }
+                Ok(false) => emit_status(state, view_data, internal_tx, "nothing to undo"),
+                Err(error) => emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("undo failed: {error}"),
+                ),
+            },
+            (KeyCode::Char('r'), _) => match runtime.redo_last_edit() {
+                Ok(true) => {
+                    if let Err(error) = refresh_view_data(state, runtime, view_data) {
+                        emit_status(
+                            state,
+                            view_data,
+                            internal_tx,
+                            format!("reload failed: {error}"),
+                        );
+                    } else {
+                        emit_status(state, view_data, internal_tx, "redo applied");
+                    }
+                }
+                Ok(false) => emit_status(state, view_data, internal_tx, "nothing to redo"),
+                Err(error) => emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("redo failed: {error}"),
+                ),
+            },
+            _ => {}
+        },
+        AppMode::Form(_) => match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) => {
+                dispatch_and_refresh(
+                    state,
+                    runtime,
+                    view_data,
+                    AppCommand::CancelForm,
+                    internal_tx,
+                );
+            }
+            (KeyCode::Enter, _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
                 let payload = match state.validated_form_payload() {
                     Ok(payload) => payload,
                     Err(error) => {
-                        state.dispatch(AppCommand::SetStatus(format!("form invalid: {error}")));
+                        emit_status(
+                            state,
+                            view_data,
+                            internal_tx,
+                            format!("form invalid: {error}"),
+                        );
                         return false;
                     }
                 };
-
                 if let Err(error) = runtime.submit_form(&payload) {
-                    state.dispatch(AppCommand::SetStatus(format!("save failed: {error}")));
+                    emit_status(
+                        state,
+                        view_data,
+                        internal_tx,
+                        format!("save failed: {error}"),
+                    );
                     return false;
                 }
 
-                dispatch_and_refresh(state, runtime, view_data, AppCommand::SubmitForm);
+                dispatch_and_refresh(
+                    state,
+                    runtime,
+                    view_data,
+                    AppCommand::SubmitForm,
+                    internal_tx,
+                );
             }
-        }
-        (KeyCode::Char('x'), _) | (KeyCode::Char('d'), _) => {
-            dispatch_and_refresh(state, runtime, view_data, AppCommand::ToggleDeleted);
-        }
-        (KeyCode::Char('@'), _) => {
-            state.dispatch(AppCommand::OpenChat);
-        }
-        (KeyCode::Esc, _) => {
-            if state.chat == micasa_app::ChatVisibility::Visible {
-                state.dispatch(AppCommand::CloseChat);
-            } else if matches!(state.mode, AppMode::Form(_)) {
-                state.dispatch(AppCommand::CancelForm);
-            } else {
-                state.dispatch(AppCommand::ExitToNav);
-            }
-        }
-        _ => {}
+            _ => {}
+        },
     }
 
     false
 }
 
-fn handle_table_key(state: &mut AppState, view_data: &mut ViewData, key: KeyEvent) -> bool {
-    let can_use_table_keys = state.chat == micasa_app::ChatVisibility::Hidden
+fn handle_dashboard_overlay_key<R: AppRuntime>(
+    state: &mut AppState,
+    runtime: &mut R,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+    key: KeyEvent,
+) -> bool {
+    let entries = dashboard_nav_entries(&view_data.dashboard.snapshot);
+    let nav_len = entries.len();
+    if nav_len == 0 {
+        view_data.dashboard.cursor = 0;
+    } else if view_data.dashboard.cursor >= nav_len {
+        view_data.dashboard.cursor = nav_len.saturating_sub(1);
+    }
+
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
+            if nav_len > 0 {
+                view_data.dashboard.cursor =
+                    (view_data.dashboard.cursor + 1).min(nav_len.saturating_sub(1));
+            }
+        }
+        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
+            view_data.dashboard.cursor = view_data.dashboard.cursor.saturating_sub(1);
+        }
+        (KeyCode::Char('g'), _) => {
+            view_data.dashboard.cursor = 0;
+        }
+        (KeyCode::Char('G'), _) => {
+            if nav_len > 0 {
+                view_data.dashboard.cursor = nav_len - 1;
+            }
+        }
+        (KeyCode::Enter, _) => {
+            if let Some((entry, _)) = entries.get(view_data.dashboard.cursor)
+                && let Some(target) = entry.target()
+            {
+                view_data.dashboard.visible = false;
+                view_data.pending_row_selection = Some(PendingRowSelection {
+                    tab: target.tab,
+                    row_id: target.row_id,
+                });
+                dispatch_and_refresh(
+                    state,
+                    runtime,
+                    view_data,
+                    AppCommand::SetActiveTab(target.tab),
+                    internal_tx,
+                );
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("dashboard -> {}", target.tab.label()),
+                );
+            }
+        }
+        (KeyCode::Char('D'), _) => {
+            view_data.dashboard.visible = false;
+            emit_status(state, view_data, internal_tx, "dashboard hidden");
+        }
+        (KeyCode::Char('f'), _) => {
+            view_data.dashboard.visible = false;
+            dispatch_and_refresh(state, runtime, view_data, AppCommand::NextTab, internal_tx);
+        }
+        (KeyCode::Char('b'), _) => {
+            view_data.dashboard.visible = false;
+            dispatch_and_refresh(state, runtime, view_data, AppCommand::PrevTab, internal_tx);
+        }
+        (KeyCode::Char('?'), _) => {
+            view_data.help_visible = true;
+        }
+        _ => {}
+    }
+
+    true
+}
+
+fn selected_row_metadata(view_data: &ViewData) -> Option<(i64, bool)> {
+    let projection = active_projection(view_data)?;
+    let row = projection.rows.get(view_data.table_state.selected_row)?;
+    match row.cells.first() {
+        Some(TableCell::Integer(id)) => Some((*id, row.deleted)),
+        _ => None,
+    }
+}
+
+fn handle_table_key(
+    state: &mut AppState,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+    key: KeyEvent,
+) -> bool {
+    let can_use_table_keys = !view_data.dashboard.visible
+        && !view_data.help_visible
+        && state.chat == micasa_app::ChatVisibility::Hidden
         && !matches!(state.mode, AppMode::Form(_))
         && state.active_tab != TabKind::Dashboard
         && view_data.active_tab_snapshot.is_some();
@@ -353,11 +896,10 @@ fn handle_table_key(state: &mut AppState, view_data: &mut ViewData, key: KeyEven
 
     let event = apply_table_command(view_data, command);
     if let TableEvent::Status(status) = event {
-        state.dispatch(AppCommand::SetStatus(status.message()));
+        emit_status(state, view_data, internal_tx, status.message());
     }
     true
 }
-
 fn table_command_for_key(key: KeyEvent) -> Option<TableCommand> {
     match (key.code, key.modifiers) {
         (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Some(TableCommand::MoveRow(1)),
@@ -468,12 +1010,36 @@ fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData
         .block(Block::default().borders(Borders::ALL));
     frame.render_widget(status_widget, layout[2]);
 
+    if view_data.dashboard.visible {
+        let area = centered_rect(85, 78, frame.area());
+        frame.render_widget(Clear, area);
+        let dashboard = Paragraph::new(render_dashboard_overlay_text(
+            &view_data.dashboard.snapshot,
+            view_data.dashboard.cursor,
+        ))
+        .block(
+            Block::default()
+                .title("dashboard")
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::Cyan)),
+        );
+        frame.render_widget(dashboard, area);
+    }
+
     if state.chat == micasa_app::ChatVisibility::Visible {
         let area = centered_rect(70, 45, frame.area());
         frame.render_widget(Clear, area);
         let chat = Paragraph::new("chat open (Rust parity in progress)\nPress esc to close")
             .block(Block::default().title("LLM").borders(Borders::ALL));
         frame.render_widget(chat, area);
+    }
+
+    if view_data.help_visible {
+        let area = centered_rect(80, 72, frame.area());
+        frame.render_widget(Clear, area);
+        let help = Paragraph::new(help_overlay_text())
+            .block(Block::default().title("help").borders(Borders::ALL));
+        frame.render_widget(help, area);
     }
 }
 
@@ -500,6 +1066,171 @@ fn render_dashboard_text(state: &AppState, view_data: &ViewData) -> String {
         ),
     ]
     .join("\n")
+}
+
+fn dashboard_nav_entries(snapshot: &DashboardSnapshot) -> Vec<(DashboardNavEntry, String)> {
+    let mut entries = Vec::new();
+
+    if !snapshot.incidents.is_empty() {
+        entries.push((
+            DashboardNavEntry::Section(DashboardSection::Incidents),
+            format!(
+                "{} ({})",
+                DashboardSection::Incidents.label(),
+                snapshot.incidents.len()
+            ),
+        ));
+        for incident in &snapshot.incidents {
+            entries.push((
+                DashboardNavEntry::Incident(incident.incident_id),
+                format!(
+                    "{} | {} | {}d",
+                    incident.title,
+                    incident.severity.as_str(),
+                    incident.days_open.max(0)
+                ),
+            ));
+        }
+    }
+
+    if !snapshot.overdue.is_empty() {
+        entries.push((
+            DashboardNavEntry::Section(DashboardSection::Overdue),
+            format!(
+                "{} ({})",
+                DashboardSection::Overdue.label(),
+                snapshot.overdue.len()
+            ),
+        ));
+        for entry in &snapshot.overdue {
+            entries.push((
+                DashboardNavEntry::Overdue(entry.maintenance_item_id),
+                format!(
+                    "{} | {}d overdue",
+                    entry.item_name,
+                    entry.days_from_now.abs()
+                ),
+            ));
+        }
+    }
+
+    if !snapshot.upcoming.is_empty() {
+        entries.push((
+            DashboardNavEntry::Section(DashboardSection::Upcoming),
+            format!(
+                "{} ({})",
+                DashboardSection::Upcoming.label(),
+                snapshot.upcoming.len()
+            ),
+        ));
+        for entry in &snapshot.upcoming {
+            entries.push((
+                DashboardNavEntry::Upcoming(entry.maintenance_item_id),
+                format!(
+                    "{} | due in {}d",
+                    entry.item_name,
+                    entry.days_from_now.max(0)
+                ),
+            ));
+        }
+    }
+
+    if !snapshot.active_projects.is_empty() {
+        entries.push((
+            DashboardNavEntry::Section(DashboardSection::ActiveProjects),
+            format!(
+                "{} ({})",
+                DashboardSection::ActiveProjects.label(),
+                snapshot.active_projects.len()
+            ),
+        ));
+        for project in &snapshot.active_projects {
+            entries.push((
+                DashboardNavEntry::ActiveProject(project.project_id),
+                format!("{} | {}", project.title, project.status.as_str()),
+            ));
+        }
+    }
+
+    if !snapshot.expiring_warranties.is_empty() {
+        entries.push((
+            DashboardNavEntry::Section(DashboardSection::ExpiringSoon),
+            format!(
+                "{} ({})",
+                DashboardSection::ExpiringSoon.label(),
+                snapshot.expiring_warranties.len()
+            ),
+        ));
+        for warranty in &snapshot.expiring_warranties {
+            let suffix = if warranty.days_from_now < 0 {
+                format!("{}d expired", warranty.days_from_now.abs())
+            } else {
+                format!("{}d left", warranty.days_from_now)
+            };
+            entries.push((
+                DashboardNavEntry::ExpiringWarranty(warranty.appliance_id),
+                format!("{} | {}", warranty.appliance_name, suffix),
+            ));
+        }
+    }
+
+    if !snapshot.recent_activity.is_empty() {
+        entries.push((
+            DashboardNavEntry::Section(DashboardSection::RecentActivity),
+            format!(
+                "{} ({})",
+                DashboardSection::RecentActivity.label(),
+                snapshot.recent_activity.len()
+            ),
+        ));
+        for activity in &snapshot.recent_activity {
+            let cost = activity
+                .cost_cents
+                .map(format_money)
+                .unwrap_or_else(|| "n/a".to_owned());
+            entries.push((
+                DashboardNavEntry::RecentService(activity.service_log_entry_id),
+                format!(
+                    "{} | item {} | {}",
+                    activity.serviced_at,
+                    activity.maintenance_item_id.get(),
+                    cost
+                ),
+            ));
+        }
+    }
+
+    entries
+}
+
+fn render_dashboard_overlay_text(snapshot: &DashboardSnapshot, cursor: usize) -> String {
+    let entries = dashboard_nav_entries(snapshot);
+    if entries.is_empty() {
+        return String::new();
+    }
+
+    let mut lines = Vec::with_capacity(entries.len() + 2);
+    for (index, (entry, text)) in entries.iter().enumerate() {
+        let is_cursor = index == cursor.min(entries.len().saturating_sub(1));
+        let prefix = if is_cursor { "> " } else { "  " };
+        let formatted = match entry {
+            DashboardNavEntry::Section(_) => format!("{prefix}{text}"),
+            _ => format!("{prefix}  {text}"),
+        };
+        lines.push(formatted);
+    }
+    lines.push(String::new());
+    lines.push("j/k move | g/G top/bottom | enter jump | D close | b/f switch | ? help".to_owned());
+    lines.join("\n")
+}
+
+fn help_overlay_text() -> &'static str {
+    "global: ctrl+q quit | ctrl+c cancel llm | ctrl+o mag mode\n\
+nav: j/k/h/l g/G ^/$ | b/f tabs | B/F first/last | tab house | D dashboard\n\
+nav: s/S sort | n/N pin/filter | ctrl+n clear pins | i edit | @ chat | ? help\n\
+edit: a add | e edit form | d del/restore | x show deleted | u undo | r redo | esc nav\n\
+form: ctrl+s or enter submit | esc cancel\n\
+dashboard: j/k g/G enter jump D close b/f switch ? help"
 }
 
 fn render_table(
@@ -1058,10 +1789,15 @@ fn clamp_table_cursor(view_data: &mut ViewData) {
 }
 
 fn status_text(state: &AppState) -> String {
-    let default = "tab/backtab tabs | j/k/h/l g/G ^/$ | s/S sort | n/N pin/filter | ctrl+n clear | a form | enter submit | x deleted | @ chat | q quit";
+    let mode = match state.mode {
+        AppMode::Nav => "NAV",
+        AppMode::Edit => "EDIT",
+        AppMode::Form(_) => "FORM",
+    };
+    let default = "j/k/h/l g/G ^/$ | b/f tabs | s/S sort | n/N pin/filter | ctrl+n clear | @ chat | D dashboard | ctrl+q quit";
     match &state.status_line {
-        Some(status) => format!("{status} | {default}"),
-        None => default.to_owned(),
+        Some(status) => format!("{mode} | {status} | {default}"),
+        None => format!("{mode} | {default}"),
     }
 }
 
@@ -1206,12 +1942,25 @@ fn dispatch_and_refresh<R: AppRuntime>(
     runtime: &mut R,
     view_data: &mut ViewData,
     command: AppCommand,
+    internal_tx: &Sender<InternalEvent>,
 ) {
     let events = state.dispatch(command);
     if should_refresh_view(&events)
         && let Err(error) = refresh_view_data(state, runtime, view_data)
     {
-        state.dispatch(AppCommand::SetStatus(format!("load failed: {error}")));
+        emit_status(
+            state,
+            view_data,
+            internal_tx,
+            format!("load failed: {error}"),
+        );
+    }
+    if events
+        .iter()
+        .any(|event| matches!(event, AppEvent::StatusUpdated(_)))
+    {
+        view_data.status_token = view_data.status_token.saturating_add(1);
+        schedule_status_clear(internal_tx, view_data.status_token);
     }
 }
 
@@ -1231,9 +1980,23 @@ fn refresh_view_data<R: AppRuntime>(
     runtime: &mut R,
     view_data: &mut ViewData,
 ) -> Result<()> {
+    view_data.dashboard_counts = runtime.load_dashboard_counts()?;
+    view_data.dashboard.snapshot = runtime.load_dashboard_snapshot()?;
+    if !view_data.dashboard.snapshot.has_rows() {
+        view_data.dashboard.visible = false;
+    }
+    let dashboard_entries = dashboard_nav_entries(&view_data.dashboard.snapshot);
+    if dashboard_entries.is_empty() {
+        view_data.dashboard.cursor = 0;
+    } else {
+        view_data.dashboard.cursor = view_data
+            .dashboard
+            .cursor
+            .min(dashboard_entries.len().saturating_sub(1));
+    }
+
     match state.active_tab {
         TabKind::Dashboard => {
-            view_data.dashboard_counts = runtime.load_dashboard_counts()?;
             view_data.active_tab_snapshot = None;
         }
         tab => {
@@ -1243,9 +2006,48 @@ fn refresh_view_data<R: AppRuntime>(
             }
             view_data.active_tab_snapshot = runtime.load_tab_snapshot(tab, state.show_deleted)?;
             clamp_table_cursor(view_data);
+            apply_pending_row_selection(view_data);
         }
     }
     Ok(())
+}
+
+fn apply_pending_row_selection(view_data: &mut ViewData) {
+    let Some(selection) = view_data.pending_row_selection else {
+        return;
+    };
+    if view_data.table_state.tab != Some(selection.tab) {
+        return;
+    }
+    let Some(snapshot) = &view_data.active_tab_snapshot else {
+        view_data.pending_row_selection = None;
+        return;
+    };
+
+    let mut projection = projection_for_snapshot(snapshot, &view_data.table_state);
+    if let Some(index) = find_row_index_by_id(&projection, selection.row_id) {
+        view_data.table_state.selected_row = index;
+        view_data.pending_row_selection = None;
+        return;
+    }
+
+    view_data.table_state.pin = None;
+    view_data.table_state.filter_active = false;
+    view_data.table_state.sort = None;
+    projection = projection_for_snapshot(snapshot, &view_data.table_state);
+    if let Some(index) = find_row_index_by_id(&projection, selection.row_id) {
+        view_data.table_state.selected_row = index;
+    }
+    view_data.pending_row_selection = None;
+}
+
+fn find_row_index_by_id(projection: &TableProjection, row_id: i64) -> Option<usize> {
+    projection.rows.iter().position(|row| {
+        matches!(
+            row.cells.first(),
+            Some(TableCell::Integer(id)) if *id == row_id
+        )
+    })
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
@@ -1271,19 +2073,26 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::{
-        TabSnapshot, TableCommand, TableEvent, TableStatus, ViewData, apply_table_command,
-        handle_key_event, refresh_view_data, table_command_for_key,
+        AppRuntime, DashboardIncident, DashboardSnapshot, LifecycleAction, TabSnapshot,
+        TableCommand, TableEvent, TableStatus, ViewData, apply_table_command, handle_key_event,
+        refresh_view_data, table_command_for_key,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
-        AppMode, AppState, ChatVisibility, DashboardCounts, FormKind, FormPayload, Project,
-        ProjectStatus, ProjectTypeId, TabKind,
+        AppMode, AppState, ChatVisibility, DashboardCounts, FormKind, FormPayload,
+        IncidentSeverity, Project, ProjectStatus, ProjectTypeId, TabKind,
     };
+    use std::sync::mpsc;
     use time::OffsetDateTime;
 
     #[derive(Debug, Default)]
     struct TestRuntime {
         submit_count: usize,
+        lifecycle_count: usize,
+        undo_count: usize,
+        redo_count: usize,
+        can_undo: bool,
+        can_redo: bool,
     }
 
     impl TestRuntime {
@@ -1305,12 +2114,24 @@ mod tests {
         }
     }
 
-    impl super::AppRuntime for TestRuntime {
+    impl AppRuntime for TestRuntime {
         fn load_dashboard_counts(&mut self) -> anyhow::Result<DashboardCounts> {
             Ok(DashboardCounts {
                 projects_due: 2,
                 maintenance_due: 1,
                 incidents_open: 3,
+            })
+        }
+
+        fn load_dashboard_snapshot(&mut self) -> anyhow::Result<DashboardSnapshot> {
+            Ok(DashboardSnapshot {
+                incidents: vec![DashboardIncident {
+                    incident_id: micasa_app::IncidentId::new(9),
+                    title: "Leak".to_owned(),
+                    severity: IncidentSeverity::Urgent,
+                    days_open: 2,
+                }],
+                ..DashboardSnapshot::default()
             })
         }
 
@@ -1342,22 +2163,52 @@ mod tests {
             self.submit_count += 1;
             Ok(())
         }
+
+        fn apply_lifecycle(
+            &mut self,
+            _tab: TabKind,
+            _row_id: i64,
+            _action: LifecycleAction,
+        ) -> anyhow::Result<()> {
+            self.lifecycle_count += 1;
+            Ok(())
+        }
+
+        fn undo_last_edit(&mut self) -> anyhow::Result<bool> {
+            self.undo_count += 1;
+            Ok(self.can_undo)
+        }
+
+        fn redo_last_edit(&mut self) -> anyhow::Result<bool> {
+            self.redo_count += 1;
+            Ok(self.can_redo)
+        }
     }
 
     fn view_data_for_test() -> ViewData {
         ViewData::default()
     }
 
+    fn internal_tx() -> mpsc::Sender<super::InternalEvent> {
+        let (tx, _rx) = mpsc::channel();
+        tx
+    }
+
     #[test]
     fn tab_key_cycles_tabs() {
-        let mut state = AppState::default();
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
         let mut runtime = TestRuntime::default();
         let mut view_data = view_data_for_test();
+        let tx = internal_tx();
 
         let should_quit = handle_key_event(
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
         );
         assert!(!should_quit);
@@ -1369,11 +2220,13 @@ mod tests {
         let mut state = AppState::default();
         let mut runtime = TestRuntime::default();
         let mut view_data = view_data_for_test();
+        let tx = internal_tx();
 
         handle_key_event(
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
         );
         assert_eq!(state.chat, ChatVisibility::Visible);
@@ -1382,24 +2235,28 @@ mod tests {
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
         );
         assert_eq!(state.chat, ChatVisibility::Hidden);
     }
 
     #[test]
-    fn a_key_enters_form_mode_for_tab() {
+    fn edit_mode_a_key_enters_form_mode_for_tab() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
             ..AppState::default()
         };
         let mut runtime = TestRuntime::default();
         let mut view_data = view_data_for_test();
+        let tx = internal_tx();
 
         handle_key_event(
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
         );
 
@@ -1414,10 +2271,22 @@ mod tests {
         };
         let mut runtime = TestRuntime::default();
         let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
         handle_key_event(
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.mode, AppMode::Edit);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
         );
         assert_eq!(state.mode, AppMode::Form(FormKind::Project));
@@ -1426,6 +2295,7 @@ mod tests {
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
         );
         assert_eq!(state.mode, AppMode::Nav);
@@ -1440,18 +2310,21 @@ mod tests {
         };
         let mut runtime = TestRuntime::default();
         let mut view_data = view_data_for_test();
+        let tx = internal_tx();
         refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
 
         handle_key_event(
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
         );
         handle_key_event(
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
         );
 
@@ -1462,6 +2335,7 @@ mod tests {
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
         );
         assert_eq!(view_data.table_state.selected_row, 1);
@@ -1470,6 +2344,7 @@ mod tests {
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('^'), KeyModifiers::SHIFT),
         );
         assert_eq!(view_data.table_state.selected_col, 0);
@@ -1483,12 +2358,14 @@ mod tests {
         };
         let mut runtime = TestRuntime::default();
         let mut view_data = view_data_for_test();
+        let tx = internal_tx();
         refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
 
         handle_key_event(
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
         );
         assert!(view_data.table_state.sort.is_some());
@@ -1497,6 +2374,7 @@ mod tests {
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
         );
         assert!(view_data.table_state.pin.is_some());
@@ -1505,6 +2383,7 @@ mod tests {
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
         );
         assert!(view_data.table_state.filter_active);
@@ -1513,6 +2392,7 @@ mod tests {
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
         );
         assert!(view_data.table_state.pin.is_none());
@@ -1557,22 +2437,110 @@ mod tests {
 
     #[test]
     fn quit_keys_exit() {
-        let mut state = AppState::default();
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
         let mut runtime = TestRuntime::default();
         let mut view_data = view_data_for_test();
+        let tx = internal_tx();
 
         assert!(handle_key_event(
             &mut state,
             &mut runtime,
             &mut view_data,
-            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
+            &tx,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL),
         ));
 
-        assert!(handle_key_event(
+        assert!(!handle_key_event(
             &mut state,
             &mut runtime,
             &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
         ));
+    }
+
+    #[test]
+    fn dashboard_overlay_jumps_to_target_tab() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.dashboard.visible);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(state.active_tab, TabKind::Incidents);
+        assert!(!view_data.dashboard.visible);
+    }
+
+    #[test]
+    fn edit_mode_delete_and_undo_redo_dispatch_runtime_calls() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime {
+            can_undo: true,
+            can_redo: true,
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+        assert_eq!(runtime.lifecycle_count, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+        );
+        assert_eq!(runtime.undo_count, 1);
+        assert_eq!(runtime.redo_count, 1);
     }
 }

@@ -40,6 +40,9 @@ impl Default for AppState {
 pub enum AppCommand {
     NextTab,
     PrevTab,
+    FirstTab,
+    LastTab,
+    SetActiveTab(TabKind),
     EnterEditMode,
     ExitToNav,
     OpenForm(FormKind),
@@ -71,6 +74,18 @@ impl AppState {
         match command {
             AppCommand::NextTab => self.rotate_tab(1),
             AppCommand::PrevTab => self.rotate_tab(-1),
+            AppCommand::FirstTab => {
+                self.active_tab = TabKind::ALL[0];
+                vec![AppEvent::TabChanged(self.active_tab)]
+            }
+            AppCommand::LastTab => {
+                self.active_tab = *TabKind::ALL.last().expect("tabs array is non-empty");
+                vec![AppEvent::TabChanged(self.active_tab)]
+            }
+            AppCommand::SetActiveTab(tab) => {
+                self.active_tab = tab;
+                vec![AppEvent::TabChanged(self.active_tab)]
+            }
             AppCommand::EnterEditMode => {
                 self.mode = AppMode::Edit;
                 self.form_payload = None;
@@ -236,6 +251,23 @@ mod tests {
         let events = state.dispatch(AppCommand::NextTab);
         assert_eq!(state.active_tab, TabKind::Dashboard);
         assert_eq!(events, vec![AppEvent::TabChanged(TabKind::Dashboard)]);
+    }
+
+    #[test]
+    fn first_last_and_set_active_tab_commands_update_active_tab() {
+        let mut state = AppState::default();
+
+        let first = state.dispatch(AppCommand::FirstTab);
+        assert_eq!(state.active_tab, TabKind::Dashboard);
+        assert_eq!(first, vec![AppEvent::TabChanged(TabKind::Dashboard)]);
+
+        let last = state.dispatch(AppCommand::LastTab);
+        assert_eq!(state.active_tab, TabKind::Documents);
+        assert_eq!(last, vec![AppEvent::TabChanged(TabKind::Documents)]);
+
+        let set = state.dispatch(AppCommand::SetActiveTab(TabKind::Maintenance));
+        assert_eq!(state.active_tab, TabKind::Maintenance);
+        assert_eq!(set, vec![AppEvent::TabChanged(TabKind::Maintenance)]);
     }
 
     #[test]

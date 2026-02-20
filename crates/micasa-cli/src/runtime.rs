@@ -1,27 +1,200 @@
 // Copyright 2026 Phillip Cloud
 // Licensed under the Apache License, Version 2.0
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use micasa_app::{FormPayload, TabKind};
 use micasa_db::{
-    HouseProfileInput, NewAppliance, NewDocument, NewIncident, NewMaintenanceItem, NewProject,
-    NewQuote, NewServiceLogEntry, NewVendor, Store,
+    HouseProfileInput, LifecycleEntityRef, NewAppliance, NewDocument, NewIncident,
+    NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, Store,
 };
-use micasa_tui::TabSnapshot;
+use micasa_tui::{
+    DashboardIncident, DashboardMaintenance, DashboardProject, DashboardServiceEntry,
+    DashboardSnapshot, DashboardWarranty, LifecycleAction, TabSnapshot,
+};
+use time::{Date, Duration, Month};
+
+const MAX_UNDO_STACK: usize = 50;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MutationRecord {
+    Created(LifecycleEntityRef),
+    SoftDeleted(LifecycleEntityRef),
+    Restored(LifecycleEntityRef),
+}
+
+impl MutationRecord {
+    const fn inverse(self) -> Self {
+        match self {
+            Self::Created(target) => Self::SoftDeleted(target),
+            Self::SoftDeleted(target) => Self::Restored(target),
+            Self::Restored(target) => Self::SoftDeleted(target),
+        }
+    }
+}
 
 pub struct DbRuntime<'a> {
     store: &'a Store,
+    undo_stack: Vec<MutationRecord>,
+    redo_stack: Vec<MutationRecord>,
 }
 
 impl<'a> DbRuntime<'a> {
     pub fn new(store: &'a Store) -> Self {
-        Self { store }
+        Self {
+            store,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+        }
+    }
+
+    fn record_mutation(&mut self, record: MutationRecord) {
+        self.undo_stack.push(record);
+        if self.undo_stack.len() > MAX_UNDO_STACK {
+            let overflow = self.undo_stack.len() - MAX_UNDO_STACK;
+            self.undo_stack.drain(0..overflow);
+        }
+        self.redo_stack.clear();
+    }
+
+    fn apply_record(&self, record: MutationRecord) -> Result<()> {
+        match record {
+            MutationRecord::Created(target) | MutationRecord::Restored(target) => {
+                self.store.restore(target)
+            }
+            MutationRecord::SoftDeleted(target) => self.store.soft_delete(target),
+        }
+    }
+
+    fn lifecycle_target(tab: TabKind, row_id: i64) -> Result<LifecycleEntityRef> {
+        if row_id <= 0 {
+            bail!("row id must be positive, got {row_id}");
+        }
+
+        let target = match tab {
+            TabKind::Projects => LifecycleEntityRef::Project(micasa_app::ProjectId::new(row_id)),
+            TabKind::Quotes => LifecycleEntityRef::Quote(micasa_app::QuoteId::new(row_id)),
+            TabKind::Maintenance => {
+                LifecycleEntityRef::MaintenanceItem(micasa_app::MaintenanceItemId::new(row_id))
+            }
+            TabKind::ServiceLog => {
+                LifecycleEntityRef::ServiceLogEntry(micasa_app::ServiceLogEntryId::new(row_id))
+            }
+            TabKind::Incidents => LifecycleEntityRef::Incident(micasa_app::IncidentId::new(row_id)),
+            TabKind::Appliances => {
+                LifecycleEntityRef::Appliance(micasa_app::ApplianceId::new(row_id))
+            }
+            TabKind::Vendors => LifecycleEntityRef::Vendor(micasa_app::VendorId::new(row_id)),
+            TabKind::House | TabKind::Documents | TabKind::Dashboard => {
+                bail!(
+                    "tab {} does not support delete/restore actions",
+                    tab.label()
+                );
+            }
+        };
+        Ok(target)
+    }
+
+    fn today_utc() -> Result<Date> {
+        Ok(time::OffsetDateTime::now_utc().date())
+    }
+
+    fn compute_next_due(last_serviced_at: Option<Date>, interval_months: i32) -> Option<Date> {
+        let start = last_serviced_at?;
+        if interval_months <= 0 {
+            return None;
+        }
+        add_months_clamped(start, interval_months)
     }
 }
 
 impl micasa_tui::AppRuntime for DbRuntime<'_> {
     fn load_dashboard_counts(&mut self) -> Result<micasa_app::DashboardCounts> {
         self.store.dashboard_counts()
+    }
+
+    fn load_dashboard_snapshot(&mut self) -> Result<DashboardSnapshot> {
+        let today = Self::today_utc()?;
+
+        let incidents = self
+            .store
+            .list_open_incidents()?
+            .into_iter()
+            .map(|incident| DashboardIncident {
+                incident_id: incident.id,
+                title: incident.title,
+                severity: incident.severity,
+                days_open: days_from_to(incident.date_noticed, today).max(0),
+            })
+            .collect::<Vec<_>>();
+
+        let mut overdue = Vec::new();
+        let mut upcoming = Vec::new();
+        for item in self.store.list_maintenance_with_schedule()? {
+            let Some(next_due) =
+                Self::compute_next_due(item.last_serviced_at, item.interval_months)
+            else {
+                continue;
+            };
+            let days_from_now = days_from_to(today, next_due);
+            let entry = DashboardMaintenance {
+                maintenance_item_id: item.id,
+                item_name: item.name,
+                days_from_now,
+            };
+            if days_from_now < 0 {
+                overdue.push(entry);
+            } else if days_from_now <= 30 {
+                upcoming.push(entry);
+            }
+        }
+        overdue.sort_by_key(|entry| entry.days_from_now);
+        upcoming.sort_by_key(|entry| entry.days_from_now);
+
+        let active_projects = self
+            .store
+            .list_active_projects()?
+            .into_iter()
+            .map(|project| DashboardProject {
+                project_id: project.id,
+                title: project.title,
+                status: project.status,
+            })
+            .collect::<Vec<_>>();
+
+        let expiring_warranties = self
+            .store
+            .list_expiring_warranties(today, 30, 90)?
+            .into_iter()
+            .filter_map(|appliance| {
+                let warranty_expiry = appliance.warranty_expiry?;
+                Some(DashboardWarranty {
+                    appliance_id: appliance.id,
+                    appliance_name: appliance.name,
+                    days_from_now: days_from_to(today, warranty_expiry),
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let recent_activity = self
+            .store
+            .list_recent_service_logs(5)?
+            .into_iter()
+            .map(|entry| DashboardServiceEntry {
+                service_log_entry_id: entry.id,
+                maintenance_item_id: entry.maintenance_item_id,
+                serviced_at: entry.serviced_at,
+                cost_cents: entry.cost_cents,
+            })
+            .collect::<Vec<_>>();
+
+        Ok(DashboardSnapshot {
+            incidents,
+            overdue,
+            upcoming,
+            active_projects,
+            expiring_warranties,
+            recent_activity,
+        })
     }
 
     fn load_tab_snapshot(
@@ -65,7 +238,7 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
     fn submit_form(&mut self, payload: &FormPayload) -> Result<()> {
         payload.validate()?;
 
-        match payload {
+        let mutation = match payload {
             FormPayload::HouseProfile(form) => {
                 self.store.upsert_house_profile(&HouseProfileInput {
                     nickname: form.nickname.clone(),
@@ -96,9 +269,10 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
                     hoa_name: form.hoa_name.clone(),
                     hoa_fee_cents: form.hoa_fee_cents,
                 })?;
+                None
             }
             FormPayload::Project(form) => {
-                self.store.create_project(&NewProject {
+                let id = self.store.create_project(&NewProject {
                     title: form.title.clone(),
                     project_type_id: form.project_type_id,
                     status: form.status,
@@ -108,9 +282,10 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
                     budget_cents: form.budget_cents,
                     actual_cents: form.actual_cents,
                 })?;
+                Some(MutationRecord::Created(LifecycleEntityRef::Project(id)))
             }
             FormPayload::Vendor(form) => {
-                self.store.create_vendor(&NewVendor {
+                let id = self.store.create_vendor(&NewVendor {
                     name: form.name.clone(),
                     contact_name: form.contact_name.clone(),
                     email: form.email.clone(),
@@ -118,9 +293,10 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
                     website: form.website.clone(),
                     notes: form.notes.clone(),
                 })?;
+                Some(MutationRecord::Created(LifecycleEntityRef::Vendor(id)))
             }
             FormPayload::Quote(form) => {
-                self.store.create_quote(&NewQuote {
+                let id = self.store.create_quote(&NewQuote {
                     project_id: form.project_id,
                     vendor_id: form.vendor_id,
                     total_cents: form.total_cents,
@@ -130,9 +306,10 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
                     received_date: form.received_date,
                     notes: form.notes.clone(),
                 })?;
+                Some(MutationRecord::Created(LifecycleEntityRef::Quote(id)))
             }
             FormPayload::Appliance(form) => {
-                self.store.create_appliance(&NewAppliance {
+                let id = self.store.create_appliance(&NewAppliance {
                     name: form.name.clone(),
                     brand: form.brand.clone(),
                     model_number: form.model_number.clone(),
@@ -143,9 +320,10 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
                     cost_cents: form.cost_cents,
                     notes: form.notes.clone(),
                 })?;
+                Some(MutationRecord::Created(LifecycleEntityRef::Appliance(id)))
             }
             FormPayload::Maintenance(form) => {
-                self.store.create_maintenance_item(&NewMaintenanceItem {
+                let id = self.store.create_maintenance_item(&NewMaintenanceItem {
                     name: form.name.clone(),
                     category_id: form.category_id,
                     appliance_id: form.appliance_id,
@@ -156,18 +334,24 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
                     notes: form.notes.clone(),
                     cost_cents: form.cost_cents,
                 })?;
+                Some(MutationRecord::Created(
+                    LifecycleEntityRef::MaintenanceItem(id),
+                ))
             }
             FormPayload::ServiceLogEntry(form) => {
-                self.store.create_service_log_entry(&NewServiceLogEntry {
+                let id = self.store.create_service_log_entry(&NewServiceLogEntry {
                     maintenance_item_id: form.maintenance_item_id,
                     serviced_at: form.serviced_at,
                     vendor_id: form.vendor_id,
                     cost_cents: form.cost_cents,
                     notes: form.notes.clone(),
                 })?;
+                Some(MutationRecord::Created(
+                    LifecycleEntityRef::ServiceLogEntry(id),
+                ))
             }
             FormPayload::Incident(form) => {
-                self.store.create_incident(&NewIncident {
+                let id = self.store.create_incident(&NewIncident {
                     title: form.title.clone(),
                     description: form.description.clone(),
                     status: form.status,
@@ -180,6 +364,7 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
                     vendor_id: form.vendor_id,
                     notes: form.notes.clone(),
                 })?;
+                Some(MutationRecord::Created(LifecycleEntityRef::Incident(id)))
             }
             FormPayload::Document(form) => {
                 self.store.insert_document(&NewDocument {
@@ -191,11 +376,100 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
                     data: form.data.clone(),
                     notes: form.notes.clone(),
                 })?;
+                None
             }
+        };
+
+        if let Some(mutation) = mutation {
+            self.record_mutation(mutation);
         }
 
         Ok(())
     }
+
+    fn apply_lifecycle(
+        &mut self,
+        tab: TabKind,
+        row_id: i64,
+        action: LifecycleAction,
+    ) -> Result<()> {
+        let target = Self::lifecycle_target(tab, row_id)?;
+        let record = match action {
+            LifecycleAction::Delete => {
+                self.store.soft_delete(target)?;
+                MutationRecord::SoftDeleted(target)
+            }
+            LifecycleAction::Restore => {
+                self.store.restore(target)?;
+                MutationRecord::Restored(target)
+            }
+        };
+        self.record_mutation(record);
+        Ok(())
+    }
+
+    fn undo_last_edit(&mut self) -> Result<bool> {
+        let Some(record) = self.undo_stack.pop() else {
+            return Ok(false);
+        };
+
+        let inverse = record.inverse();
+        self.apply_record(inverse)?;
+        self.redo_stack.push(record);
+        if self.redo_stack.len() > MAX_UNDO_STACK {
+            let overflow = self.redo_stack.len() - MAX_UNDO_STACK;
+            self.redo_stack.drain(0..overflow);
+        }
+        Ok(true)
+    }
+
+    fn redo_last_edit(&mut self) -> Result<bool> {
+        let Some(record) = self.redo_stack.pop() else {
+            return Ok(false);
+        };
+
+        self.apply_record(record)?;
+        self.undo_stack.push(record);
+        if self.undo_stack.len() > MAX_UNDO_STACK {
+            let overflow = self.undo_stack.len() - MAX_UNDO_STACK;
+            self.undo_stack.drain(0..overflow);
+        }
+        Ok(true)
+    }
+}
+
+fn add_months_clamped(date: Date, months: i32) -> Option<Date> {
+    if months <= 0 {
+        return None;
+    }
+
+    let base_month = i32::from(date.month() as u8);
+    let total_month = base_month - 1 + months;
+    let year = date.year() + total_month.div_euclid(12);
+    let month_number = (total_month.rem_euclid(12) + 1) as u8;
+    let month = Month::try_from(month_number).ok()?;
+
+    let day = date.day();
+    let max_day = last_day_of_month(year, month)?;
+    let clamped_day = day.min(max_day);
+    Date::from_calendar_date(year, month, clamped_day).ok()
+}
+
+fn last_day_of_month(year: i32, month: Month) -> Option<u8> {
+    let (next_year, next_month) = if month == Month::December {
+        (year + 1, Month::January)
+    } else {
+        let next = Month::try_from((month as u8) + 1).ok()?;
+        (year, next)
+    };
+
+    let first_next_month = Date::from_calendar_date(next_year, next_month, 1).ok()?;
+    let last = first_next_month - Duration::days(1);
+    Some(last.day())
+}
+
+fn days_from_to(from: Date, to: Date) -> i64 {
+    i64::from(to.to_julian_day() - from.to_julian_day())
 }
 
 #[cfg(test)]
@@ -203,11 +477,11 @@ mod tests {
     use super::DbRuntime;
     use anyhow::Result;
     use micasa_app::{
-        FormPayload, HouseProfileFormInput, ProjectFormInput, ProjectStatus, ProjectTypeId,
-        ServiceLogEntryFormInput, TabKind,
+        FormPayload, HouseProfileFormInput, IncidentSeverity, ProjectFormInput, ProjectStatus,
+        ProjectTypeId, ServiceLogEntryFormInput, TabKind,
     };
     use micasa_db::{NewMaintenanceItem, NewProject, Store};
-    use micasa_tui::AppRuntime;
+    use micasa_tui::{AppRuntime, LifecycleAction};
     use time::{Date, Month};
 
     #[test]
@@ -351,6 +625,85 @@ mod tests {
             .expect("service log snapshot");
         assert_eq!(visible.row_count(), 0);
         assert_eq!(with_deleted.row_count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn lifecycle_and_undo_redo_round_trip() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let mut runtime = DbRuntime::new(&store);
+        runtime.submit_form(&FormPayload::Project(ProjectFormInput {
+            title: "Undo demo".to_owned(),
+            project_type_id: ProjectTypeId::new(1),
+            status: ProjectStatus::Underway,
+            description: String::new(),
+            start_date: None,
+            end_date: None,
+            budget_cents: Some(5_000),
+            actual_cents: None,
+        }))?;
+
+        let created_id = store.list_projects(false)?[0].id;
+        assert!(runtime.undo_last_edit()?);
+        assert!(store.list_projects(false)?.is_empty());
+
+        assert!(runtime.redo_last_edit()?);
+        assert_eq!(store.list_projects(false)?.len(), 1);
+
+        runtime.apply_lifecycle(TabKind::Projects, created_id.get(), LifecycleAction::Delete)?;
+        assert!(store.list_projects(false)?.is_empty());
+        runtime.undo_last_edit()?;
+        assert_eq!(store.list_projects(false)?.len(), 1);
+
+        Ok(())
+    }
+
+    #[test]
+    fn dashboard_snapshot_includes_open_incident_and_recent_service() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let category_id = store.list_maintenance_categories()?[0].id;
+        let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+            name: "Water heater flush".to_owned(),
+            category_id,
+            appliance_id: None,
+            last_serviced_at: Some(Date::from_calendar_date(2025, Month::January, 1)?),
+            interval_months: 12,
+            manual_url: String::new(),
+            manual_text: String::new(),
+            notes: String::new(),
+            cost_cents: None,
+        })?;
+
+        store.create_service_log_entry(&micasa_db::NewServiceLogEntry {
+            maintenance_item_id: maintenance_id,
+            serviced_at: Date::from_calendar_date(2026, Month::January, 5)?,
+            vendor_id: None,
+            cost_cents: Some(9500),
+            notes: String::new(),
+        })?;
+
+        store.create_incident(&micasa_db::NewIncident {
+            title: "Basement leak".to_owned(),
+            description: String::new(),
+            status: micasa_app::IncidentStatus::Open,
+            severity: IncidentSeverity::Urgent,
+            date_noticed: Date::from_calendar_date(2026, Month::January, 10)?,
+            date_resolved: None,
+            location: String::new(),
+            cost_cents: None,
+            appliance_id: None,
+            vendor_id: None,
+            notes: String::new(),
+        })?;
+
+        let mut runtime = DbRuntime::new(&store);
+        let snapshot = runtime.load_dashboard_snapshot()?;
+        assert!(!snapshot.incidents.is_empty());
+        assert!(!snapshot.recent_activity.is_empty());
         Ok(())
     }
 }
