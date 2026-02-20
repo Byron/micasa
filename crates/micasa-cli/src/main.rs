@@ -85,31 +85,39 @@ fn run() -> Result<()> {
     let cache_dir = micasa_db::document_cache_dir()?;
     let _removed = micasa_db::evict_stale_cache(&cache_dir, config.cache_ttl_days())?;
 
-    if config.llm_enabled() {
-        let _client = micasa_llm::Client::new(
-            config.llm_base_url(),
-            config.llm_model(),
-            config.llm_timeout()?,
-        )
-        .with_context(|| {
-            format!(
-                "invalid [llm] config in {}; fix base_url/model/timeout values",
-                config_path.display()
+    let llm_client = if config.llm_enabled() {
+        Some(
+            micasa_llm::Client::new(
+                config.llm_base_url(),
+                config.llm_model(),
+                config.llm_timeout()?,
             )
-        })?;
-        let _llm_extra_context = config.llm_extra_context();
-    }
+            .with_context(|| {
+                format!(
+                    "invalid [llm] config in {}; fix base_url/model/timeout values",
+                    config_path.display()
+                )
+            })?,
+        )
+    } else {
+        None
+    };
+    let _llm_extra_context = config.llm_extra_context();
 
     if check_only {
         return Ok(());
     }
 
+    let show_dashboard = store
+        .get_show_dashboard_override()?
+        .unwrap_or_else(|| config.show_dashboard());
+
     let mut state = AppState::default();
-    if !config.show_dashboard() {
+    if !show_dashboard {
         state.active_tab = TabKind::Projects;
     }
 
-    let mut runtime = DbRuntime::new(&store);
+    let mut runtime = DbRuntime::with_llm_client(&store, llm_client);
     micasa_tui::run_app(&mut state, &mut runtime)
 }
 

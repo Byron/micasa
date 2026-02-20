@@ -174,6 +174,10 @@ pub trait AppRuntime {
     -> Result<()>;
     fn undo_last_edit(&mut self) -> Result<bool>;
     fn redo_last_edit(&mut self) -> Result<bool>;
+    fn set_show_dashboard_preference(&mut self, show: bool) -> Result<()>;
+    fn list_chat_models(&mut self) -> Result<Vec<String>>;
+    fn active_chat_model(&mut self) -> Result<Option<String>>;
+    fn select_chat_model(&mut self, model: &str) -> Result<()>;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -198,6 +202,25 @@ impl TableCell {
             Self::Date(Some(value)) => value.to_string(),
             Self::Date(None) => String::new(),
             Self::Money(Some(cents)) => format_money(*cents),
+            Self::Money(None) => String::new(),
+        }
+    }
+
+    fn display_with_mag_mode(&self, mag_mode: bool) -> String {
+        if !mag_mode {
+            return self.display();
+        }
+
+        match self {
+            Self::Text(value) => apply_mag_mode_to_text(value, true),
+            Self::Integer(value) => format_magnitude_i64(*value),
+            Self::OptionalInteger(Some(value)) => format_magnitude_i64(*value),
+            Self::OptionalInteger(None) => String::new(),
+            Self::Decimal(Some(value)) => format_magnitude_f64(*value),
+            Self::Decimal(None) => String::new(),
+            Self::Date(Some(value)) => apply_mag_mode_to_text(&value.to_string(), true),
+            Self::Date(None) => String::new(),
+            Self::Money(Some(cents)) => format_magnitude_money(*cents),
             Self::Money(None) => String::new(),
         }
     }
@@ -397,6 +420,14 @@ struct ChatMessage {
     sql: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ChatCommand {
+    ToggleSql,
+    Help,
+    Models,
+    Model(String),
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 struct ChatUiState {
     input: String,
@@ -500,6 +531,7 @@ struct ViewData {
     detail_stack: Vec<DetailStackEntry>,
     chat: ChatUiState,
     help_visible: bool,
+    mag_mode: bool,
     active_tab_snapshot: Option<TabSnapshot>,
     table_state: TableUiState,
     status_token: u64,
@@ -597,6 +629,17 @@ fn handle_key_event<R: AppRuntime>(
 ) -> bool {
     if key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return true;
+    }
+
+    if key.code == KeyCode::Char('o') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        view_data.mag_mode = !view_data.mag_mode;
+        let status = if view_data.mag_mode {
+            "mag on"
+        } else {
+            "mag off"
+        };
+        emit_status(state, view_data, internal_tx, status);
+        return false;
     }
 
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -724,8 +767,34 @@ fn handle_key_event<R: AppRuntime>(
                         format!("load failed: {error}"),
                     );
                 } else if view_data.dashboard.visible {
+                    if let Err(error) =
+                        runtime.set_show_dashboard_preference(view_data.dashboard.visible)
+                    {
+                        emit_status(
+                            state,
+                            view_data,
+                            internal_tx,
+                            format!(
+                                "dashboard pref save failed: {error}; verify DB permissions and retry"
+                            ),
+                        );
+                        return false;
+                    }
                     emit_status(state, view_data, internal_tx, "dashboard open");
                 } else {
+                    if let Err(error) =
+                        runtime.set_show_dashboard_preference(view_data.dashboard.visible)
+                    {
+                        emit_status(
+                            state,
+                            view_data,
+                            internal_tx,
+                            format!(
+                                "dashboard pref save failed: {error}; verify DB permissions and retry"
+                            ),
+                        );
+                        return false;
+                    }
                     emit_status(state, view_data, internal_tx, "dashboard hidden");
                 }
             }
@@ -940,6 +1009,15 @@ fn handle_key_event<R: AppRuntime>(
                     internal_tx,
                 );
             }
+            (KeyCode::Tab, KeyModifiers::NONE) => {
+                emit_status(state, view_data, internal_tx, "field next");
+            }
+            (KeyCode::BackTab, _) => {
+                emit_status(state, view_data, internal_tx, "field prev");
+            }
+            (KeyCode::Char(ch), KeyModifiers::NONE) if ('1'..='9').contains(&ch) => {
+                emit_status(state, view_data, internal_tx, format!("choice {ch}"));
+            }
             _ => {}
         },
     }
@@ -986,6 +1064,17 @@ fn handle_dashboard_overlay_key<R: AppRuntime>(
             {
                 close_all_detail_snapshots(view_data);
                 view_data.dashboard.visible = false;
+                if let Err(error) = runtime.set_show_dashboard_preference(false) {
+                    emit_status(
+                        state,
+                        view_data,
+                        internal_tx,
+                        format!(
+                            "dashboard pref save failed: {error}; verify DB permissions and retry"
+                        ),
+                    );
+                    return true;
+                }
                 view_data.pending_row_selection = Some(PendingRowSelection {
                     tab: target.tab,
                     row_id: target.row_id,
@@ -1007,14 +1096,41 @@ fn handle_dashboard_overlay_key<R: AppRuntime>(
         }
         (KeyCode::Char('D'), _) => {
             view_data.dashboard.visible = false;
+            if let Err(error) = runtime.set_show_dashboard_preference(false) {
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("dashboard pref save failed: {error}; verify DB permissions and retry"),
+                );
+                return true;
+            }
             emit_status(state, view_data, internal_tx, "dashboard hidden");
         }
         (KeyCode::Char('f'), _) => {
             view_data.dashboard.visible = false;
+            if let Err(error) = runtime.set_show_dashboard_preference(false) {
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("dashboard pref save failed: {error}; verify DB permissions and retry"),
+                );
+                return true;
+            }
             dispatch_and_refresh(state, runtime, view_data, AppCommand::NextTab, internal_tx);
         }
         (KeyCode::Char('b'), _) => {
             view_data.dashboard.visible = false;
+            if let Err(error) = runtime.set_show_dashboard_preference(false) {
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("dashboard pref save failed: {error}; verify DB permissions and retry"),
+                );
+                return true;
+            }
             dispatch_and_refresh(state, runtime, view_data, AppCommand::PrevTab, internal_tx);
         }
         (KeyCode::Char('?'), _) => {
@@ -1360,56 +1476,104 @@ fn submit_chat_input<R: AppRuntime>(
         sql: None,
     });
 
-    if input == "/sql" {
-        view_data.chat.show_sql = !view_data.chat.show_sql;
-        let status = if view_data.chat.show_sql {
-            "chat sql on"
-        } else {
-            "chat sql off"
-        };
-        emit_status(state, view_data, internal_tx, status);
-        return;
-    }
-
-    if input == "/help" {
-        view_data.chat.transcript.push(ChatMessage {
-            role: ChatRole::Assistant,
-            body: "/help, /models, /model <name>, /sql".to_owned(),
-            sql: None,
-        });
-        return;
-    }
-
-    if input == "/models" {
-        view_data.chat.transcript.push(ChatMessage {
-            role: ChatRole::Assistant,
-            body: "model listing comes in step 7; set [llm].model in config.toml for now"
-                .to_owned(),
-            sql: None,
-        });
-        return;
-    }
-
-    if let Some(model) = input.strip_prefix("/model") {
-        let trimmed = model.trim();
-        let message = if trimmed.is_empty() {
-            "usage: /model <name>".to_owned()
-        } else {
-            format!("model switch to `{trimmed}` will be wired in step 7")
-        };
-        view_data.chat.transcript.push(ChatMessage {
-            role: ChatRole::Assistant,
-            body: message,
-            sql: None,
-        });
+    if let Some(command) = parse_chat_command(&input) {
+        match command {
+            ChatCommand::ToggleSql => {
+                view_data.chat.show_sql = !view_data.chat.show_sql;
+                let status = if view_data.chat.show_sql {
+                    "chat sql on"
+                } else {
+                    "chat sql off"
+                };
+                emit_status(state, view_data, internal_tx, status);
+            }
+            ChatCommand::Help => {
+                view_data.chat.transcript.push(ChatMessage {
+                    role: ChatRole::Assistant,
+                    body: "/help, /models, /model <name>, /sql".to_owned(),
+                    sql: None,
+                });
+            }
+            ChatCommand::Models => {
+                let active = runtime.active_chat_model();
+                match runtime.list_chat_models() {
+                    Ok(models) => {
+                        let active_model = active.unwrap_or(None);
+                        view_data.chat.transcript.push(ChatMessage {
+                            role: ChatRole::Assistant,
+                            body: render_model_list_message(&models, active_model.as_deref()),
+                            sql: None,
+                        });
+                    }
+                    Err(error) => {
+                        view_data.chat.transcript.push(ChatMessage {
+                            role: ChatRole::Assistant,
+                            body: format!("model list failed: {error}"),
+                            sql: None,
+                        });
+                    }
+                }
+            }
+            ChatCommand::Model(model) => match runtime.select_chat_model(&model) {
+                Ok(()) => {
+                    view_data.chat.transcript.push(ChatMessage {
+                        role: ChatRole::Assistant,
+                        body: format!("model set: {model}"),
+                        sql: None,
+                    });
+                    emit_status(state, view_data, internal_tx, format!("model {model}"));
+                }
+                Err(error) => {
+                    view_data.chat.transcript.push(ChatMessage {
+                        role: ChatRole::Assistant,
+                        body: format!("model switch failed: {error}"),
+                        sql: None,
+                    });
+                }
+            },
+        }
         return;
     }
 
     view_data.chat.transcript.push(ChatMessage {
         role: ChatRole::Assistant,
-        body: "LLM query execution is wired in step 7. This stage ports chat input, history, and keybindings.".to_owned(),
+        body: "LLM query execution is not enabled yet. Use /models or /model, or continue with table filters and drill views.".to_owned(),
         sql: Some(format!("-- pending NL->SQL pipeline\n-- question: {input}")),
     });
+}
+
+fn parse_chat_command(input: &str) -> Option<ChatCommand> {
+    if input == "/sql" {
+        return Some(ChatCommand::ToggleSql);
+    }
+    if input == "/help" {
+        return Some(ChatCommand::Help);
+    }
+    if input == "/models" {
+        return Some(ChatCommand::Models);
+    }
+    if let Some(model) = input.strip_prefix("/model") {
+        return Some(ChatCommand::Model(model.trim().to_owned()));
+    }
+    None
+}
+
+fn render_model_list_message(models: &[String], active_model: Option<&str>) -> String {
+    if models.is_empty() {
+        return "no models reported by server; pull one first (`ollama pull <name>`)".to_owned();
+    }
+
+    let mut lines = Vec::with_capacity(models.len() + 1);
+    lines.push("models:".to_owned());
+    for model in models {
+        let marker = if active_model == Some(model.as_str()) {
+            "*"
+        } else {
+            "-"
+        };
+        lines.push(format!("{marker} {model}"));
+    }
+    lines.join("\n")
 }
 
 fn chat_history_prev(view_data: &mut ViewData) {
@@ -1981,6 +2145,7 @@ fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData
         let dashboard = Paragraph::new(render_dashboard_overlay_text(
             &view_data.dashboard.snapshot,
             view_data.dashboard.cursor,
+            view_data.mag_mode,
         ))
         .block(
             Block::default()
@@ -1994,8 +2159,11 @@ fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData
     if state.chat == micasa_app::ChatVisibility::Visible {
         let area = centered_rect(70, 45, frame.area());
         frame.render_widget(Clear, area);
-        let chat = Paragraph::new(render_chat_overlay_text(&view_data.chat))
-            .block(Block::default().title("LLM").borders(Borders::ALL));
+        let chat = Paragraph::new(render_chat_overlay_text(
+            &view_data.chat,
+            view_data.mag_mode,
+        ))
+        .block(Block::default().title("LLM").borders(Borders::ALL));
         frame.render_widget(chat, area);
     }
 
@@ -2039,14 +2207,23 @@ fn render_dashboard_text(state: &AppState, view_data: &ViewData) -> String {
             }
         ),
         String::new(),
-        format!("projects due: {}", view_data.dashboard_counts.projects_due),
+        format!(
+            "projects due: {}",
+            format_magnitude_usize(view_data.dashboard_counts.projects_due, view_data.mag_mode)
+        ),
         format!(
             "maintenance due: {}",
-            view_data.dashboard_counts.maintenance_due
+            format_magnitude_usize(
+                view_data.dashboard_counts.maintenance_due,
+                view_data.mag_mode
+            )
         ),
         format!(
             "incidents open: {}",
-            view_data.dashboard_counts.incidents_open
+            format_magnitude_usize(
+                view_data.dashboard_counts.incidents_open,
+                view_data.mag_mode
+            )
         ),
     ]
     .join("\n")
@@ -2195,7 +2372,11 @@ fn dashboard_nav_entries(snapshot: &DashboardSnapshot) -> Vec<(DashboardNavEntry
     entries
 }
 
-fn render_dashboard_overlay_text(snapshot: &DashboardSnapshot, cursor: usize) -> String {
+fn render_dashboard_overlay_text(
+    snapshot: &DashboardSnapshot,
+    cursor: usize,
+    mag_mode: bool,
+) -> String {
     let entries = dashboard_nav_entries(snapshot);
     if entries.is_empty() {
         return String::new();
@@ -2213,10 +2394,10 @@ fn render_dashboard_overlay_text(snapshot: &DashboardSnapshot, cursor: usize) ->
     }
     lines.push(String::new());
     lines.push("j/k move | g/G top/bottom | enter jump | D close | b/f switch | ? help".to_owned());
-    lines.join("\n")
+    apply_mag_mode_to_text(&lines.join("\n"), mag_mode)
 }
 
-fn render_chat_overlay_text(chat: &ChatUiState) -> String {
+fn render_chat_overlay_text(chat: &ChatUiState, mag_mode: bool) -> String {
     let mut lines = Vec::new();
     lines.push(format!(
         "sql: {} | history: {}",
@@ -2231,12 +2412,18 @@ fn render_chat_overlay_text(chat: &ChatUiState) -> String {
             ChatRole::User => "you",
             ChatRole::Assistant => "llm",
         };
-        lines.push(format!("{label}: {}", message.body));
+        lines.push(format!(
+            "{label}: {}",
+            apply_mag_mode_to_text(&message.body, mag_mode)
+        ));
         if chat.show_sql
             && let Some(sql) = &message.sql
         {
             for segment in sql.lines() {
-                lines.push(format!("  sql: {segment}"));
+                lines.push(format!(
+                    "  sql: {}",
+                    apply_mag_mode_to_text(segment, mag_mode)
+                ));
             }
         }
     }
@@ -2246,8 +2433,14 @@ fn render_chat_overlay_text(chat: &ChatUiState) -> String {
     }
 
     lines.push(String::new());
-    lines.push(format!("> {}", chat.input));
-    lines.push("enter send | up/down history | ctrl+s sql | /sql | /help | esc close".to_owned());
+    lines.push(format!(
+        "> {}",
+        apply_mag_mode_to_text(&chat.input, mag_mode)
+    ));
+    lines.push(
+        "enter send | up/down history | ctrl+s sql | /models | /model | /sql | /help | esc close"
+            .to_owned(),
+    );
     lines.join("\n")
 }
 
@@ -2394,7 +2587,7 @@ fn render_table(
                 let cell_text = row
                     .cells
                     .get(column_index)
-                    .map(TableCell::display)
+                    .map(|cell| cell.display_with_mag_mode(view_data.mag_mode))
                     .unwrap_or_default();
                 let mut style = Style::default();
                 if row.deleted {
@@ -2905,6 +3098,84 @@ fn format_money(cents: i64) -> String {
     format!("{sign}${dollars}.{cents_component:02}")
 }
 
+fn format_magnitude_i64(value: i64) -> String {
+    if value == 0 {
+        return "0".to_owned();
+    }
+    let sign = if value < 0 { "-" } else { "" };
+    let absolute = value.unsigned_abs();
+    format!("{sign}↑{}", absolute.ilog10())
+}
+
+fn format_magnitude_f64(value: f64) -> String {
+    if value == 0.0 {
+        return "0".to_owned();
+    }
+    let sign = if value < 0.0 { "-" } else { "" };
+    let magnitude = value.abs().log10().floor() as i32;
+    format!("{sign}↑{magnitude}")
+}
+
+fn format_magnitude_money(cents: i64) -> String {
+    if cents == 0 {
+        return "$0".to_owned();
+    }
+    let sign = if cents < 0 { "-" } else { "" };
+    let dollars = cents.unsigned_abs() / 100;
+    let magnitude = if dollars == 0 { 0 } else { dollars.ilog10() };
+    format!("{sign}$ ↑{magnitude}")
+}
+
+fn format_magnitude_usize(value: usize, mag_mode: bool) -> String {
+    if !mag_mode {
+        return value.to_string();
+    }
+    if value == 0 {
+        "0".to_owned()
+    } else {
+        format!("↑{}", (value as u64).ilog10())
+    }
+}
+
+fn apply_mag_mode_to_text(input: &str, mag_mode: bool) -> String {
+    if !mag_mode {
+        return input.to_owned();
+    }
+
+    let mut out = String::with_capacity(input.len());
+    let chars = input.chars().collect::<Vec<_>>();
+    let mut index = 0usize;
+    while index < chars.len() {
+        let ch = chars[index];
+        if ch.is_ascii_digit() {
+            let mut end = index;
+            while end < chars.len() && (chars[end].is_ascii_digit() || chars[end] == ',') {
+                end += 1;
+            }
+
+            let numeric = chars[index..end]
+                .iter()
+                .filter(|digit| digit.is_ascii_digit())
+                .collect::<String>();
+            let trimmed = numeric.trim_start_matches('0');
+            let magnitude = if trimmed.is_empty() {
+                0
+            } else {
+                trimmed.len() - 1
+            };
+            out.push('↑');
+            out.push_str(&magnitude.to_string());
+            index = end;
+            continue;
+        }
+
+        out.push(ch);
+        index += 1;
+    }
+
+    out
+}
+
 fn move_row(view_data: &mut ViewData, delta: isize) {
     let Some(projection) = active_projection(view_data) else {
         return;
@@ -3110,8 +3381,9 @@ fn status_text(state: &AppState, view_data: &ViewData) -> String {
         AppMode::Form(_) => "FORM",
     };
     let enter_hint = contextual_enter_hint(view_data);
+    let mag_label = if view_data.mag_mode { "on" } else { "off" };
     let default = format!(
-        "j/k/h/l g/G ^/$ d/u pg | enter {enter_hint} | s/S/t c/C / | n/N ctrl+n | @ chat D | ctrl+q"
+        "j/k/h/l g/G ^/$ d/u pg | enter {enter_hint} | s/S/t c/C / | n/N ctrl+n | @ chat D | ctrl+o mag:{mag_label} | ctrl+q"
     );
     match &state.status_line {
         Some(status) => format!("{mode} | {status} | {default}"),
@@ -3414,9 +3686,9 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 mod tests {
     use super::{
         AppRuntime, DashboardIncident, DashboardSnapshot, LifecycleAction, TabSnapshot,
-        TableCommand, TableEvent, TableStatus, ViewData, apply_table_command,
-        contextual_enter_hint, handle_key_event, header_label_for_column, highlight_column_label,
-        refresh_view_data, table_command_for_key,
+        TableCommand, TableEvent, TableStatus, ViewData, apply_mag_mode_to_text,
+        apply_table_command, contextual_enter_hint, handle_key_event, header_label_for_column,
+        highlight_column_label, refresh_view_data, table_command_for_key,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
@@ -3435,6 +3707,9 @@ mod tests {
         can_undo: bool,
         can_redo: bool,
         chat_history: Vec<String>,
+        show_dashboard_pref: Option<bool>,
+        available_models: Vec<String>,
+        active_model: Option<String>,
     }
 
     impl TestRuntime {
@@ -3726,6 +4001,33 @@ mod tests {
             self.redo_count += 1;
             Ok(self.can_redo)
         }
+
+        fn set_show_dashboard_preference(&mut self, show: bool) -> anyhow::Result<()> {
+            self.show_dashboard_pref = Some(show);
+            Ok(())
+        }
+
+        fn list_chat_models(&mut self) -> anyhow::Result<Vec<String>> {
+            Ok(self.available_models.clone())
+        }
+
+        fn active_chat_model(&mut self) -> anyhow::Result<Option<String>> {
+            Ok(self.active_model.clone())
+        }
+
+        fn select_chat_model(&mut self, model: &str) -> anyhow::Result<()> {
+            let trimmed = model.trim();
+            if trimmed.is_empty() {
+                return Err(anyhow::anyhow!("usage: /model <name>"));
+            }
+            if !self.available_models.iter().any(|entry| entry == trimmed) {
+                return Err(anyhow::anyhow!(
+                    "model `{trimmed}` not available; use /models first"
+                ));
+            }
+            self.active_model = Some(trimmed.to_owned());
+            Ok(())
+        }
     }
 
     fn view_data_for_test() -> ViewData {
@@ -3782,6 +4084,63 @@ mod tests {
             KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
         );
         assert_eq!(state.chat, ChatVisibility::Hidden);
+    }
+
+    #[test]
+    fn ctrl_o_toggles_mag_mode() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.mag_mode);
+        assert_eq!(apply_mag_mode_to_text("cost 1250", true), "cost ↑3");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        );
+        assert!(!view_data.mag_mode);
+    }
+
+    #[test]
+    fn dashboard_toggle_persists_preference() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT),
+        );
+        assert_eq!(runtime.show_dashboard_pref, Some(true));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT),
+        );
+        assert_eq!(runtime.show_dashboard_pref, Some(false));
     }
 
     #[test]
@@ -3843,6 +4202,45 @@ mod tests {
         );
         assert_eq!(state.mode, AppMode::Nav);
         assert_eq!(runtime.submit_count, 1);
+    }
+
+    #[test]
+    fn form_mode_shortcuts_update_status() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Form(FormKind::Project),
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+        assert_eq!(state.status_line.as_deref(), Some("field next"));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT),
+        );
+        assert_eq!(state.status_line.as_deref(), Some("field prev"));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.status_line.as_deref(), Some("choice 3"));
     }
 
     #[test]
@@ -4650,6 +5048,77 @@ mod tests {
             view_data.chat.transcript.last().map(|message| message.role),
             Some(super::ChatRole::Assistant)
         );
+    }
+
+    #[test]
+    fn chat_model_commands_list_and_switch_model() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime {
+            available_models: vec!["qwen3".to_owned(), "qwen3:32b".to_owned()],
+            active_model: Some("qwen3".to_owned()),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.chat, ChatVisibility::Visible);
+
+        for ch in "/models".chars() {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        let list_reply = view_data
+            .chat
+            .transcript
+            .last()
+            .map(|message| message.body.clone())
+            .unwrap_or_default();
+        assert!(list_reply.contains("* qwen3"));
+        assert!(list_reply.contains("- qwen3:32b"));
+
+        for ch in "/model qwen3:32b".chars() {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(runtime.active_model.as_deref(), Some("qwen3:32b"));
+        let switch_reply = view_data
+            .chat
+            .transcript
+            .last()
+            .map(|message| message.body.clone())
+            .unwrap_or_default();
+        assert!(switch_reply.contains("model set: qwen3:32b"));
     }
 
     #[test]

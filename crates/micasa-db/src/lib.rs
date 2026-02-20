@@ -2738,6 +2738,12 @@ impl Store {
         })
     }
 
+    pub fn get_show_dashboard_override(&self) -> Result<Option<bool>> {
+        Ok(self
+            .get_setting(SETTING_SHOW_DASHBOARD)?
+            .map(|value| value == "true"))
+    }
+
     pub fn put_show_dashboard(&self, show: bool) -> Result<()> {
         let value = if show { "true" } else { "false" };
         self.put_setting(SETTING_SHOW_DASHBOARD, value)

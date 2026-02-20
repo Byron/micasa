@@ -1,12 +1,13 @@
 // Copyright 2026 Phillip Cloud
 // Licensed under the Apache License, Version 2.0
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use micasa_app::{FormPayload, TabKind};
 use micasa_db::{
     HouseProfileInput, LifecycleEntityRef, NewAppliance, NewDocument, NewIncident,
     NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, Store,
 };
+use micasa_llm::Client as LlmClient;
 use micasa_tui::{
     DashboardIncident, DashboardMaintenance, DashboardProject, DashboardServiceEntry,
     DashboardSnapshot, DashboardWarranty, LifecycleAction, TabSnapshot,
@@ -36,14 +37,16 @@ pub struct DbRuntime<'a> {
     store: &'a Store,
     undo_stack: Vec<MutationRecord>,
     redo_stack: Vec<MutationRecord>,
+    llm_client: Option<LlmClient>,
 }
 
 impl<'a> DbRuntime<'a> {
-    pub fn new(store: &'a Store) -> Self {
+    pub fn with_llm_client(store: &'a Store, llm_client: Option<LlmClient>) -> Self {
         Self {
             store,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
+            llm_client,
         }
     }
 
@@ -453,6 +456,82 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
         }
         Ok(true)
     }
+
+    fn set_show_dashboard_preference(&mut self, show: bool) -> Result<()> {
+        self.store.put_show_dashboard(show)
+    }
+
+    fn list_chat_models(&mut self) -> Result<Vec<String>> {
+        let Some(client) = self.llm_client.as_ref() else {
+            bail!("LLM disabled -- set [llm].enabled = true and restart");
+        };
+        client
+            .list_models()
+            .context("list models; ensure Ollama (or another OpenAI-compatible server) is running")
+    }
+
+    fn active_chat_model(&mut self) -> Result<Option<String>> {
+        let Some(client) = self.llm_client.as_mut() else {
+            return Ok(None);
+        };
+
+        if let Some(saved) = self.store.get_last_model()? {
+            if client.model() != saved {
+                client.set_model(&saved);
+            }
+            return Ok(Some(saved));
+        }
+
+        Ok(Some(client.model().to_owned()))
+    }
+
+    fn select_chat_model(&mut self, model: &str) -> Result<()> {
+        let trimmed = model.trim();
+        if trimmed.is_empty() {
+            bail!("usage: /model <name>");
+        }
+
+        let Some(client) = self.llm_client.as_mut() else {
+            bail!("LLM disabled -- set [llm].enabled = true and restart");
+        };
+
+        let available = client.list_models().with_context(|| {
+            format!(
+                "list models from {}; verify LLM server URL and availability",
+                client.base_url()
+            )
+        })?;
+        let exists = available
+            .iter()
+            .any(|entry| entry == trimmed || entry.starts_with(&format!("{trimmed}:")));
+
+        if !exists {
+            if client.base_url().contains("11434") {
+                let mut scanner = client.pull_model(trimmed).with_context(|| {
+                    format!(
+                        "model `{trimmed}` is missing and auto-pull failed to start; run `ollama pull {trimmed}`"
+                    )
+                })?;
+                while let Some(chunk) = scanner.next_chunk()? {
+                    if let Some(error) = chunk.error
+                        && !error.is_empty()
+                    {
+                        bail!(
+                            "model pull failed for `{trimmed}`: {error}; run `ollama pull {trimmed}` and retry"
+                        );
+                    }
+                }
+            } else {
+                bail!(
+                    "model `{trimmed}` not found on server -- run `/models` and choose one that exists"
+                );
+            }
+        }
+
+        client.set_model(trimmed);
+        self.store.put_last_model(trimmed)?;
+        Ok(())
+    }
 }
 
 fn add_months_clamped(date: Date, months: i32) -> Option<Date> {
@@ -506,7 +585,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::new(&store);
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
         runtime.submit_form(&FormPayload::Project(ProjectFormInput {
             title: "Deck repair".to_owned(),
             project_type_id: ProjectTypeId::new(1),
@@ -542,7 +621,7 @@ mod tests {
         })?;
         store.soft_delete_project(project_id)?;
 
-        let mut runtime = DbRuntime::new(&store);
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
         let visible = runtime
             .load_tab_snapshot(TabKind::Projects, false)?
             .expect("projects snapshot");
@@ -559,7 +638,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::new(&store);
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
         let before = runtime
             .load_tab_snapshot(TabKind::House, false)?
             .expect("house snapshot");
@@ -622,7 +701,7 @@ mod tests {
             cost_cents: None,
         })?;
 
-        let mut runtime = DbRuntime::new(&store);
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
         runtime.submit_form(&FormPayload::ServiceLogEntry(ServiceLogEntryFormInput {
             maintenance_item_id: maintenance_id,
             serviced_at: Date::from_calendar_date(2026, Month::January, 9)?,
@@ -650,7 +729,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::new(&store);
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
         runtime.submit_form(&FormPayload::Project(ProjectFormInput {
             title: "Undo demo".to_owned(),
             project_type_id: ProjectTypeId::new(1),
@@ -682,7 +761,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::new(&store);
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
         runtime.append_chat_input("When is the next HVAC service due?")?;
         runtime.append_chat_input("When is the next HVAC service due?")?;
         runtime.append_chat_input("How many active projects do I have?")?;
@@ -738,10 +817,42 @@ mod tests {
             notes: String::new(),
         })?;
 
-        let mut runtime = DbRuntime::new(&store);
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
         let snapshot = runtime.load_dashboard_snapshot()?;
         assert!(!snapshot.incidents.is_empty());
         assert!(!snapshot.recent_activity.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn chat_model_commands_fail_actionably_when_llm_disabled() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let list_error = runtime
+            .list_chat_models()
+            .expect_err("list models should fail without LLM client");
+        assert!(list_error.to_string().contains("LLM disabled"));
+
+        let model_error = runtime
+            .select_chat_model("qwen3")
+            .expect_err("select model should fail without LLM client");
+        assert!(model_error.to_string().contains("LLM disabled"));
+        Ok(())
+    }
+
+    #[test]
+    fn dashboard_preference_round_trip_uses_settings_table() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        runtime.set_show_dashboard_preference(false)?;
+        assert!(!store.get_show_dashboard()?);
+
+        runtime.set_show_dashboard_preference(true)?;
+        assert!(store.get_show_dashboard()?);
         Ok(())
     }
 }
