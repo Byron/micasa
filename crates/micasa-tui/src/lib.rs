@@ -163,6 +163,65 @@ pub enum LifecycleAction {
     Restore,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatHistoryRole {
+    User,
+    Assistant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatHistoryMessage {
+    pub role: ChatHistoryRole,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatPipelineResult {
+    pub answer: String,
+    pub sql: Option<String>,
+    pub used_fallback: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChatPipelineEvent {
+    SqlChunk {
+        request_id: u64,
+        chunk: String,
+    },
+    SqlReady {
+        request_id: u64,
+        sql: String,
+    },
+    FallbackStarted {
+        request_id: u64,
+    },
+    AnswerChunk {
+        request_id: u64,
+        chunk: String,
+    },
+    Completed {
+        request_id: u64,
+        result: ChatPipelineResult,
+    },
+    Failed {
+        request_id: u64,
+        error: String,
+    },
+}
+
+impl ChatPipelineEvent {
+    const fn request_id(&self) -> u64 {
+        match self {
+            Self::SqlChunk { request_id, .. }
+            | Self::SqlReady { request_id, .. }
+            | Self::FallbackStarted { request_id }
+            | Self::AnswerChunk { request_id, .. }
+            | Self::Completed { request_id, .. }
+            | Self::Failed { request_id, .. } => *request_id,
+        }
+    }
+}
+
 pub trait AppRuntime {
     fn load_dashboard_counts(&mut self) -> Result<DashboardCounts>;
     fn load_dashboard_snapshot(&mut self) -> Result<DashboardSnapshot>;
@@ -182,6 +241,34 @@ pub trait AppRuntime {
     fn list_chat_models(&mut self) -> Result<Vec<String>>;
     fn active_chat_model(&mut self) -> Result<Option<String>>;
     fn select_chat_model(&mut self, model: &str) -> Result<()>;
+    fn run_chat_pipeline(
+        &mut self,
+        question: &str,
+        history: &[ChatHistoryMessage],
+    ) -> Result<ChatPipelineResult>;
+    fn spawn_chat_pipeline(
+        &mut self,
+        request_id: u64,
+        question: &str,
+        history: &[ChatHistoryMessage],
+        tx: Sender<InternalEvent>,
+    ) -> Result<()> {
+        let event = match self.run_chat_pipeline(question, history) {
+            Ok(result) => {
+                InternalEvent::ChatPipeline(ChatPipelineEvent::Completed { request_id, result })
+            }
+            Err(error) => InternalEvent::ChatPipeline(ChatPipelineEvent::Failed {
+                request_id,
+                error: error.to_string(),
+            }),
+        };
+        tx.send(event)
+            .map_err(|_| anyhow::anyhow!("chat event channel closed"))?;
+        Ok(())
+    }
+    fn cancel_chat_pipeline(&mut self, _request_id: u64) -> Result<()> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -434,6 +521,30 @@ enum ChatCommand {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChatPipelineStage {
+    Sql,
+    Summary,
+    Fallback,
+}
+
+impl ChatPipelineStage {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Sql => "sql",
+            Self::Summary => "summary",
+            Self::Fallback => "fallback",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChatInFlight {
+    request_id: u64,
+    assistant_index: usize,
+    stage: ChatPipelineStage,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FormChoiceKind {
     None,
     ProjectStatus,
@@ -472,6 +583,8 @@ struct ChatUiState {
     history_buffer: String,
     transcript: Vec<ChatMessage>,
     model_picker: ChatModelPickerUiState,
+    in_flight: Option<ChatInFlight>,
+    next_request_id: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -564,9 +677,10 @@ struct PendingRowSelection {
     row_id: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum InternalEvent {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InternalEvent {
     ClearStatus { token: u64 },
+    ChatPipeline(ChatPipelineEvent),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -609,7 +723,7 @@ pub fn run_app<R: AppRuntime>(state: &mut AppState, runtime: &mut R) -> Result<(
 
     let mut result = Ok(());
     loop {
-        process_internal_events(state, &mut view_data, &internal_rx);
+        process_internal_events(state, &mut view_data, &internal_tx, &internal_rx);
 
         if let Err(error) = terminal.draw(|frame| render(frame, state, &view_data)) {
             result = Err(error).context("draw frame");
@@ -638,6 +752,7 @@ pub fn run_app<R: AppRuntime>(state: &mut AppState, runtime: &mut R) -> Result<(
 fn process_internal_events(
     state: &mut AppState,
     view_data: &mut ViewData,
+    tx: &Sender<InternalEvent>,
     rx: &Receiver<InternalEvent>,
 ) {
     while let Ok(event) = rx.try_recv() {
@@ -646,6 +761,77 @@ fn process_internal_events(
                 state.dispatch(AppCommand::ClearStatus);
             }
             InternalEvent::ClearStatus { .. } => {}
+            InternalEvent::ChatPipeline(event) => {
+                handle_chat_pipeline_event(state, view_data, tx, event);
+            }
+        }
+    }
+}
+
+fn handle_chat_pipeline_event(
+    state: &mut AppState,
+    view_data: &mut ViewData,
+    tx: &Sender<InternalEvent>,
+    event: ChatPipelineEvent,
+) {
+    let Some(in_flight) = view_data.chat.in_flight else {
+        return;
+    };
+    if event.request_id() != in_flight.request_id {
+        return;
+    }
+
+    let Some(message) = view_data.chat.transcript.get_mut(in_flight.assistant_index) else {
+        view_data.chat.in_flight = None;
+        return;
+    };
+
+    match event {
+        ChatPipelineEvent::SqlChunk { chunk, .. } => {
+            let sql = message.sql.get_or_insert_with(String::new);
+            sql.push_str(&chunk);
+            view_data.chat.in_flight = Some(ChatInFlight {
+                stage: ChatPipelineStage::Sql,
+                ..in_flight
+            });
+        }
+        ChatPipelineEvent::SqlReady { sql, .. } => {
+            message.sql = Some(sql);
+            view_data.chat.in_flight = Some(ChatInFlight {
+                stage: ChatPipelineStage::Summary,
+                ..in_flight
+            });
+        }
+        ChatPipelineEvent::FallbackStarted { .. } => {
+            view_data.chat.in_flight = Some(ChatInFlight {
+                stage: ChatPipelineStage::Fallback,
+                ..in_flight
+            });
+        }
+        ChatPipelineEvent::AnswerChunk { chunk, .. } => {
+            message.body.push_str(&chunk);
+        }
+        ChatPipelineEvent::Completed { result, .. } => {
+            message.body = result.answer;
+            message.sql = result.sql;
+            if result.used_fallback {
+                emit_status(
+                    state,
+                    view_data,
+                    tx,
+                    "fallback mode: answered from data snapshot",
+                );
+            }
+            view_data.chat.in_flight = None;
+        }
+        ChatPipelineEvent::Failed { error, .. } => {
+            let message_text = format!(
+                "chat query failed: {error}; verify [llm] config, model availability, and server reachability"
+            );
+            message.body = message_text.clone();
+            message.sql = None;
+            view_data.chat.in_flight = None;
+            emit_status(state, view_data, tx, message_text);
         }
     }
 }
@@ -692,12 +878,16 @@ fn handle_key_event<R: AppRuntime>(
     }
 
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        emit_status(
-            state,
-            view_data,
-            internal_tx,
-            "cancel requested; no in-flight LLM operation",
-        );
+        if cancel_in_flight_chat(runtime, view_data, false).is_some() {
+            emit_status(state, view_data, internal_tx, "chat canceled");
+        } else {
+            emit_status(
+                state,
+                view_data,
+                internal_tx,
+                "cancel requested; no in-flight LLM operation",
+            );
+        }
         return false;
     }
 
@@ -2059,6 +2249,9 @@ fn handle_chat_overlay_key<R: AppRuntime>(
 
     match (key.code, key.modifiers) {
         (KeyCode::Esc, _) => {
+            if cancel_in_flight_chat(runtime, view_data, true).is_some() {
+                emit_status(state, view_data, internal_tx, "chat canceled");
+            }
             view_data.chat.model_picker = ChatModelPickerUiState::default();
             dispatch_and_refresh(
                 state,
@@ -2315,11 +2508,100 @@ fn submit_chat_input<R: AppRuntime>(
         return;
     }
 
+    if cancel_in_flight_chat(runtime, view_data, true).is_some() {
+        emit_status(state, view_data, internal_tx, "prior chat canceled");
+    }
+
+    let history = build_chat_pipeline_history(&view_data.chat.transcript);
+    let request_id = next_chat_request_id(&mut view_data.chat);
     view_data.chat.transcript.push(ChatMessage {
         role: ChatRole::Assistant,
-        body: "LLM query execution is not enabled yet. Use /models or /model, or continue with table filters and drill views.".to_owned(),
-        sql: Some(format!("-- pending NL->SQL pipeline\n-- question: {input}")),
+        body: String::new(),
+        sql: None,
     });
+    let assistant_index = view_data.chat.transcript.len().saturating_sub(1);
+    view_data.chat.in_flight = Some(ChatInFlight {
+        request_id,
+        assistant_index,
+        stage: ChatPipelineStage::Sql,
+    });
+
+    if let Err(error) =
+        runtime.spawn_chat_pipeline(request_id, &input, &history, internal_tx.clone())
+    {
+        let message = format!(
+            "chat query failed: {error}; verify [llm] config, model availability, and server reachability"
+        );
+        if let Some(in_flight) = view_data.chat.in_flight.take()
+            && let Some(response) = view_data.chat.transcript.get_mut(in_flight.assistant_index)
+        {
+            response.body = message.clone();
+            response.sql = None;
+        }
+        emit_status(state, view_data, internal_tx, message);
+    }
+}
+
+fn build_chat_pipeline_history(transcript: &[ChatMessage]) -> Vec<ChatHistoryMessage> {
+    if transcript.is_empty() {
+        return Vec::new();
+    }
+
+    let keep = transcript.len().saturating_sub(1);
+    transcript
+        .iter()
+        .take(keep)
+        .filter_map(|message| {
+            let content = message.body.trim();
+            if content.is_empty() {
+                return None;
+            }
+
+            let role = match message.role {
+                ChatRole::User => ChatHistoryRole::User,
+                ChatRole::Assistant => ChatHistoryRole::Assistant,
+            };
+            Some(ChatHistoryMessage {
+                role,
+                content: content.to_owned(),
+            })
+        })
+        .collect()
+}
+
+fn next_chat_request_id(chat: &mut ChatUiState) -> u64 {
+    chat.next_request_id = chat.next_request_id.saturating_add(1);
+    if chat.next_request_id == 0 {
+        chat.next_request_id = 1;
+    }
+    chat.next_request_id
+}
+
+fn cancel_in_flight_chat<R: AppRuntime>(
+    runtime: &mut R,
+    view_data: &mut ViewData,
+    annotate_partial: bool,
+) -> Option<u64> {
+    let in_flight = view_data.chat.in_flight.take()?;
+    let _ = runtime.cancel_chat_pipeline(in_flight.request_id);
+
+    if in_flight.assistant_index < view_data.chat.transcript.len() {
+        let response = &mut view_data.chat.transcript[in_flight.assistant_index];
+        let has_body = !response.body.trim().is_empty();
+        let has_sql = response
+            .sql
+            .as_ref()
+            .map(|sql| !sql.trim().is_empty())
+            .unwrap_or(false);
+
+        if !has_body && !has_sql {
+            view_data.chat.transcript.remove(in_flight.assistant_index);
+        } else if annotate_partial {
+            response.body = format!("{}\n(interrupted)", response.body.trim_end());
+        }
+    }
+
+    Some(in_flight.request_id)
 }
 
 fn parse_chat_command(input: &str) -> Option<ChatCommand> {
@@ -3187,10 +3469,15 @@ fn render_dashboard_overlay_text(
 
 fn render_chat_overlay_text(chat: &ChatUiState, mag_mode: bool) -> String {
     let mut lines = Vec::new();
+    let in_flight = chat
+        .in_flight
+        .map(|task| format!(" | llm: {}", task.stage.label()))
+        .unwrap_or_default();
     lines.push(format!(
-        "sql: {} | history: {}",
+        "sql: {} | history: {}{}",
         if chat.show_sql { "on" } else { "off" },
-        chat.history.len()
+        chat.history.len(),
+        in_flight
     ));
     lines.push(String::new());
 
@@ -4566,10 +4853,11 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 #[cfg(test)]
 mod tests {
     use super::{
-        AppRuntime, DashboardIncident, DashboardSnapshot, LifecycleAction, TabSnapshot,
-        TableCommand, TableEvent, TableStatus, ViewData, apply_mag_mode_to_text,
-        apply_table_command, contextual_enter_hint, handle_key_event, header_label_for_column,
-        highlight_column_label, refresh_view_data, table_command_for_key,
+        AppRuntime, ChatHistoryMessage, ChatHistoryRole, ChatPipelineResult, DashboardIncident,
+        DashboardSnapshot, LifecycleAction, TabSnapshot, TableCommand, TableEvent, TableStatus,
+        ViewData, apply_mag_mode_to_text, apply_table_command, contextual_enter_hint,
+        handle_key_event, header_label_for_column, highlight_column_label, refresh_view_data,
+        table_command_for_key,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
@@ -4592,6 +4880,10 @@ mod tests {
         show_dashboard_pref: Option<bool>,
         available_models: Vec<String>,
         active_model: Option<String>,
+        pipeline_result: Option<ChatPipelineResult>,
+        pipeline_error: Option<String>,
+        last_pipeline_question: Option<String>,
+        last_pipeline_history: Vec<ChatHistoryMessage>,
     }
 
     impl TestRuntime {
@@ -4920,6 +5212,25 @@ mod tests {
             self.active_model = Some(trimmed.to_owned());
             Ok(())
         }
+
+        fn run_chat_pipeline(
+            &mut self,
+            question: &str,
+            history: &[ChatHistoryMessage],
+        ) -> anyhow::Result<ChatPipelineResult> {
+            self.last_pipeline_question = Some(question.to_owned());
+            self.last_pipeline_history = history.to_vec();
+
+            if let Some(error) = self.pipeline_error.take() {
+                return Err(anyhow::anyhow!("{error}"));
+            }
+
+            Ok(self.pipeline_result.clone().unwrap_or(ChatPipelineResult {
+                answer: "stub answer".to_owned(),
+                sql: Some("SELECT 1".to_owned()),
+                used_fallback: false,
+            }))
+        }
     }
 
     fn view_data_for_test() -> ViewData {
@@ -4929,6 +5240,22 @@ mod tests {
     fn internal_tx() -> mpsc::Sender<super::InternalEvent> {
         let (tx, _rx) = mpsc::channel();
         tx
+    }
+
+    fn internal_channel() -> (
+        mpsc::Sender<super::InternalEvent>,
+        mpsc::Receiver<super::InternalEvent>,
+    ) {
+        mpsc::channel()
+    }
+
+    fn pump_internal(
+        state: &mut AppState,
+        view_data: &mut ViewData,
+        tx: &mpsc::Sender<super::InternalEvent>,
+        rx: &mpsc::Receiver<super::InternalEvent>,
+    ) {
+        super::process_internal_events(state, view_data, tx, rx);
     }
 
     #[test]
@@ -6126,7 +6453,7 @@ mod tests {
             ..TestRuntime::default()
         };
         let mut view_data = view_data_for_test();
-        let tx = internal_tx();
+        let (tx, rx) = internal_channel();
 
         handle_key_event(
             &mut state,
@@ -6171,6 +6498,7 @@ mod tests {
             &tx,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
         );
+        pump_internal(&mut state, &mut view_data, &tx, &rx);
         assert!(
             runtime
                 .chat_history
@@ -6181,6 +6509,252 @@ mod tests {
         assert_eq!(
             view_data.chat.transcript.last().map(|message| message.role),
             Some(super::ChatRole::Assistant)
+        );
+    }
+
+    #[test]
+    fn chat_pipeline_submission_captures_prior_conversation_history() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime {
+            pipeline_result: Some(ChatPipelineResult {
+                answer: "first answer".to_owned(),
+                sql: Some("SELECT COUNT(*) FROM projects".to_owned()),
+                used_fallback: false,
+            }),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let (tx, rx) = internal_channel();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+        );
+
+        for ch in "first question".chars() {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        pump_internal(&mut state, &mut view_data, &tx, &rx);
+
+        runtime.pipeline_result = Some(ChatPipelineResult {
+            answer: "second answer".to_owned(),
+            sql: Some("SELECT title FROM projects".to_owned()),
+            used_fallback: false,
+        });
+        for ch in "second question".chars() {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        pump_internal(&mut state, &mut view_data, &tx, &rx);
+
+        assert_eq!(
+            runtime.last_pipeline_question.as_deref(),
+            Some("second question")
+        );
+        assert_eq!(runtime.last_pipeline_history.len(), 2);
+        assert_eq!(runtime.last_pipeline_history[0].role, ChatHistoryRole::User);
+        assert_eq!(
+            runtime.last_pipeline_history[0].content,
+            "first question".to_owned()
+        );
+        assert_eq!(
+            runtime.last_pipeline_history[1],
+            ChatHistoryMessage {
+                role: ChatHistoryRole::Assistant,
+                content: "first answer".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn chat_pipeline_fallback_sets_status_message() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime {
+            pipeline_result: Some(ChatPipelineResult {
+                answer: "fallback reply".to_owned(),
+                sql: None,
+                used_fallback: true,
+            }),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let (tx, rx) = internal_channel();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+        );
+        for ch in "need a fallback".chars() {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        pump_internal(&mut state, &mut view_data, &tx, &rx);
+
+        assert_eq!(
+            state.status_line.as_deref(),
+            Some("fallback mode: answered from data snapshot")
+        );
+        assert_eq!(
+            view_data
+                .chat
+                .transcript
+                .last()
+                .map(|message| message.body.as_str()),
+            Some("fallback reply")
+        );
+    }
+
+    #[test]
+    fn chat_pipeline_error_is_actionable_in_status_and_transcript() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime {
+            pipeline_error: Some("cannot reach http://localhost:11434/v1".to_owned()),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let (tx, rx) = internal_channel();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+        );
+        for ch in "broken query".chars() {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        pump_internal(&mut state, &mut view_data, &tx, &rx);
+
+        assert!(
+            state
+                .status_line
+                .as_deref()
+                .is_some_and(|message| message.contains("chat query failed"))
+        );
+        assert!(
+            view_data
+                .chat
+                .transcript
+                .last()
+                .map(|message| message.body.contains("verify [llm] config"))
+                .unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn ctrl_c_cancels_in_flight_chat_and_ignores_late_chunks() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let (tx, rx) = internal_channel();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+        );
+
+        for ch in "cancel me".chars() {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        let in_flight = view_data.chat.in_flight.expect("in-flight request");
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.chat.in_flight.is_none());
+        assert_eq!(state.status_line.as_deref(), Some("chat canceled"));
+
+        tx.send(super::InternalEvent::ChatPipeline(
+            super::ChatPipelineEvent::AnswerChunk {
+                request_id: in_flight.request_id,
+                chunk: "late".to_owned(),
+            },
+        ))
+        .expect("send late chunk");
+        pump_internal(&mut state, &mut view_data, &tx, &rx);
+        assert!(
+            !view_data
+                .chat
+                .transcript
+                .iter()
+                .any(|message| message.body.contains("late"))
         );
     }
 

@@ -7,12 +7,23 @@ use micasa_db::{
     HouseProfileInput, LifecycleEntityRef, NewAppliance, NewDocument, NewIncident,
     NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, Store,
 };
-use micasa_llm::Client as LlmClient;
-use micasa_tui::{
-    DashboardIncident, DashboardMaintenance, DashboardProject, DashboardServiceEntry,
-    DashboardSnapshot, DashboardWarranty, LifecycleAction, TabSnapshot,
+use micasa_llm::{
+    Client as LlmClient, ColumnInfo, Message as LlmMessage, Role as LlmRole, TableInfo,
+    build_fallback_prompt, build_sql_prompt, build_summary_prompt, extract_sql,
+    format_results_table,
 };
-use time::{Date, Duration, Month};
+use micasa_tui::{
+    ChatHistoryMessage, ChatHistoryRole, ChatPipelineEvent, ChatPipelineResult, DashboardIncident,
+    DashboardMaintenance, DashboardProject, DashboardServiceEntry, DashboardSnapshot,
+    DashboardWarranty, InternalEvent, LifecycleAction, TabSnapshot,
+};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+use std::thread;
+use time::{Date, Duration, Month, OffsetDateTime};
 
 const MAX_UNDO_STACK: usize = 50;
 
@@ -38,16 +49,167 @@ pub struct DbRuntime<'a> {
     undo_stack: Vec<MutationRecord>,
     redo_stack: Vec<MutationRecord>,
     llm_client: Option<LlmClient>,
+    llm_extra_context: String,
+    db_path: Option<PathBuf>,
+    chat_cancellations: HashMap<u64, Arc<AtomicBool>>,
 }
 
 impl<'a> DbRuntime<'a> {
-    pub fn with_llm_client(store: &'a Store, llm_client: Option<LlmClient>) -> Self {
+    pub fn with_llm_client_context_and_db_path(
+        store: &'a Store,
+        llm_client: Option<LlmClient>,
+        llm_extra_context: impl Into<String>,
+        db_path: Option<PathBuf>,
+    ) -> Self {
         Self {
             store,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             llm_client,
+            llm_extra_context: llm_extra_context.into(),
+            db_path,
+            chat_cancellations: HashMap::new(),
         }
+    }
+
+    fn llm_extra_context(&self) -> Option<&str> {
+        let trimmed = self.llm_extra_context.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }
+
+    fn build_table_info(&self) -> Vec<TableInfo> {
+        Self::build_table_info_from_store(self.store)
+    }
+
+    fn build_table_info_from_store(store: &Store) -> Vec<TableInfo> {
+        let table_names = match store.table_names() {
+            Ok(names) => names,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut tables = Vec::new();
+        for name in table_names {
+            let columns = match store.table_columns(&name) {
+                Ok(columns) => columns,
+                Err(_) => continue,
+            };
+
+            let mut llm_columns = Vec::with_capacity(columns.len());
+            for column in columns {
+                llm_columns.push(ColumnInfo {
+                    name: column.name,
+                    column_type: column.column_type,
+                    not_null: column.not_null,
+                    primary_key: column.primary_key > 0,
+                });
+            }
+
+            tables.push(TableInfo {
+                name,
+                columns: llm_columns,
+            });
+        }
+        tables
+    }
+
+    fn build_history_messages(history: &[ChatHistoryMessage]) -> Vec<LlmMessage> {
+        history
+            .iter()
+            .map(|message| LlmMessage {
+                role: match message.role {
+                    ChatHistoryRole::User => LlmRole::User,
+                    ChatHistoryRole::Assistant => LlmRole::Assistant,
+                },
+                content: message.content.clone(),
+            })
+            .collect()
+    }
+
+    fn stream_chat_complete(client: &LlmClient, messages: &[LlmMessage]) -> Result<String> {
+        let mut response = String::new();
+        let stream = client.chat_stream(messages).context("start LLM stream")?;
+        for chunk in stream {
+            let chunk = chunk.context("read LLM stream chunk")?;
+            response.push_str(&chunk.content);
+            if chunk.done {
+                break;
+            }
+        }
+        Ok(response)
+    }
+
+    fn stream_chat_with_events<F>(
+        client: &LlmClient,
+        messages: &[LlmMessage],
+        cancel: &AtomicBool,
+        mut on_chunk: F,
+    ) -> Result<String>
+    where
+        F: FnMut(String) -> bool,
+    {
+        let mut response = String::new();
+        let stream = client.chat_stream(messages).context("start LLM stream")?;
+        for chunk in stream {
+            if cancel.load(Ordering::Acquire) {
+                break;
+            }
+            let chunk = chunk.context("read LLM stream chunk")?;
+            if !chunk.content.is_empty() {
+                response.push_str(&chunk.content);
+                if !on_chunk(chunk.content) {
+                    break;
+                }
+            }
+            if chunk.done {
+                break;
+            }
+        }
+        Ok(response)
+    }
+
+    fn run_fallback_pipeline(
+        &self,
+        client: &LlmClient,
+        question: &str,
+        history: &[ChatHistoryMessage],
+        tables: &[TableInfo],
+        now: OffsetDateTime,
+    ) -> Result<ChatPipelineResult> {
+        let data_dump = self.store.data_dump();
+        let fallback_prompt = build_fallback_prompt(
+            tables,
+            if data_dump.is_empty() {
+                "(no rows)\n"
+            } else {
+                &data_dump
+            },
+            now,
+            self.llm_extra_context(),
+        );
+
+        let mut messages = Vec::with_capacity(history.len() + 2);
+        messages.push(LlmMessage {
+            role: LlmRole::System,
+            content: fallback_prompt,
+        });
+        messages.extend(Self::build_history_messages(history));
+        messages.push(LlmMessage {
+            role: LlmRole::User,
+            content: question.to_owned(),
+        });
+
+        let answer = Self::stream_chat_complete(client, &messages).context(
+            "fallback response failed; verify the LLM server is reachable and selected model exists",
+        )?;
+        Ok(ChatPipelineResult {
+            answer,
+            sql: None,
+            used_fallback: true,
+        })
     }
 
     fn record_mutation(&mut self, record: MutationRecord) {
@@ -533,6 +695,362 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
         self.store.put_last_model(trimmed)?;
         Ok(())
     }
+
+    fn spawn_chat_pipeline(
+        &mut self,
+        request_id: u64,
+        question: &str,
+        history: &[ChatHistoryMessage],
+        tx: Sender<InternalEvent>,
+    ) -> Result<()> {
+        self.chat_cancellations
+            .retain(|_, flag| !flag.load(Ordering::Acquire));
+
+        let Some(client) = self.llm_client.clone() else {
+            bail!("LLM disabled -- set [llm].enabled = true and restart");
+        };
+        let Some(db_path) = self.db_path.clone() else {
+            bail!(
+                "chat worker needs a file-backed database path; restart micasa without in-memory DB"
+            );
+        };
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.chat_cancellations.insert(request_id, cancel.clone());
+        let worker = ChatWorker {
+            request_id,
+            client,
+            llm_extra_context: self.llm_extra_context.clone(),
+            question: question.to_owned(),
+            history: history.to_vec(),
+            cancel,
+            tx,
+        };
+
+        thread::spawn(move || worker.run(db_path));
+        Ok(())
+    }
+
+    fn cancel_chat_pipeline(&mut self, request_id: u64) -> Result<()> {
+        if let Some(cancel) = self.chat_cancellations.remove(&request_id) {
+            cancel.store(true, Ordering::Release);
+        }
+        Ok(())
+    }
+
+    fn run_chat_pipeline(
+        &mut self,
+        question: &str,
+        history: &[ChatHistoryMessage],
+    ) -> Result<ChatPipelineResult> {
+        let trimmed_question = question.trim();
+        if trimmed_question.is_empty() {
+            bail!("question is empty; enter a prompt and retry");
+        }
+
+        let Some(client) = self.llm_client.as_ref() else {
+            bail!("LLM disabled -- set [llm].enabled = true and restart");
+        };
+
+        let now = OffsetDateTime::now_utc();
+        let tables = self.build_table_info();
+        let column_hints = self.store.column_hints();
+        let sql_prompt = build_sql_prompt(
+            &tables,
+            now,
+            if column_hints.is_empty() {
+                None
+            } else {
+                Some(column_hints.as_str())
+            },
+            self.llm_extra_context(),
+        );
+
+        let mut sql_messages = Vec::with_capacity(history.len() + 2);
+        sql_messages.push(LlmMessage {
+            role: LlmRole::System,
+            content: sql_prompt,
+        });
+        sql_messages.extend(Self::build_history_messages(history));
+        sql_messages.push(LlmMessage {
+            role: LlmRole::User,
+            content: trimmed_question.to_owned(),
+        });
+
+        let raw_sql = Self::stream_chat_complete(client, &sql_messages).context(
+            "SQL generation failed; verify the selected model is available and LLM server is reachable",
+        )?;
+        let sql = extract_sql(&raw_sql);
+        if sql.is_empty() {
+            return self
+                .run_fallback_pipeline(client, trimmed_question, history, &tables, now)
+                .context("LLM returned empty SQL and fallback query failed");
+        }
+
+        let (columns, rows) = match self.store.read_only_query(&sql) {
+            Ok(output) => output,
+            Err(_) => {
+                return self
+                    .run_fallback_pipeline(client, trimmed_question, history, &tables, now)
+                    .context("generated SQL could not be executed and fallback query failed");
+            }
+        };
+
+        let results_table = format_results_table(&columns, &rows);
+        let summary_prompt = build_summary_prompt(
+            trimmed_question,
+            &sql,
+            &results_table,
+            now,
+            self.llm_extra_context(),
+        );
+
+        let summary_messages = vec![
+            LlmMessage {
+                role: LlmRole::System,
+                content: summary_prompt,
+            },
+            LlmMessage {
+                role: LlmRole::User,
+                content: "Summarize these results.".to_owned(),
+            },
+        ];
+        let answer = Self::stream_chat_complete(client, &summary_messages).context(
+            "result summarization failed; retry with a smaller question or switch to another model",
+        )?;
+
+        Ok(ChatPipelineResult {
+            answer,
+            sql: Some(sql),
+            used_fallback: false,
+        })
+    }
+}
+
+struct ChatWorker {
+    request_id: u64,
+    client: LlmClient,
+    llm_extra_context: String,
+    question: String,
+    history: Vec<ChatHistoryMessage>,
+    cancel: Arc<AtomicBool>,
+    tx: Sender<InternalEvent>,
+}
+
+impl ChatWorker {
+    fn send(&self, event: ChatPipelineEvent) -> bool {
+        self.tx.send(InternalEvent::ChatPipeline(event)).is_ok()
+    }
+
+    fn extra_context(&self) -> Option<&str> {
+        let trimmed = self.llm_extra_context.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }
+
+    fn is_canceled(&self) -> bool {
+        self.cancel.load(Ordering::Acquire)
+    }
+
+    fn run_fallback(&self, store: &Store, tables: &[TableInfo], now: OffsetDateTime) -> Result<()> {
+        if self.is_canceled() {
+            return Ok(());
+        }
+        if !self.send(ChatPipelineEvent::FallbackStarted {
+            request_id: self.request_id,
+        }) {
+            return Ok(());
+        }
+
+        let data_dump = store.data_dump();
+        let fallback_prompt = build_fallback_prompt(
+            tables,
+            if data_dump.is_empty() {
+                "(no rows)\n"
+            } else {
+                &data_dump
+            },
+            now,
+            self.extra_context(),
+        );
+        let mut fallback_messages = Vec::with_capacity(self.history.len() + 2);
+        fallback_messages.push(LlmMessage {
+            role: LlmRole::System,
+            content: fallback_prompt,
+        });
+        fallback_messages.extend(DbRuntime::build_history_messages(&self.history));
+        fallback_messages.push(LlmMessage {
+            role: LlmRole::User,
+            content: self.question.trim().to_owned(),
+        });
+
+        let answer = DbRuntime::stream_chat_with_events(
+            &self.client,
+            &fallback_messages,
+            self.cancel.as_ref(),
+            |chunk| {
+                self.send(ChatPipelineEvent::AnswerChunk {
+                    request_id: self.request_id,
+                    chunk,
+                })
+            },
+        )
+        .context(
+            "fallback response failed; verify the LLM server is reachable and selected model exists",
+        )?;
+
+        if self.is_canceled() {
+            return Ok(());
+        }
+        let _ = self.send(ChatPipelineEvent::Completed {
+            request_id: self.request_id,
+            result: ChatPipelineResult {
+                answer,
+                sql: None,
+                used_fallback: true,
+            },
+        });
+        Ok(())
+    }
+
+    fn run(self, db_path: PathBuf) {
+        let result = (|| -> Result<()> {
+            let trimmed_question = self.question.trim();
+            if trimmed_question.is_empty() {
+                bail!("question is empty; enter a prompt and retry");
+            }
+
+            let store = Store::open(&db_path)
+                .with_context(|| format!("open database {} for chat worker", db_path.display()))?;
+
+            let now = OffsetDateTime::now_utc();
+            let tables = DbRuntime::build_table_info_from_store(&store);
+            let column_hints = store.column_hints();
+            let sql_prompt = build_sql_prompt(
+                &tables,
+                now,
+                if column_hints.is_empty() {
+                    None
+                } else {
+                    Some(column_hints.as_str())
+                },
+                self.extra_context(),
+            );
+
+            let mut sql_messages = Vec::with_capacity(self.history.len() + 2);
+            sql_messages.push(LlmMessage {
+                role: LlmRole::System,
+                content: sql_prompt,
+            });
+            sql_messages.extend(DbRuntime::build_history_messages(&self.history));
+            sql_messages.push(LlmMessage {
+                role: LlmRole::User,
+                content: trimmed_question.to_owned(),
+            });
+
+            let raw_sql = DbRuntime::stream_chat_with_events(
+                &self.client,
+                &sql_messages,
+                self.cancel.as_ref(),
+                |chunk| {
+                    self.send(ChatPipelineEvent::SqlChunk {
+                        request_id: self.request_id,
+                        chunk,
+                    })
+                },
+            )
+            .context(
+                "SQL generation failed; verify the selected model is available and LLM server is reachable",
+            )?;
+
+            if self.is_canceled() {
+                return Ok(());
+            }
+            let sql = extract_sql(&raw_sql);
+            if sql.is_empty() {
+                return self
+                    .run_fallback(&store, &tables, now)
+                    .context("LLM returned empty SQL and fallback query failed");
+            }
+
+            if !self.send(ChatPipelineEvent::SqlReady {
+                request_id: self.request_id,
+                sql: sql.clone(),
+            }) {
+                return Ok(());
+            }
+
+            let (columns, rows) = match store.read_only_query(&sql) {
+                Ok(output) => output,
+                Err(_) => {
+                    return self
+                        .run_fallback(&store, &tables, now)
+                        .context("generated SQL could not be executed and fallback query failed");
+                }
+            };
+
+            let results_table = format_results_table(&columns, &rows);
+            let summary_prompt = build_summary_prompt(
+                trimmed_question,
+                &sql,
+                &results_table,
+                now,
+                self.extra_context(),
+            );
+            let summary_messages = vec![
+                LlmMessage {
+                    role: LlmRole::System,
+                    content: summary_prompt,
+                },
+                LlmMessage {
+                    role: LlmRole::User,
+                    content: "Summarize these results.".to_owned(),
+                },
+            ];
+
+            let answer = DbRuntime::stream_chat_with_events(
+                &self.client,
+                &summary_messages,
+                self.cancel.as_ref(),
+                |chunk| {
+                    self.send(ChatPipelineEvent::AnswerChunk {
+                        request_id: self.request_id,
+                        chunk,
+                    })
+                },
+            )
+            .context(
+                "result summarization failed; retry with a smaller question or switch to another model",
+            )?;
+
+            if self.is_canceled() {
+                return Ok(());
+            }
+            let _ = self.send(ChatPipelineEvent::Completed {
+                request_id: self.request_id,
+                result: ChatPipelineResult {
+                    answer,
+                    sql: Some(sql),
+                    used_fallback: false,
+                },
+            });
+            Ok(())
+        })();
+
+        let was_canceled = self.is_canceled();
+        if let Err(error) = result
+            && !was_canceled
+        {
+            let _ = self.send(ChatPipelineEvent::Failed {
+                request_id: self.request_id,
+                error: error.to_string(),
+            });
+        }
+        self.cancel.store(true, Ordering::Release);
+    }
 }
 
 fn add_months_clamped(date: Date, months: i32) -> Option<Date> {
@@ -578,7 +1096,10 @@ mod tests {
         ProjectTypeId, ServiceLogEntryFormInput, SettingKey, SettingValue, TabKind,
     };
     use micasa_db::{NewMaintenanceItem, NewProject, Store};
-    use micasa_tui::{AppRuntime, LifecycleAction, TabSnapshot};
+    use micasa_llm::Role as LlmRole;
+    use micasa_tui::{
+        AppRuntime, ChatHistoryMessage, ChatHistoryRole, LifecycleAction, TabSnapshot,
+    };
     use time::{Date, Month};
 
     #[test]
@@ -586,7 +1107,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         runtime.submit_form(&FormPayload::Project(ProjectFormInput {
             title: "Deck repair".to_owned(),
             project_type_id: ProjectTypeId::new(1),
@@ -622,7 +1143,7 @@ mod tests {
         })?;
         store.soft_delete_project(project_id)?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         let visible = runtime
             .load_tab_snapshot(TabKind::Projects, false)?
             .expect("projects snapshot");
@@ -639,7 +1160,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         let before = runtime
             .load_tab_snapshot(TabKind::House, false)?
             .expect("house snapshot");
@@ -702,7 +1223,7 @@ mod tests {
             cost_cents: None,
         })?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         runtime.submit_form(&FormPayload::ServiceLogEntry(ServiceLogEntryFormInput {
             maintenance_item_id: maintenance_id,
             serviced_at: Date::from_calendar_date(2026, Month::January, 9)?,
@@ -730,7 +1251,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         runtime.submit_form(&FormPayload::Project(ProjectFormInput {
             title: "Undo demo".to_owned(),
             project_type_id: ProjectTypeId::new(1),
@@ -762,7 +1283,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         runtime.append_chat_input("When is the next HVAC service due?")?;
         runtime.append_chat_input("When is the next HVAC service due?")?;
         runtime.append_chat_input("How many active projects do I have?")?;
@@ -818,7 +1339,7 @@ mod tests {
             notes: String::new(),
         })?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         let snapshot = runtime.load_dashboard_snapshot()?;
         assert!(!snapshot.incidents.is_empty());
         assert!(!snapshot.recent_activity.is_empty());
@@ -830,7 +1351,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         let list_error = runtime
             .list_chat_models()
             .expect_err("list models should fail without LLM client");
@@ -844,11 +1365,42 @@ mod tests {
     }
 
     #[test]
+    fn chat_pipeline_fails_actionably_when_llm_disabled() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+        let error = runtime
+            .run_chat_pipeline("How many projects are underway?", &[])
+            .expect_err("pipeline should fail without an llm client");
+        assert!(error.to_string().contains("LLM disabled"));
+        Ok(())
+    }
+
+    #[test]
+    fn chat_history_mapping_uses_typed_roles() {
+        let mapped = DbRuntime::build_history_messages(&[
+            ChatHistoryMessage {
+                role: ChatHistoryRole::User,
+                content: "Question".to_owned(),
+            },
+            ChatHistoryMessage {
+                role: ChatHistoryRole::Assistant,
+                content: "Answer".to_owned(),
+            },
+        ]);
+
+        assert_eq!(mapped.len(), 2);
+        assert_eq!(mapped[0].role, LlmRole::User);
+        assert_eq!(mapped[1].role, LlmRole::Assistant);
+    }
+
+    #[test]
     fn dashboard_preference_round_trip_uses_settings_table() -> Result<()> {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         runtime.set_show_dashboard_preference(false)?;
         assert!(!store.get_show_dashboard()?);
 
@@ -862,7 +1414,7 @@ mod tests {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
-        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
         runtime.set_show_dashboard_preference(false)?;
         store.put_last_model("qwen3:32b")?;
 

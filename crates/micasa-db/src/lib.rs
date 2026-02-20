@@ -3616,9 +3616,7 @@ mod tests {
         let error = store
             .get_show_dashboard()
             .expect_err("invalid bool should be rejected");
-        assert!(error
-            .to_string()
-            .contains("set a valid value in Settings"));
+        assert!(error.to_string().contains("set a valid value in Settings"));
         Ok(())
     }
 }

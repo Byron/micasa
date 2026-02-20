@@ -102,8 +102,6 @@ fn run() -> Result<()> {
     } else {
         None
     };
-    let _llm_extra_context = config.llm_extra_context();
-
     if check_only {
         return Ok(());
     }
@@ -117,7 +115,12 @@ fn run() -> Result<()> {
         state.active_tab = TabKind::Projects;
     }
 
-    let mut runtime = DbRuntime::with_llm_client(&store, llm_client);
+    let mut runtime = DbRuntime::with_llm_client_context_and_db_path(
+        &store,
+        llm_client,
+        config.llm_extra_context(),
+        Some(db_path),
+    );
     micasa_tui::run_app(&mut state, &mut runtime)
 }
 
