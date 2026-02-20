@@ -22,7 +22,7 @@ use std::io;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::Duration;
-use time::Date;
+use time::{Date, Month, OffsetDateTime};
 
 const HALF_PAGE_ROWS: isize = 10;
 const FULL_PAGE_ROWS: isize = 20;
@@ -428,6 +428,15 @@ enum ChatCommand {
     Model(String),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct ChatModelPickerUiState {
+    visible: bool,
+    query: String,
+    matches: Vec<String>,
+    cursor: usize,
+    error: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 struct ChatUiState {
     input: String,
@@ -436,6 +445,7 @@ struct ChatUiState {
     history_cursor: Option<usize>,
     history_buffer: String,
     transcript: Vec<ChatMessage>,
+    model_picker: ChatModelPickerUiState,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -504,6 +514,17 @@ struct NotePreviewUiState {
     text: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Default)]
+struct DatePickerUiState {
+    visible: bool,
+    tab: Option<TabKind>,
+    row_id: Option<i64>,
+    column: usize,
+    field_label: String,
+    original: Option<Date>,
+    selected: Option<Date>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct DetailStackEntry {
     title: String,
@@ -528,6 +549,7 @@ struct ViewData {
     dashboard: DashboardUiState,
     column_finder: ColumnFinderUiState,
     note_preview: NotePreviewUiState,
+    date_picker: DatePickerUiState,
     detail_stack: Vec<DetailStackEntry>,
     chat: ChatUiState,
     help_visible: bool,
@@ -657,6 +679,11 @@ fn handle_key_event<R: AppRuntime>(
             view_data.help_visible = false;
             emit_status(state, view_data, internal_tx, "help hidden");
         }
+        return false;
+    }
+
+    if view_data.date_picker.visible {
+        handle_date_picker_key(state, view_data, internal_tx, key);
         return false;
     }
 
@@ -835,7 +862,32 @@ fn handle_key_event<R: AppRuntime>(
                     internal_tx,
                 );
             }
-            (KeyCode::Char('a'), KeyModifiers::NONE) | (KeyCode::Char('e'), KeyModifiers::NONE) => {
+            (KeyCode::Char('a'), KeyModifiers::NONE) => {
+                if let Some(form_kind) = form_for_tab(state.active_tab) {
+                    dispatch_and_refresh(
+                        state,
+                        runtime,
+                        view_data,
+                        AppCommand::OpenForm(form_kind),
+                        internal_tx,
+                    );
+                    if let Some(payload) = template_payload_for_form(form_kind) {
+                        dispatch_and_refresh(
+                            state,
+                            runtime,
+                            view_data,
+                            AppCommand::SetFormPayload(payload),
+                            internal_tx,
+                        );
+                    }
+                } else {
+                    emit_status(state, view_data, internal_tx, "form unavailable");
+                }
+            }
+            (KeyCode::Char('e'), KeyModifiers::NONE) => {
+                if open_inline_date_picker(state, view_data, internal_tx) {
+                    return false;
+                }
                 if let Some(form_kind) = form_for_tab(state.active_tab) {
                     dispatch_and_refresh(
                         state,
@@ -1023,6 +1075,116 @@ fn handle_key_event<R: AppRuntime>(
     }
 
     false
+}
+
+fn open_inline_date_picker(
+    state: &mut AppState,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+) -> bool {
+    let Some((column, value)) = selected_cell(view_data) else {
+        emit_status(state, view_data, internal_tx, "no cell selected");
+        return false;
+    };
+
+    let TableCell::Date(original) = value else {
+        return false;
+    };
+
+    let selected = original.unwrap_or_else(|| OffsetDateTime::now_utc().date());
+    let label = active_projection(view_data)
+        .and_then(|projection| projection.columns.get(column).copied())
+        .unwrap_or("date")
+        .to_owned();
+
+    view_data.date_picker = DatePickerUiState {
+        visible: true,
+        tab: view_data.table_state.tab,
+        row_id: selected_row_metadata(view_data).map(|(row_id, _)| row_id),
+        column,
+        field_label: label,
+        original,
+        selected: Some(selected),
+    };
+    emit_status(state, view_data, internal_tx, "date picker open");
+    true
+}
+
+fn handle_date_picker_key(
+    state: &mut AppState,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+    key: KeyEvent,
+) {
+    let Some(current) = view_data.date_picker.selected else {
+        view_data.date_picker = DatePickerUiState::default();
+        return;
+    };
+
+    let next = match (key.code, key.modifiers) {
+        (KeyCode::Esc, _) => {
+            view_data.date_picker = DatePickerUiState::default();
+            emit_status(state, view_data, internal_tx, "date edit canceled");
+            return;
+        }
+        (KeyCode::Enter, _) => {
+            let picked = current.to_string();
+            view_data.date_picker = DatePickerUiState::default();
+            emit_status(
+                state,
+                view_data,
+                internal_tx,
+                format!("date picked {picked}; open full form to persist"),
+            );
+            return;
+        }
+        (KeyCode::Char('h'), _) | (KeyCode::Left, _) => shift_date_by_days(current, -1),
+        (KeyCode::Char('l'), _) | (KeyCode::Right, _) => shift_date_by_days(current, 1),
+        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => shift_date_by_days(current, 7),
+        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => shift_date_by_days(current, -7),
+        (KeyCode::Char('H'), _) => shift_date_by_months(current, -1),
+        (KeyCode::Char('L'), _) => shift_date_by_months(current, 1),
+        (KeyCode::Char('['), _) => shift_date_by_years(current, -1),
+        (KeyCode::Char(']'), _) => shift_date_by_years(current, 1),
+        _ => None,
+    };
+
+    if let Some(date) = next {
+        view_data.date_picker.selected = Some(date);
+    }
+}
+
+fn shift_date_by_days(date: Date, days: i64) -> Option<Date> {
+    date.checked_add(time::Duration::days(days))
+}
+
+fn shift_date_by_years(date: Date, years: i32) -> Option<Date> {
+    shift_date_by_months(date, years.saturating_mul(12))
+}
+
+fn shift_date_by_months(date: Date, months: i32) -> Option<Date> {
+    let base_month = i32::from(date.month() as u8);
+    let total_month = base_month - 1 + months;
+    let year = date.year() + total_month.div_euclid(12);
+    let month_number = (total_month.rem_euclid(12) + 1) as u8;
+    let month = Month::try_from(month_number).ok()?;
+    let day = date.day();
+    let max_day = last_day_of_month(year, month)?;
+    let clamped_day = day.min(max_day);
+    Date::from_calendar_date(year, month, clamped_day).ok()
+}
+
+fn last_day_of_month(year: i32, month: Month) -> Option<u8> {
+    let (next_year, next_month) = if month == Month::December {
+        (year + 1, Month::January)
+    } else {
+        let next = Month::try_from((month as u8) + 1).ok()?;
+        (year, next)
+    };
+
+    let first_next_month = Date::from_calendar_date(next_year, next_month, 1).ok()?;
+    let last = first_next_month - time::Duration::days(1);
+    Some(last.day())
 }
 
 fn handle_dashboard_overlay_key<R: AppRuntime>(
@@ -1315,6 +1477,7 @@ fn push_detail_snapshot(view_data: &mut ViewData, title: impl Into<String>, snap
     view_data.table_state = detail_state;
     view_data.column_finder = ColumnFinderUiState::default();
     view_data.note_preview = NotePreviewUiState::default();
+    view_data.date_picker = DatePickerUiState::default();
     clamp_table_cursor(view_data);
 }
 
@@ -1326,6 +1489,7 @@ fn pop_detail_snapshot(view_data: &mut ViewData) -> bool {
     view_data.table_state = previous.table_state;
     view_data.column_finder = ColumnFinderUiState::default();
     view_data.note_preview = NotePreviewUiState::default();
+    view_data.date_picker = DatePickerUiState::default();
     clamp_table_cursor(view_data);
     true
 }
@@ -1401,8 +1565,13 @@ fn handle_chat_overlay_key<R: AppRuntime>(
     internal_tx: &Sender<InternalEvent>,
     key: KeyEvent,
 ) {
+    if handle_chat_model_picker_key(state, runtime, view_data, internal_tx, key) {
+        return;
+    }
+
     match (key.code, key.modifiers) {
         (KeyCode::Esc, _) => {
+            view_data.chat.model_picker = ChatModelPickerUiState::default();
             dispatch_and_refresh(
                 state,
                 runtime,
@@ -1410,6 +1579,7 @@ fn handle_chat_overlay_key<R: AppRuntime>(
                 AppCommand::CloseChat,
                 internal_tx,
             );
+            return;
         }
         (KeyCode::Char('s'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
             view_data.chat.show_sql = !view_data.chat.show_sql;
@@ -1418,6 +1588,7 @@ fn handle_chat_overlay_key<R: AppRuntime>(
             } else {
                 emit_status(state, view_data, internal_tx, "chat sql off");
             }
+            return;
         }
         (KeyCode::Up, _) => chat_history_prev(view_data),
         (KeyCode::Char('p'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -1440,6 +1611,126 @@ fn handle_chat_overlay_key<R: AppRuntime>(
         }
         _ => {}
     }
+
+    refresh_chat_model_picker(runtime, view_data);
+}
+
+fn handle_chat_model_picker_key<R: AppRuntime>(
+    state: &mut AppState,
+    runtime: &mut R,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+    key: KeyEvent,
+) -> bool {
+    if !view_data.chat.model_picker.visible {
+        return false;
+    }
+
+    match (key.code, key.modifiers) {
+        (KeyCode::Up, _) => {
+            view_data.chat.model_picker.cursor =
+                view_data.chat.model_picker.cursor.saturating_sub(1);
+            true
+        }
+        (KeyCode::Char('p'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+            view_data.chat.model_picker.cursor =
+                view_data.chat.model_picker.cursor.saturating_sub(1);
+            true
+        }
+        (KeyCode::Down, _) => {
+            let max = view_data.chat.model_picker.matches.len().saturating_sub(1);
+            view_data.chat.model_picker.cursor = (view_data.chat.model_picker.cursor + 1).min(max);
+            true
+        }
+        (KeyCode::Char('n'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+            let max = view_data.chat.model_picker.matches.len().saturating_sub(1);
+            view_data.chat.model_picker.cursor = (view_data.chat.model_picker.cursor + 1).min(max);
+            true
+        }
+        (KeyCode::Esc, _) => {
+            view_data.chat.model_picker = ChatModelPickerUiState::default();
+            emit_status(state, view_data, internal_tx, "model picker hidden");
+            true
+        }
+        (KeyCode::Enter, _) => {
+            let Some(model) = view_data
+                .chat
+                .model_picker
+                .matches
+                .get(view_data.chat.model_picker.cursor)
+                .cloned()
+            else {
+                emit_status(state, view_data, internal_tx, "no model match to select");
+                return true;
+            };
+            view_data.chat.model_picker = ChatModelPickerUiState::default();
+            view_data.chat.input = format!("/model {model}");
+            submit_chat_input(state, runtime, view_data, internal_tx);
+            true
+        }
+        _ => false,
+    }
+}
+
+fn refresh_chat_model_picker<R: AppRuntime>(runtime: &mut R, view_data: &mut ViewData) {
+    let Some(raw_query) = view_data.chat.input.strip_prefix("/model ") else {
+        view_data.chat.model_picker = ChatModelPickerUiState::default();
+        return;
+    };
+
+    view_data.chat.model_picker.visible = true;
+    view_data.chat.model_picker.query = raw_query.to_owned();
+    view_data.chat.model_picker.error = None;
+
+    match runtime.list_chat_models() {
+        Ok(models) => {
+            let query = raw_query.trim();
+            let mut matches = models
+                .into_iter()
+                .filter(|model| chat_model_matches_query(model, query))
+                .collect::<Vec<_>>();
+            matches.sort();
+            view_data.chat.model_picker.matches = matches;
+            if view_data.chat.model_picker.matches.is_empty() {
+                view_data.chat.model_picker.cursor = 0;
+            } else {
+                view_data.chat.model_picker.cursor = view_data
+                    .chat
+                    .model_picker
+                    .cursor
+                    .min(view_data.chat.model_picker.matches.len().saturating_sub(1));
+            }
+        }
+        Err(error) => {
+            view_data.chat.model_picker.matches.clear();
+            view_data.chat.model_picker.cursor = 0;
+            view_data.chat.model_picker.error = Some(format!("model list failed: {error}"));
+        }
+    }
+}
+
+fn chat_model_matches_query(model: &str, query: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+
+    let model_lc = model.to_ascii_lowercase();
+    let query_lc = query.to_ascii_lowercase();
+    if model_lc.contains(&query_lc) {
+        return true;
+    }
+
+    let mut query_chars = query_lc.chars();
+    let mut current = query_chars.next();
+    for ch in model_lc.chars() {
+        let Some(needle) = current else {
+            return true;
+        };
+        if ch == needle {
+            current = query_chars.next();
+        }
+    }
+    current.is_none()
 }
 
 fn submit_chat_input<R: AppRuntime>(
@@ -1456,6 +1747,7 @@ fn submit_chat_input<R: AppRuntime>(
     view_data.chat.input.clear();
     view_data.chat.history_cursor = None;
     view_data.chat.history_buffer.clear();
+    view_data.chat.model_picker = ChatModelPickerUiState::default();
 
     if view_data.chat.history.last() != Some(&input) {
         view_data.chat.history.push(input.clone());
@@ -2186,6 +2478,14 @@ fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData
         frame.render_widget(preview, area);
     }
 
+    if view_data.date_picker.visible {
+        let area = centered_rect(48, 30, frame.area());
+        frame.render_widget(Clear, area);
+        let picker = Paragraph::new(render_date_picker_overlay_text(&view_data.date_picker))
+            .block(Block::default().title("date").borders(Borders::ALL));
+        frame.render_widget(picker, area);
+    }
+
     if view_data.help_visible {
         let area = centered_rect(80, 72, frame.area());
         frame.render_widget(Clear, area);
@@ -2437,11 +2737,71 @@ fn render_chat_overlay_text(chat: &ChatUiState, mag_mode: bool) -> String {
         "> {}",
         apply_mag_mode_to_text(&chat.input, mag_mode)
     ));
+
+    if chat.model_picker.visible {
+        lines.push(String::new());
+        lines.push(format!("model query: {}", chat.model_picker.query.trim()));
+        if let Some(error) = &chat.model_picker.error {
+            lines.push(error.clone());
+        } else if chat.model_picker.matches.is_empty() {
+            lines.push("(no model matches)".to_owned());
+        } else {
+            let start = chat.model_picker.cursor.saturating_sub(3);
+            let end = (start + 8).min(chat.model_picker.matches.len());
+            for (index, model) in chat
+                .model_picker
+                .matches
+                .iter()
+                .enumerate()
+                .take(end)
+                .skip(start)
+            {
+                let prefix = if index == chat.model_picker.cursor {
+                    "> "
+                } else {
+                    "  "
+                };
+                lines.push(format!("{prefix}{model}"));
+            }
+            lines.push("up/down pick | enter select | esc close".to_owned());
+        }
+    }
+
     lines.push(
         "enter send | up/down history | ctrl+s sql | /models | /model | /sql | /help | esc close"
             .to_owned(),
     );
     lines.join("\n")
+}
+
+fn render_date_picker_overlay_text(date_picker: &DatePickerUiState) -> String {
+    let selected = date_picker
+        .selected
+        .map(|date| date.to_string())
+        .unwrap_or_else(|| "-".to_owned());
+    let original = date_picker
+        .original
+        .map(|date| date.to_string())
+        .unwrap_or_else(|| "(empty)".to_owned());
+    let tab_label = date_picker
+        .tab
+        .map(|tab| tab.label().to_owned())
+        .unwrap_or_else(|| "-".to_owned());
+    let row_label = date_picker
+        .row_id
+        .map(|row_id| row_id.to_string())
+        .unwrap_or_else(|| "-".to_owned());
+
+    [
+        format!("target: {tab_label}#{row_label} c{}", date_picker.column),
+        format!("field: {}", date_picker.field_label),
+        format!("orig: {original}"),
+        format!("pick: {selected}"),
+        String::new(),
+        "h/l day | j/k week | H/L month | [/] year".to_owned(),
+        "enter pick | esc cancel".to_owned(),
+    ]
+    .join("\n")
 }
 
 fn render_column_finder_overlay_text(view_data: &ViewData) -> String {
@@ -2531,8 +2891,10 @@ fn help_overlay_text() -> &'static str {
 nav: j/k/h/l g/G ^/$ d/u pgup/pgdn | b/f tabs | B/F first/last | tab house | D dashboard\n\
 nav: enter follow/drill/preview | s/S sort | t settled | c/C cols | / col jump\n\
 nav: n/N pin/filter | ctrl+n clear pins | i edit | @ chat | ? help\n\
-edit: a add | e edit form | d del/restore | x show deleted | u undo | r redo | ctrl+d/u pgup/pgdn | esc nav\n\
-form: ctrl+s or enter submit | esc cancel\n\
+edit: a add | e edit (date picker/form) | d del/restore | x show deleted | u undo | r redo | ctrl+d/u pgup/pgdn | esc nav\n\
+form: tab/shift+tab field | 1-9 choose | ctrl+s or enter submit | esc cancel\n\
+date picker: h/l day j/k week H/L month [/] year enter pick esc cancel\n\
+chat model picker: type /model <query> | up/down or ctrl+p/ctrl+n | enter select | esc dismiss\n\
 col finder: type filter | up/down | enter jump | esc close\n\
 note preview: any key close\n\
 dashboard: j/k g/G enter jump D close b/f switch ? help"
@@ -4244,6 +4606,142 @@ mod tests {
     }
 
     #[test]
+    fn edit_mode_date_picker_supports_navigation_and_pick() {
+        let mut state = AppState {
+            active_tab: TabKind::ServiceLog,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_col, 2);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+        );
+        assert!(view_data.date_picker.visible);
+        assert_eq!(
+            view_data.date_picker.selected,
+            Some(Date::from_calendar_date(2026, Month::January, 5).expect("valid date"))
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('H'), KeyModifiers::SHIFT),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(
+            view_data.date_picker.selected,
+            Some(Date::from_calendar_date(2026, Month::December, 13).expect("valid date"))
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(!view_data.date_picker.visible);
+        assert_eq!(
+            state.status_line.as_deref(),
+            Some("date picked 2026-12-13; open full form to persist")
+        );
+    }
+
+    #[test]
+    fn edit_mode_date_picker_esc_cancels_without_closing_chat() {
+        let mut state = AppState {
+            active_tab: TabKind::ServiceLog,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+        );
+        assert!(view_data.date_picker.visible);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(!view_data.date_picker.visible);
+        assert_eq!(state.mode, AppMode::Edit);
+        assert_eq!(state.status_line.as_deref(), Some("date edit canceled"));
+    }
+
+    #[test]
     fn movement_keys_adjust_table_cursor() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
@@ -5119,6 +5617,100 @@ mod tests {
             .map(|message| message.body.clone())
             .unwrap_or_default();
         assert!(switch_reply.contains("model set: qwen3:32b"));
+    }
+
+    #[test]
+    fn chat_model_picker_esc_dismisses_without_closing_overlay() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime {
+            available_models: vec!["qwen3".to_owned(), "qwen3:32b".to_owned()],
+            active_model: Some("qwen3".to_owned()),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+        );
+        for ch in "/model ".chars() {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+            );
+        }
+        assert!(view_data.chat.model_picker.visible);
+        assert!(!view_data.chat.model_picker.matches.is_empty());
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert!(state.chat == ChatVisibility::Visible);
+        assert!(!view_data.chat.model_picker.visible);
+    }
+
+    #[test]
+    fn chat_model_picker_enter_selects_highlighted_model() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime {
+            available_models: vec![
+                "qwen3".to_owned(),
+                "qwen3:32b".to_owned(),
+                "llama3:8b".to_owned(),
+            ],
+            active_model: Some("qwen3".to_owned()),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+        );
+        for ch in "/model q".chars() {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE),
+            );
+        }
+        assert!(view_data.chat.model_picker.visible);
+        assert_eq!(view_data.chat.model_picker.matches.len(), 2);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert_eq!(runtime.active_model.as_deref(), Some("qwen3:32b"));
+        assert!(!view_data.chat.model_picker.visible);
     }
 
     #[test]
