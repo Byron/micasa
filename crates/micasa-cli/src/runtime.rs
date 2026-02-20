@@ -235,6 +235,23 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
         Ok(snapshot)
     }
 
+    fn load_chat_history(&mut self) -> Result<Vec<String>> {
+        Ok(self
+            .store
+            .load_chat_history()?
+            .into_iter()
+            .map(|entry| entry.input)
+            .collect())
+    }
+
+    fn append_chat_input(&mut self, input: &str) -> Result<()> {
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return Ok(());
+        }
+        self.store.append_chat_input(trimmed)
+    }
+
     fn submit_form(&mut self, payload: &FormPayload) -> Result<()> {
         payload.validate()?;
 
@@ -657,6 +674,27 @@ mod tests {
         runtime.undo_last_edit()?;
         assert_eq!(store.list_projects(false)?.len(), 1);
 
+        Ok(())
+    }
+
+    #[test]
+    fn chat_history_round_trip_persists_and_dedupes_adjacent_inputs() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let mut runtime = DbRuntime::new(&store);
+        runtime.append_chat_input("When is the next HVAC service due?")?;
+        runtime.append_chat_input("When is the next HVAC service due?")?;
+        runtime.append_chat_input("How many active projects do I have?")?;
+
+        let history = runtime.load_chat_history()?;
+        assert_eq!(
+            history,
+            vec![
+                "When is the next HVAC service due?".to_owned(),
+                "How many active projects do I have?".to_owned(),
+            ]
+        );
         Ok(())
     }
 

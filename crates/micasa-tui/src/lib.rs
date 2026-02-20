@@ -17,6 +17,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Tabs};
 use std::cmp::Ordering;
+use std::collections::BTreeSet;
 use std::io;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -162,6 +163,8 @@ pub trait AppRuntime {
         include_deleted: bool,
     ) -> Result<Option<TabSnapshot>>;
     fn submit_form(&mut self, payload: &FormPayload) -> Result<()>;
+    fn load_chat_history(&mut self) -> Result<Vec<String>>;
+    fn append_chat_input(&mut self, input: &str) -> Result<()>;
     fn apply_lifecycle(&mut self, tab: TabKind, row_id: i64, action: LifecycleAction)
     -> Result<()>;
     fn undo_last_edit(&mut self) -> Result<bool>;
@@ -221,6 +224,12 @@ impl TableCell {
 struct TableRowProjection {
     cells: Vec<TableCell>,
     deleted: bool,
+    tag: Option<RowTag>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowTag {
+    ProjectStatus(ProjectStatus),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -260,6 +269,8 @@ struct TableUiState {
     sort: Option<SortSpec>,
     pin: Option<PinnedCell>,
     filter_active: bool,
+    hidden_columns: BTreeSet<usize>,
+    hide_settled_projects: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -275,6 +286,10 @@ enum TableCommand {
     TogglePin,
     ToggleFilter,
     ClearPins,
+    ToggleSettledProjects,
+    HideCurrentColumn,
+    ShowAllColumns,
+    OpenColumnFinder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -290,6 +305,14 @@ enum TableStatus {
     SetPinFirst,
     FilterOn,
     FilterOff,
+    SettledHidden,
+    SettledShown,
+    SettledUnavailable,
+    ColumnHidden(&'static str),
+    ColumnAlreadyHidden(&'static str),
+    KeepOneColumnVisible,
+    ColumnsShown,
+    ColumnFinderUnavailable,
 }
 
 impl TableStatus {
@@ -306,6 +329,14 @@ impl TableStatus {
             Self::SetPinFirst => "set a pin first".to_owned(),
             Self::FilterOn => "filter on".to_owned(),
             Self::FilterOff => "filter off".to_owned(),
+            Self::SettledHidden => "settled hidden".to_owned(),
+            Self::SettledShown => "settled shown".to_owned(),
+            Self::SettledUnavailable => "settled toggle only on projects".to_owned(),
+            Self::ColumnHidden(label) => format!("column hidden: {label}"),
+            Self::ColumnAlreadyHidden(label) => format!("column already hidden: {label}"),
+            Self::KeepOneColumnVisible => "keep one column visible".to_owned(),
+            Self::ColumnsShown => "all columns shown".to_owned(),
+            Self::ColumnFinderUnavailable => "column finder not wired yet".to_owned(),
         }
     }
 }
@@ -314,6 +345,29 @@ impl TableStatus {
 enum TableEvent {
     CursorUpdated,
     Status(TableStatus),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChatRole {
+    User,
+    Assistant,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChatMessage {
+    role: ChatRole,
+    body: String,
+    sql: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+struct ChatUiState {
+    input: String,
+    show_sql: bool,
+    history: Vec<String>,
+    history_cursor: Option<usize>,
+    history_buffer: String,
+    transcript: Vec<ChatMessage>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -383,6 +437,7 @@ enum InternalEvent {
 struct ViewData {
     dashboard_counts: DashboardCounts,
     dashboard: DashboardUiState,
+    chat: ChatUiState,
     help_visible: bool,
     active_tab_snapshot: Option<TabSnapshot>,
     table_state: TableUiState,
@@ -502,15 +557,7 @@ fn handle_key_event<R: AppRuntime>(
     }
 
     if state.chat == micasa_app::ChatVisibility::Visible {
-        if key.code == KeyCode::Esc {
-            dispatch_and_refresh(
-                state,
-                runtime,
-                view_data,
-                AppCommand::CloseChat,
-                internal_tx,
-            );
-        }
+        handle_chat_overlay_key(state, runtime, view_data, internal_tx, key);
         return false;
     }
 
@@ -542,6 +589,16 @@ fn handle_key_event<R: AppRuntime>(
             }
             (KeyCode::Char('@'), KeyModifiers::NONE) => {
                 dispatch_and_refresh(state, runtime, view_data, AppCommand::OpenChat, internal_tx);
+                if let Err(error) = ensure_chat_history_loaded(runtime, view_data) {
+                    emit_status(
+                        state,
+                        view_data,
+                        internal_tx,
+                        format!(
+                            "chat history load failed: {error}; check DB path/permissions and retry"
+                        ),
+                    );
+                }
                 return false;
             }
             (KeyCode::Char('?'), KeyModifiers::NONE) => {
@@ -596,6 +653,9 @@ fn handle_key_event<R: AppRuntime>(
             }
             (KeyCode::Esc, _) => {
                 state.dispatch(AppCommand::ClearStatus);
+            }
+            (KeyCode::Enter, _) => {
+                handle_nav_enter(state, runtime, view_data, internal_tx);
             }
             _ => {}
         },
@@ -865,6 +925,268 @@ fn handle_dashboard_overlay_key<R: AppRuntime>(
     true
 }
 
+fn ensure_chat_history_loaded<R: AppRuntime>(
+    runtime: &mut R,
+    view_data: &mut ViewData,
+) -> Result<()> {
+    if view_data.chat.history.is_empty() {
+        view_data.chat.history = runtime.load_chat_history()?;
+        view_data.chat.history_cursor = None;
+        view_data.chat.history_buffer.clear();
+    }
+    Ok(())
+}
+
+fn handle_chat_overlay_key<R: AppRuntime>(
+    state: &mut AppState,
+    runtime: &mut R,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+    key: KeyEvent,
+) {
+    match (key.code, key.modifiers) {
+        (KeyCode::Esc, _) => {
+            dispatch_and_refresh(
+                state,
+                runtime,
+                view_data,
+                AppCommand::CloseChat,
+                internal_tx,
+            );
+        }
+        (KeyCode::Char('s'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+            view_data.chat.show_sql = !view_data.chat.show_sql;
+            if view_data.chat.show_sql {
+                emit_status(state, view_data, internal_tx, "chat sql on");
+            } else {
+                emit_status(state, view_data, internal_tx, "chat sql off");
+            }
+        }
+        (KeyCode::Up, _) => chat_history_prev(view_data),
+        (KeyCode::Char('p'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+            chat_history_prev(view_data);
+        }
+        (KeyCode::Down, _) => chat_history_next(view_data),
+        (KeyCode::Char('n'), modifiers) if modifiers.contains(KeyModifiers::CONTROL) => {
+            chat_history_next(view_data);
+        }
+        (KeyCode::Enter, _) => submit_chat_input(state, runtime, view_data, internal_tx),
+        (KeyCode::Backspace, _) => {
+            view_data.chat.input.pop();
+            view_data.chat.history_cursor = None;
+        }
+        (KeyCode::Char(ch), modifiers) => {
+            if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT {
+                view_data.chat.input.push(ch);
+                view_data.chat.history_cursor = None;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn submit_chat_input<R: AppRuntime>(
+    state: &mut AppState,
+    runtime: &mut R,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+) {
+    let input = view_data.chat.input.trim().to_owned();
+    if input.is_empty() {
+        return;
+    }
+
+    view_data.chat.input.clear();
+    view_data.chat.history_cursor = None;
+    view_data.chat.history_buffer.clear();
+
+    if view_data.chat.history.last() != Some(&input) {
+        view_data.chat.history.push(input.clone());
+    }
+
+    if let Err(error) = runtime.append_chat_input(&input) {
+        emit_status(
+            state,
+            view_data,
+            internal_tx,
+            format!("chat history save failed: {error}; check DB permissions and retry"),
+        );
+    }
+
+    view_data.chat.transcript.push(ChatMessage {
+        role: ChatRole::User,
+        body: input.clone(),
+        sql: None,
+    });
+
+    if input == "/sql" {
+        view_data.chat.show_sql = !view_data.chat.show_sql;
+        let status = if view_data.chat.show_sql {
+            "chat sql on"
+        } else {
+            "chat sql off"
+        };
+        emit_status(state, view_data, internal_tx, status);
+        return;
+    }
+
+    if input == "/help" {
+        view_data.chat.transcript.push(ChatMessage {
+            role: ChatRole::Assistant,
+            body: "/help, /models, /model <name>, /sql".to_owned(),
+            sql: None,
+        });
+        return;
+    }
+
+    if input == "/models" {
+        view_data.chat.transcript.push(ChatMessage {
+            role: ChatRole::Assistant,
+            body: "model listing comes in step 7; set [llm].model in config.toml for now"
+                .to_owned(),
+            sql: None,
+        });
+        return;
+    }
+
+    if let Some(model) = input.strip_prefix("/model") {
+        let trimmed = model.trim();
+        let message = if trimmed.is_empty() {
+            "usage: /model <name>".to_owned()
+        } else {
+            format!("model switch to `{trimmed}` will be wired in step 7")
+        };
+        view_data.chat.transcript.push(ChatMessage {
+            role: ChatRole::Assistant,
+            body: message,
+            sql: None,
+        });
+        return;
+    }
+
+    view_data.chat.transcript.push(ChatMessage {
+        role: ChatRole::Assistant,
+        body: "LLM query execution is wired in step 7. This stage ports chat input, history, and keybindings.".to_owned(),
+        sql: Some(format!("-- pending NL->SQL pipeline\n-- question: {input}")),
+    });
+}
+
+fn chat_history_prev(view_data: &mut ViewData) {
+    if view_data.chat.history.is_empty() {
+        return;
+    }
+
+    match view_data.chat.history_cursor {
+        None => {
+            view_data.chat.history_buffer = view_data.chat.input.clone();
+            view_data.chat.history_cursor = Some(view_data.chat.history.len().saturating_sub(1));
+        }
+        Some(cursor) if cursor > 0 => {
+            view_data.chat.history_cursor = Some(cursor - 1);
+        }
+        Some(_) => {}
+    }
+
+    if let Some(cursor) = view_data.chat.history_cursor {
+        view_data.chat.input = view_data.chat.history[cursor].clone();
+    }
+}
+
+fn chat_history_next(view_data: &mut ViewData) {
+    let Some(cursor) = view_data.chat.history_cursor else {
+        return;
+    };
+
+    if cursor + 1 < view_data.chat.history.len() {
+        let next = cursor + 1;
+        view_data.chat.history_cursor = Some(next);
+        view_data.chat.input = view_data.chat.history[next].clone();
+    } else {
+        view_data.chat.history_cursor = None;
+        view_data.chat.input = view_data.chat.history_buffer.clone();
+        view_data.chat.history_buffer.clear();
+    }
+}
+
+fn handle_nav_enter<R: AppRuntime>(
+    state: &mut AppState,
+    runtime: &mut R,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+) {
+    let Some(tab) = view_data.table_state.tab else {
+        return;
+    };
+    let Some((column, value)) = selected_cell(view_data) else {
+        return;
+    };
+
+    let Some(target_tab) = linked_tab_for_column(tab, column) else {
+        emit_status(state, view_data, internal_tx, "press i to edit");
+        return;
+    };
+
+    let Some(target_row_id) = link_target_id(&value) else {
+        emit_status(state, view_data, internal_tx, "nothing to follow");
+        return;
+    };
+
+    view_data.pending_row_selection = Some(PendingRowSelection {
+        tab: target_tab,
+        row_id: target_row_id,
+    });
+    dispatch_and_refresh(
+        state,
+        runtime,
+        view_data,
+        AppCommand::SetActiveTab(target_tab),
+        internal_tx,
+    );
+
+    let selected_target = view_data.table_state.tab == Some(target_tab)
+        && selected_row_metadata(view_data)
+            .map(|(row_id, _)| row_id == target_row_id)
+            .unwrap_or(false);
+    if selected_target {
+        emit_status(
+            state,
+            view_data,
+            internal_tx,
+            format!("follow -> {}", target_tab.label()),
+        );
+    } else {
+        emit_status(
+            state,
+            view_data,
+            internal_tx,
+            format!(
+                "linked item {target_row_id} not found in {}; enter edit mode (`i`), toggle deleted (`x`), retry",
+                target_tab.label()
+            ),
+        );
+    }
+}
+
+fn linked_tab_for_column(tab: TabKind, column: usize) -> Option<TabKind> {
+    match (tab, column) {
+        (TabKind::Quotes, 1) => Some(TabKind::Projects),
+        (TabKind::Quotes, 2) => Some(TabKind::Vendors),
+        (TabKind::Maintenance, 3) => Some(TabKind::Appliances),
+        (TabKind::ServiceLog, 1) => Some(TabKind::Maintenance),
+        (TabKind::ServiceLog, 3) => Some(TabKind::Vendors),
+        _ => None,
+    }
+}
+
+fn link_target_id(value: &TableCell) -> Option<i64> {
+    let id = match value {
+        TableCell::Integer(value) => *value,
+        TableCell::OptionalInteger(Some(value)) => *value,
+        _ => return None,
+    };
+    if id > 0 { Some(id) } else { None }
+}
+
 fn selected_row_metadata(view_data: &ViewData) -> Option<(i64, bool)> {
     let projection = active_projection(view_data)?;
     let row = projection.rows.get(view_data.table_state.selected_row)?;
@@ -893,6 +1215,9 @@ fn handle_table_key(
     let Some(command) = table_command_for_key(key) else {
         return false;
     };
+    if !table_command_allowed_in_mode(state.mode, command) {
+        return false;
+    }
 
     let event = apply_table_command(view_data, command);
     if let TableEvent::Status(status) = event {
@@ -900,6 +1225,23 @@ fn handle_table_key(
     }
     true
 }
+
+fn table_command_allowed_in_mode(mode: AppMode, command: TableCommand) -> bool {
+    match mode {
+        AppMode::Nav => true,
+        AppMode::Edit => matches!(
+            command,
+            TableCommand::MoveRow(_)
+                | TableCommand::MoveColumn(_)
+                | TableCommand::JumpFirstRow
+                | TableCommand::JumpLastRow
+                | TableCommand::JumpFirstColumn
+                | TableCommand::JumpLastColumn
+        ),
+        AppMode::Form(_) => false,
+    }
+}
+
 fn table_command_for_key(key: KeyEvent) -> Option<TableCommand> {
     match (key.code, key.modifiers) {
         (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Some(TableCommand::MoveRow(1)),
@@ -915,6 +1257,10 @@ fn table_command_for_key(key: KeyEvent) -> Option<TableCommand> {
         (KeyCode::Char('n'), KeyModifiers::CONTROL) => Some(TableCommand::ClearPins),
         (KeyCode::Char('n'), KeyModifiers::NONE) => Some(TableCommand::TogglePin),
         (KeyCode::Char('N'), _) => Some(TableCommand::ToggleFilter),
+        (KeyCode::Char('t'), KeyModifiers::NONE) => Some(TableCommand::ToggleSettledProjects),
+        (KeyCode::Char('c'), KeyModifiers::NONE) => Some(TableCommand::HideCurrentColumn),
+        (KeyCode::Char('C'), _) => Some(TableCommand::ShowAllColumns),
+        (KeyCode::Char('/'), _) => Some(TableCommand::OpenColumnFinder),
         _ => None,
     }
 }
@@ -940,12 +1286,20 @@ fn apply_table_command(view_data: &mut ViewData, command: TableCommand) -> Table
             TableEvent::CursorUpdated
         }
         TableCommand::JumpFirstColumn => {
-            view_data.table_state.selected_col = 0;
+            if let Some(projection) = active_projection(view_data) {
+                view_data.table_state.selected_col =
+                    first_visible_column(&projection, &view_data.table_state.hidden_columns)
+                        .unwrap_or(0);
+            } else {
+                view_data.table_state.selected_col = 0;
+            }
             TableEvent::CursorUpdated
         }
         TableCommand::JumpLastColumn => {
             if let Some(projection) = active_projection(view_data) {
-                view_data.table_state.selected_col = projection.column_count().saturating_sub(1);
+                view_data.table_state.selected_col =
+                    last_visible_column(&projection, &view_data.table_state.hidden_columns)
+                        .unwrap_or_else(|| projection.column_count().saturating_sub(1));
             }
             TableEvent::CursorUpdated
         }
@@ -963,6 +1317,51 @@ fn apply_table_command(view_data: &mut ViewData, command: TableCommand) -> Table
             clamp_table_cursor(view_data);
             TableEvent::Status(TableStatus::PinsCleared)
         }
+        TableCommand::ToggleSettledProjects => {
+            if view_data.table_state.tab != Some(TabKind::Projects) {
+                return TableEvent::Status(TableStatus::SettledUnavailable);
+            }
+            view_data.table_state.hide_settled_projects =
+                !view_data.table_state.hide_settled_projects;
+            clamp_table_cursor(view_data);
+            if view_data.table_state.hide_settled_projects {
+                TableEvent::Status(TableStatus::SettledHidden)
+            } else {
+                TableEvent::Status(TableStatus::SettledShown)
+            }
+        }
+        TableCommand::HideCurrentColumn => {
+            let Some(projection) = active_projection(view_data) else {
+                return TableEvent::Status(TableStatus::SortUnavailable);
+            };
+            let visible =
+                visible_column_indices(&projection, &view_data.table_state.hidden_columns);
+            if visible.len() <= 1 {
+                return TableEvent::Status(TableStatus::KeepOneColumnVisible);
+            }
+            let selected = coerce_visible_column(
+                &projection,
+                &view_data.table_state.hidden_columns,
+                view_data.table_state.selected_col,
+            )
+            .unwrap_or(visible[0]);
+            let label = projection
+                .columns
+                .get(selected)
+                .copied()
+                .unwrap_or("column");
+            if !view_data.table_state.hidden_columns.insert(selected) {
+                return TableEvent::Status(TableStatus::ColumnAlreadyHidden(label));
+            }
+            clamp_table_cursor(view_data);
+            TableEvent::Status(TableStatus::ColumnHidden(label))
+        }
+        TableCommand::ShowAllColumns => {
+            view_data.table_state.hidden_columns.clear();
+            clamp_table_cursor(view_data);
+            TableEvent::Status(TableStatus::ColumnsShown)
+        }
+        TableCommand::OpenColumnFinder => TableEvent::Status(TableStatus::ColumnFinderUnavailable),
     }
 }
 
@@ -1029,7 +1428,7 @@ fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData
     if state.chat == micasa_app::ChatVisibility::Visible {
         let area = centered_rect(70, 45, frame.area());
         frame.render_widget(Clear, area);
-        let chat = Paragraph::new("chat open (Rust parity in progress)\nPress esc to close")
+        let chat = Paragraph::new(render_chat_overlay_text(&view_data.chat))
             .block(Block::default().title("LLM").borders(Borders::ALL));
         frame.render_widget(chat, area);
     }
@@ -1224,10 +1623,46 @@ fn render_dashboard_overlay_text(snapshot: &DashboardSnapshot, cursor: usize) ->
     lines.join("\n")
 }
 
+fn render_chat_overlay_text(chat: &ChatUiState) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "sql: {} | history: {}",
+        if chat.show_sql { "on" } else { "off" },
+        chat.history.len()
+    ));
+    lines.push(String::new());
+
+    let keep = chat.transcript.len().saturating_sub(12);
+    for message in chat.transcript.iter().skip(keep) {
+        let label = match message.role {
+            ChatRole::User => "you",
+            ChatRole::Assistant => "llm",
+        };
+        lines.push(format!("{label}: {}", message.body));
+        if chat.show_sql
+            && let Some(sql) = &message.sql
+        {
+            for segment in sql.lines() {
+                lines.push(format!("  sql: {segment}"));
+            }
+        }
+    }
+
+    if chat.transcript.is_empty() {
+        lines.push("Ask a question or run /help.".to_owned());
+    }
+
+    lines.push(String::new());
+    lines.push(format!("> {}", chat.input));
+    lines.push("enter send | up/down history | ctrl+s sql | /sql | /help | esc close".to_owned());
+    lines.join("\n")
+}
+
 fn help_overlay_text() -> &'static str {
     "global: ctrl+q quit | ctrl+c cancel llm | ctrl+o mag mode\n\
 nav: j/k/h/l g/G ^/$ | b/f tabs | B/F first/last | tab house | D dashboard\n\
-nav: s/S sort | n/N pin/filter | ctrl+n clear pins | i edit | @ chat | ? help\n\
+nav: enter follow | s/S sort | t settled | c/C cols | / col jump\n\
+nav: n/N pin/filter | ctrl+n clear pins | i edit | @ chat | ? help\n\
 edit: a add | e edit form | d del/restore | x show deleted | u undo | r redo | esc nav\n\
 form: ctrl+s or enter submit | esc cancel\n\
 dashboard: j/k g/G enter jump D close b/f switch ? help"
@@ -1250,30 +1685,31 @@ fn render_table(
     };
 
     let projection = projection_for_snapshot(snapshot, &view_data.table_state);
-    let columns = projection.columns.len();
+    let mut visible_columns =
+        visible_column_indices(&projection, &view_data.table_state.hidden_columns);
+    if visible_columns.is_empty() {
+        visible_columns = (0..projection.column_count()).collect();
+    }
+    let columns = visible_columns.len();
     let widths = vec![Constraint::Min(8); columns.max(1)];
 
-    let header_cells = projection
-        .columns
-        .iter()
-        .enumerate()
-        .map(|(index, column)| {
-            let mut label = (*column).to_owned();
-            if let Some(sort) = view_data.table_state.sort
-                && sort.column == index
-            {
-                let suffix = match sort.direction {
-                    SortDirection::Asc => " ↑",
-                    SortDirection::Desc => " ↓",
-                };
-                label.push_str(suffix);
-            }
-            Cell::from(label).style(
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )
-        });
+    let header_cells = visible_columns.iter().map(|full_index| {
+        let mut label = projection.columns[*full_index].to_owned();
+        if let Some(sort) = view_data.table_state.sort
+            && sort.column == *full_index
+        {
+            let suffix = match sort.direction {
+                SortDirection::Asc => " ↑",
+                SortDirection::Desc => " ↓",
+            };
+            label.push_str(suffix);
+        }
+        Cell::from(label).style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+    });
     let header = Row::new(header_cells);
 
     let rows = projection.rows.iter().enumerate().map(|(row_index, row)| {
@@ -1283,11 +1719,15 @@ fn render_table(
             && !view_data.table_state.filter_active
             && !pin_match;
 
-        let cells = row
-            .cells
+        let cells = visible_columns
             .iter()
-            .enumerate()
-            .map(|(column_index, value)| {
+            .copied()
+            .map(|column_index| {
+                let cell_text = row
+                    .cells
+                    .get(column_index)
+                    .map(TableCell::display)
+                    .unwrap_or_default();
                 let mut style = Style::default();
                 if row.deleted {
                     style = style
@@ -1306,7 +1746,7 @@ fn render_table(
                         .bg(Color::Cyan)
                         .add_modifier(Modifier::BOLD);
                 }
-                Cell::from(value.display()).style(style)
+                Cell::from(cell_text).style(style)
             })
             .collect::<Vec<_>>();
 
@@ -1325,11 +1765,18 @@ fn render_table(
 }
 
 fn table_title(projection: &TableProjection, table_state: &TableUiState) -> String {
+    let visible_columns = visible_column_indices(projection, &table_state.hidden_columns);
+    let visible_count = if visible_columns.is_empty() {
+        projection.column_count()
+    } else {
+        visible_columns.len()
+    };
     let mut parts = vec![format!(
-        "{} r:{} c:{}",
+        "{} r:{} c:{}/{}",
         projection.title,
         projection.row_count(),
-        projection.column_count()
+        visible_count,
+        projection.column_count(),
     )];
 
     if let Some(sort) = table_state.sort
@@ -1351,6 +1798,13 @@ fn table_title(projection: &TableProjection, table_state: &TableUiState) -> Stri
 
     if table_state.filter_active {
         parts.push("filter on".to_owned());
+    }
+    if table_state.hide_settled_projects && table_state.tab == Some(TabKind::Projects) {
+        parts.push("settled hidden".to_owned());
+    }
+    let hidden_count = projection.column_count().saturating_sub(visible_count);
+    if hidden_count > 0 {
+        parts.push(format!("hidden {hidden_count}"));
     }
 
     parts.join(" | ")
@@ -1387,6 +1841,17 @@ fn active_projection(view_data: &ViewData) -> Option<TableProjection> {
 fn projection_for_snapshot(snapshot: &TabSnapshot, table_state: &TableUiState) -> TableProjection {
     let mut projection = base_projection(snapshot);
 
+    if table_state.hide_settled_projects {
+        projection.rows.retain(|row| {
+            !matches!(
+                row.tag,
+                Some(RowTag::ProjectStatus(
+                    ProjectStatus::Completed | ProjectStatus::Abandoned
+                ))
+            )
+        });
+    }
+
     if let Some(sort) = table_state.sort
         && sort.column < projection.column_count()
     {
@@ -1420,6 +1885,55 @@ fn projection_for_snapshot(snapshot: &TabSnapshot, table_state: &TableUiState) -
     projection
 }
 
+fn visible_column_indices(
+    projection: &TableProjection,
+    hidden_columns: &BTreeSet<usize>,
+) -> Vec<usize> {
+    (0..projection.column_count())
+        .filter(|index| !hidden_columns.contains(index))
+        .collect()
+}
+
+fn first_visible_column(
+    projection: &TableProjection,
+    hidden_columns: &BTreeSet<usize>,
+) -> Option<usize> {
+    visible_column_indices(projection, hidden_columns)
+        .into_iter()
+        .next()
+}
+
+fn last_visible_column(
+    projection: &TableProjection,
+    hidden_columns: &BTreeSet<usize>,
+) -> Option<usize> {
+    visible_column_indices(projection, hidden_columns)
+        .into_iter()
+        .last()
+}
+
+fn coerce_visible_column(
+    projection: &TableProjection,
+    hidden_columns: &BTreeSet<usize>,
+    selected_col: usize,
+) -> Option<usize> {
+    let visible = visible_column_indices(projection, hidden_columns);
+    if visible.is_empty() {
+        return None;
+    }
+
+    match visible.binary_search(&selected_col) {
+        Ok(index) => Some(visible[index]),
+        Err(index) => {
+            if index >= visible.len() {
+                visible.last().copied()
+            } else {
+                Some(visible[index])
+            }
+        }
+    }
+}
+
 fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
     match snapshot {
         TabSnapshot::House(profile) => {
@@ -1440,6 +1954,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                             TableCell::Money(profile.property_tax_cents),
                         ],
                         deleted: false,
+                        tag: None,
                     }]
                 })
                 .unwrap_or_default();
@@ -1473,6 +1988,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Money(row.actual_cents),
                     ],
                     deleted: row.deleted_at.is_some(),
+                    tag: Some(RowTag::ProjectStatus(row.status)),
                 })
                 .collect(),
         },
@@ -1490,6 +2006,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Date(row.received_date),
                     ],
                     deleted: row.deleted_at.is_some(),
+                    tag: None,
                 })
                 .collect(),
         },
@@ -1509,6 +2026,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Money(row.cost_cents),
                     ],
                     deleted: row.deleted_at.is_some(),
+                    tag: None,
                 })
                 .collect(),
         },
@@ -1526,6 +2044,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Money(row.cost_cents),
                     ],
                     deleted: row.deleted_at.is_some(),
+                    tag: None,
                 })
                 .collect(),
         },
@@ -1547,6 +2066,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Money(row.cost_cents),
                     ],
                     deleted: row.deleted_at.is_some(),
+                    tag: None,
                 })
                 .collect(),
         },
@@ -1565,6 +2085,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Money(row.cost_cents),
                     ],
                     deleted: row.deleted_at.is_some(),
+                    tag: None,
                 })
                 .collect(),
         },
@@ -1582,6 +2103,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Text(row.phone.clone()),
                     ],
                     deleted: row.deleted_at.is_some(),
+                    tag: None,
                 })
                 .collect(),
         },
@@ -1599,6 +2121,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Integer(row.size_bytes),
                     ],
                     deleted: row.deleted_at.is_some(),
+                    tag: None,
                 })
                 .collect(),
         },
@@ -1636,28 +2159,38 @@ fn move_col(view_data: &mut ViewData, delta: isize) {
     let Some(projection) = active_projection(view_data) else {
         return;
     };
-    let column_count = projection.column_count();
-    if column_count == 0 {
+    let visible = visible_column_indices(&projection, &view_data.table_state.hidden_columns);
+    if visible.is_empty() {
         view_data.table_state.selected_col = 0;
         return;
     }
 
-    let current = view_data.table_state.selected_col;
-    let next = if delta.is_negative() {
-        current.saturating_sub(delta.unsigned_abs())
+    let current = coerce_visible_column(
+        &projection,
+        &view_data.table_state.hidden_columns,
+        view_data.table_state.selected_col,
+    )
+    .unwrap_or(visible[0]);
+    let current_index = visible
+        .iter()
+        .position(|index| *index == current)
+        .unwrap_or(0);
+    let next_index = if delta.is_negative() {
+        current_index.saturating_sub(delta.unsigned_abs())
     } else {
-        current.saturating_add(delta as usize)
+        current_index.saturating_add(delta as usize)
     };
-    view_data.table_state.selected_col = next.min(column_count.saturating_sub(1));
+    view_data.table_state.selected_col = visible[next_index.min(visible.len().saturating_sub(1))];
 }
 
 fn selected_cell(view_data: &ViewData) -> Option<(usize, TableCell)> {
     let projection = active_projection(view_data)?;
     let row = projection.rows.get(view_data.table_state.selected_row)?;
-    let col = view_data
-        .table_state
-        .selected_col
-        .min(projection.column_count().saturating_sub(1));
+    let col = coerce_visible_column(
+        &projection,
+        &view_data.table_state.hidden_columns,
+        view_data.table_state.selected_col,
+    )?;
     let cell = row.cells.get(col)?;
     Some((col, cell.clone()))
 }
@@ -1670,10 +2203,13 @@ fn cycle_sort(view_data: &mut ViewData) -> TableStatus {
         return TableStatus::SortUnavailable;
     }
 
-    let column = view_data
-        .table_state
-        .selected_col
-        .min(projection.column_count().saturating_sub(1));
+    let Some(column) = coerce_visible_column(
+        &projection,
+        &view_data.table_state.hidden_columns,
+        view_data.table_state.selected_col,
+    ) else {
+        return TableStatus::SortUnavailable;
+    };
     let label = projection.columns[column];
 
     view_data.table_state.sort = match view_data.table_state.sort {
@@ -1772,10 +2308,15 @@ fn clamp_table_cursor(view_data: &mut ViewData) {
     if projection.column_count() == 0 {
         view_data.table_state.selected_col = 0;
     } else {
-        view_data.table_state.selected_col = view_data
-            .table_state
-            .selected_col
-            .min(projection.column_count().saturating_sub(1));
+        if visible_column_indices(&projection, &view_data.table_state.hidden_columns).is_empty() {
+            view_data.table_state.hidden_columns.clear();
+        }
+        view_data.table_state.selected_col = coerce_visible_column(
+            &projection,
+            &view_data.table_state.hidden_columns,
+            view_data.table_state.selected_col,
+        )
+        .unwrap_or(0);
     }
 
     if projection.row_count() == 0 {
@@ -1794,7 +2335,7 @@ fn status_text(state: &AppState) -> String {
         AppMode::Edit => "EDIT",
         AppMode::Form(_) => "FORM",
     };
-    let default = "j/k/h/l g/G ^/$ | b/f tabs | s/S sort | n/N pin/filter | ctrl+n clear | @ chat | D dashboard | ctrl+q quit";
+    let default = "j/k/h/l g/G ^/$ | enter follow | s/S sort t | c/C / | n/N pin/filter ctrl+n | @ chat D | ctrl+q";
     match &state.status_line {
         Some(status) => format!("{mode} | {status} | {default}"),
         None => format!("{mode} | {default}"),
@@ -2093,6 +2634,7 @@ mod tests {
         redo_count: usize,
         can_undo: bool,
         can_redo: bool,
+        chat_history: Vec<String>,
     }
 
     impl TestRuntime {
@@ -2107,6 +2649,23 @@ mod tests {
                 end_date: None,
                 budget_cents: Some(id * 1000),
                 actual_cents: None,
+                created_at: OffsetDateTime::UNIX_EPOCH,
+                updated_at: OffsetDateTime::UNIX_EPOCH,
+                deleted_at: None,
+            }
+        }
+
+        fn sample_quote(id: i64, project_id: i64, vendor_id: i64) -> micasa_app::Quote {
+            micasa_app::Quote {
+                id: micasa_app::QuoteId::new(id),
+                project_id: micasa_app::ProjectId::new(project_id),
+                vendor_id: micasa_app::VendorId::new(vendor_id),
+                total_cents: 11_000,
+                labor_cents: None,
+                materials_cents: None,
+                other_cents: None,
+                received_date: None,
+                notes: String::new(),
                 created_at: OffsetDateTime::UNIX_EPOCH,
                 updated_at: OffsetDateTime::UNIX_EPOCH,
                 deleted_at: None,
@@ -2147,7 +2706,7 @@ mod tests {
                     Self::sample_project(1, "Alpha"),
                     Self::sample_project(2, "Beta"),
                 ])),
-                TabKind::Quotes => Some(TabSnapshot::Quotes(Vec::new())),
+                TabKind::Quotes => Some(TabSnapshot::Quotes(vec![Self::sample_quote(11, 2, 7)])),
                 TabKind::Maintenance => Some(TabSnapshot::Maintenance(Vec::new())),
                 TabKind::ServiceLog => Some(TabSnapshot::ServiceLog(Vec::new())),
                 TabKind::Incidents => Some(TabSnapshot::Incidents(Vec::new())),
@@ -2161,6 +2720,23 @@ mod tests {
         fn submit_form(&mut self, payload: &FormPayload) -> anyhow::Result<()> {
             payload.validate()?;
             self.submit_count += 1;
+            Ok(())
+        }
+
+        fn load_chat_history(&mut self) -> anyhow::Result<Vec<String>> {
+            Ok(self.chat_history.clone())
+        }
+
+        fn append_chat_input(&mut self, input: &str) -> anyhow::Result<()> {
+            if self
+                .chat_history
+                .last()
+                .map(|last| last == input)
+                .unwrap_or(false)
+            {
+                return Ok(());
+            }
+            self.chat_history.push(input.to_owned());
             Ok(())
         }
 
@@ -2400,7 +2976,185 @@ mod tests {
     }
 
     #[test]
-    fn table_command_mapping_covers_sort_and_filter_keys() {
+    fn hiding_columns_updates_cursor_and_skips_hidden_columns() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+        );
+        assert!(view_data.table_state.hidden_columns.contains(&0));
+        assert_eq!(view_data.table_state.selected_col, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_col, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('C'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.table_state.hidden_columns.is_empty());
+    }
+
+    #[test]
+    fn edit_mode_blocks_non_navigation_table_commands() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+        );
+
+        assert!(view_data.table_state.sort.is_none());
+        assert!(view_data.table_state.hidden_columns.is_empty());
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_row, 1);
+    }
+
+    #[test]
+    fn enter_in_nav_follows_linked_foreign_key() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_col, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert_eq!(state.active_tab, TabKind::Projects);
+        assert_eq!(view_data.table_state.selected_row, 1);
+    }
+
+    #[test]
+    fn chat_overlay_supports_history_toggle_and_submit() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime {
+            chat_history: vec!["old prompt".to_owned()],
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.chat, ChatVisibility::Visible);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.chat.input, "old prompt");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.chat.show_sql);
+
+        for key in ['n', 'e', 'w'] {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char(key), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(
+            runtime
+                .chat_history
+                .iter()
+                .any(|entry| entry == "old promptnew")
+        );
+        assert!(view_data.chat.input.is_empty());
+        assert_eq!(
+            view_data.chat.transcript.last().map(|message| message.role),
+            Some(super::ChatRole::Assistant)
+        );
+    }
+
+    #[test]
+    fn table_command_mapping_covers_sort_filter_and_column_keys() {
         assert_eq!(
             table_command_for_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)),
             Some(TableCommand::CycleSort)
@@ -2412,6 +3166,22 @@ mod tests {
         assert_eq!(
             table_command_for_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT)),
             Some(TableCommand::ToggleFilter)
+        );
+        assert_eq!(
+            table_command_for_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)),
+            Some(TableCommand::ToggleSettledProjects)
+        );
+        assert_eq!(
+            table_command_for_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)),
+            Some(TableCommand::HideCurrentColumn)
+        );
+        assert_eq!(
+            table_command_for_key(KeyEvent::new(KeyCode::Char('C'), KeyModifiers::SHIFT)),
+            Some(TableCommand::ShowAllColumns)
+        );
+        assert_eq!(
+            table_command_for_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE)),
+            Some(TableCommand::OpenColumnFinder)
         );
     }
 
