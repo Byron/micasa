@@ -1,0 +1,14 @@
+# Copyright 2026 Phillip Cloud
+# Licensed under the Apache License, Version 2.0
+
+[package]
+name = "micasa-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+crossterm.workspace = true
+micasa-app = { path = "../micasa-app" }
+ratatui.workspace = true

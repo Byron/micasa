@@ -17,15 +17,44 @@ env:
 
 jobs:
   test:
-    name: Build & Test (${{ matrix.os }}, Go ${{ matrix.go-version }})
+    name: Build & Test (${{ matrix.os }}, Rust stable)
     runs-on: ${{ matrix.os }}
     concurrency:
-      group: ci-test-${{ matrix.os }}-${{ matrix.go-version }}-${{ github.ref }}
+      group: ci-test-${{ matrix.os }}-rust-${{ github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        go-version: ["1.25"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          components: rustfmt, clippy
+
+      - name: Format
+        run: cargo fmt --all --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+  go-parity:
+    name: Go Parity
+    runs-on: ubuntu-latest
+    concurrency:
+      group: ci-go-parity-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -33,31 +62,10 @@ jobs:
 
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
         with:
-          go-version: ${{ matrix.go-version }}
-
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Build
-        run: go build ./...
-
-      - name: Print test seed
-        run: echo "MICASA_TEST_SEED=${{ github.run_id }}"
+          go-version: "1.25"
 
       - name: Test
-        run: go test -race -shuffle on -timeout 5m -v -coverprofile coverage.txt ./...
-        env:
-          CGO_ENABLED: "1"
-          MICASA_TEST_SEED: ${{ github.run_id }}
-
-      - name: Benchmarks (smoke)
-        run: go test -bench . -benchtime 1x -timeout 5m -run '^$' ./...
-
-      - name: Coverage summary
-        run: go tool cover -func coverage.txt
+        run: go test -shuffle on ./...
 
   deadcode:
     name: Dead Code
@@ -170,7 +178,7 @@ jobs:
 
   semantic-release:
     name: Semantic Release
-    needs: [test, deadcode, pre-commit, nix-build, docs, secrets]
+    needs: [test, go-parity, deadcode, pre-commit, nix-build, docs, secrets]
     runs-on: ubuntu-latest
     concurrency:
       group: semantic-release-${{ github.ref }}

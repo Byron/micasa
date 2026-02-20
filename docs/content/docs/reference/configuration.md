@@ -7,6 +7,10 @@ linkTitle = "Configuration"
 
 micasa has minimal configuration -- it's designed to work out of the box.
 
+> Rust port note: the active schema is now `version = 2` with `[storage]`,
+> `[ui]`, and `[llm]` sections. See
+> [Configuration v2]({{< ref "/docs/reference/configuration-v2" >}}).
+
 ## CLI flags
 
 ```

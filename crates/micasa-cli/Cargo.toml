@@ -1,0 +1,25 @@
+# Copyright 2026 Phillip Cloud
+# Licensed under the Apache License, Version 2.0
+
+[package]
+name = "micasa-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "micasa"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+dirs.workspace = true
+micasa-app = { path = "../micasa-app" }
+micasa-db = { path = "../micasa-db" }
+micasa-llm = { path = "../micasa-llm" }
+micasa-tui = { path = "../micasa-tui" }
+serde.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

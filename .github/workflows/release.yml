@@ -30,35 +30,27 @@ jobs:
         include:
           - goos: linux
             goarch: amd64
-          - goos: linux
-            goarch: arm64
-          - goos: darwin
-            goarch: amd64
-          - goos: darwin
-            goarch: arm64
-          - goos: windows
-            goarch: amd64
-          - goos: windows
-            goarch: arm64
+            target: x86_64-unknown-linux-gnu
+            ext: ""
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
 
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
+      - uses: actions-rs/toolchain@v1
         with:
-          go-version: "1.25"
+          profile: minimal
+          toolchain: stable
+          override: true
 
       - name: Build
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          TARGET: ${{ matrix.target }}
           VERSION: ${{ github.event.release.tag_name }}
         run: |
-          ext=""
-          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
-          go build -ldflags="-X main.version=${VERSION#v}" -o "micasa${ext}" ./cmd/micasa
+          cargo build --release --locked --package micasa-cli --target "$TARGET"
+          cp "target/$TARGET/release/micasa${{ matrix.ext }}" "micasa${{ matrix.ext }}"
 
       - name: Package
         env:

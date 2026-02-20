@@ -1,0 +1,20 @@
+# Copyright 2026 Phillip Cloud
+# Licensed under the Apache License, Version 2.0
+
+[package]
+name = "micasa-llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tiny_http = "0.12.0"

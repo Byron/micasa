@@ -5,6 +5,27 @@ description = "How micasa is built: Bubble Tea, TabHandler, overlays."
 linkTitle = "Architecture"
 +++
 
+micasa is transitioning to a Rust workspace. The Go architecture below remains
+the reference implementation during parity work.
+
+## Rust workspace (current target)
+
+```
+crates/
+  micasa-cli/        Rust CLI entry point (`micasa`)
+  micasa-app/        Typed domain model + app state machine
+  micasa-db/         rusqlite store, schema bootstrap, cache handling
+  micasa-tui/        ratatui rendering + synchronous key handling
+  micasa-llm/        OpenAI-compatible synchronous client + prompt helpers
+  micasa-testkit/    shared test fixtures/helpers
+```
+
+The Rust application keeps the same single-file backup model (`micasa.db`) and
+follows the same mode model (`nav`, `edit`, `form`) with a synchronous event
+loop (no async runtime).
+
+## Go reference architecture
+
 micasa is a [Bubble Tea](https://github.com/charmbracelet/bubbletea)
 application following The Elm Architecture (TEA): Model, Update, View.
 

@@ -8,7 +8,7 @@
 
   [![CI](https://github.com/cpcloud/micasa/actions/workflows/ci.yml/badge.svg)](https://github.com/cpcloud/micasa/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/v/release/cpcloud/micasa)](https://github.com/cpcloud/micasa/releases/latest)
-  [![Go](https://img.shields.io/github/go-mod/go-version/cpcloud/micasa)](https://go.dev)
+  [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
   [![Docs](https://img.shields.io/badge/docs-micasa.dev-blue)](https://micasa.dev/docs)
 </div>
 
@@ -49,10 +49,10 @@ See the [LLM chat guide](https://micasa.dev/docs/guide/llm-chat/) and [configura
 
 ## Install
 
-Requires Go 1.25+:
+Requires Rust stable:
 
 ```sh
-go install github.com/cpcloud/micasa/cmd/micasa@latest
+cargo install --path crates/micasa-cli
 ```
 
 Or grab a binary from the [latest release](https://github.com/cpcloud/micasa/releases/latest).
@@ -75,13 +75,14 @@ Full docs at [micasa.dev/docs](https://micasa.dev/docs/) -- start with [Installa
 
 ## Development
 
-[Pure Go](https://go.dev), zero CGO. Built on [Charmbracelet](https://github.com/charmbracelet) + [GORM](https://gorm.io) + [SQLite](https://sqlite.org). TUI design inspired by [VisiData](https://www.visidata.org/) -- modal navigation, column-level operations, and keyboard-driven data exploration. Developed with AI coding agents ([Claude](https://claude.ai), [Claude Code](https://claude.ai/code)).
+[Rust](https://www.rust-lang.org) with a synchronous terminal stack:
+[ratatui](https://github.com/ratatui/ratatui) + [rusqlite](https://github.com/rusqlite/rusqlite) + SQLite. TUI design remains inspired by [VisiData](https://www.visidata.org/) -- modal navigation, column-level operations, and keyboard-driven data exploration. Developed with AI coding agents ([Claude](https://claude.ai), [Claude Code](https://claude.ai/code)).
 
 PRs welcome -- including AI-assisted ones, as long as you've reviewed and curated the code. See the [contributing guide](https://micasa.dev/docs/development/contributing/) for details. The repo uses a [Nix](https://nixos.org) dev shell with pre-commit hooks for formatting, linting, and tests:
 
 ```sh
 nix develop          # enter dev shell
-go test -shuffle=on ./...        # run tests
+cargo test --workspace           # run tests
 ```
 
 ## License

@@ -2,7 +2,7 @@
 # Licensed under the Apache License, Version 2.0
 
 {
-  description = "micasa Go development environment";
+  description = "micasa Rust development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable-small";
@@ -24,7 +24,7 @@
         pkgs = import nixpkgs { inherit system; };
         version = builtins.replaceStrings [ "\n" "\r" ] [ "" "" ] (builtins.readFile ./VERSION);
 
-        micasa = pkgs.buildGoModule {
+        micasa-go = pkgs.buildGoModule {
           pname = "micasa";
           inherit version;
           src = ./.;
@@ -37,6 +37,18 @@
           ldflags = [
             "-X main.version=${version}"
           ];
+        };
+
+        micasa = pkgs.rustPlatform.buildRustPackage {
+          pname = "micasa";
+          inherit version;
+          src = ./.;
+          cargoLock.lockFile = ./Cargo.lock;
+          cargoBuildFlags = [ "--package" "micasa-cli" ];
+          cargoTestFlags = [ "--workspace" ];
+          preCheck = ''
+            export HOME="$(mktemp -d)"
+          '';
         };
 
         licenseCheck = pkgs.writeShellScript "license-check" ''
@@ -163,6 +175,8 @@
             inherit shellHook;
             CGO_ENABLED = "0";
             packages = [
+              pkgs.rustc
+              pkgs.cargo
               pkgs.go
               pkgs.osv-scanner
               pkgs.git
@@ -173,7 +187,7 @@
           };
 
         packages = {
-          inherit micasa;
+          inherit micasa micasa-go;
           default = micasa;
           docs = pkgs.writeShellApplication {
             name = "micasa-docs";
