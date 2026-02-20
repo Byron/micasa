@@ -410,6 +410,106 @@ pub struct NewDocument {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LifecycleEntityRef {
+    Project(ProjectId),
+    Quote(QuoteId),
+    MaintenanceItem(MaintenanceItemId),
+    Appliance(ApplianceId),
+    ServiceLogEntry(ServiceLogEntryId),
+    Vendor(VendorId),
+    Incident(IncidentId),
+}
+
+impl LifecycleEntityRef {
+    const fn kind(self) -> EntityKind {
+        match self {
+            Self::Project(_) => EntityKind::Project,
+            Self::Quote(_) => EntityKind::Quote,
+            Self::MaintenanceItem(_) => EntityKind::MaintenanceItem,
+            Self::Appliance(_) => EntityKind::Appliance,
+            Self::ServiceLogEntry(_) => EntityKind::ServiceLogEntry,
+            Self::Vendor(_) => EntityKind::Vendor,
+            Self::Incident(_) => EntityKind::Incident,
+        }
+    }
+
+    const fn id(self) -> i64 {
+        match self {
+            Self::Project(id) => id.get(),
+            Self::Quote(id) => id.get(),
+            Self::MaintenanceItem(id) => id.get(),
+            Self::Appliance(id) => id.get(),
+            Self::ServiceLogEntry(id) => id.get(),
+            Self::Vendor(id) => id.get(),
+            Self::Incident(id) => id.get(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParentEntityRef {
+    Project(ProjectId),
+    Vendor(VendorId),
+    Appliance(ApplianceId),
+    MaintenanceItem(MaintenanceItemId),
+}
+
+impl ParentEntityRef {
+    const fn kind(self) -> ParentKind {
+        match self {
+            Self::Project(_) => ParentKind::Project,
+            Self::Vendor(_) => ParentKind::Vendor,
+            Self::Appliance(_) => ParentKind::Appliance,
+            Self::MaintenanceItem(_) => ParentKind::MaintenanceItem,
+        }
+    }
+
+    const fn id(self) -> i64 {
+        match self {
+            Self::Project(id) => id.get(),
+            Self::Vendor(id) => id.get(),
+            Self::Appliance(id) => id.get(),
+            Self::MaintenanceItem(id) => id.get(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DependentRelation {
+    ProjectQuotes,
+    VendorQuotes,
+    VendorIncidents,
+    VendorServiceLogEntries,
+    ApplianceMaintenanceItems,
+    ApplianceIncidents,
+    MaintenanceItemServiceLogEntries,
+}
+
+impl DependentRelation {
+    const fn table(self) -> &'static str {
+        match self {
+            Self::ProjectQuotes | Self::VendorQuotes => "quotes",
+            Self::VendorIncidents | Self::ApplianceIncidents => "incidents",
+            Self::VendorServiceLogEntries | Self::MaintenanceItemServiceLogEntries => {
+                "service_log_entries"
+            }
+            Self::ApplianceMaintenanceItems => "maintenance_items",
+        }
+    }
+
+    const fn fk_column(self) -> &'static str {
+        match self {
+            Self::ProjectQuotes => "project_id",
+            Self::VendorQuotes | Self::VendorIncidents | Self::VendorServiceLogEntries => {
+                "vendor_id"
+            }
+            Self::ApplianceMaintenanceItems | Self::ApplianceIncidents => "appliance_id",
+            Self::MaintenanceItemServiceLogEntries => "maintenance_item_id",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EntityKind {
     Project,
     Quote,
@@ -984,27 +1084,22 @@ impl Store {
             .context("collect projects")
     }
 
-    pub fn soft_delete_project(&self, project_id: ProjectId) -> Result<()> {
-        let quote_count: i64 = self
-            .conn
-            .query_row(
-                "SELECT COUNT(*) FROM quotes WHERE project_id = ? AND deleted_at IS NULL",
-                params![project_id.get()],
-                |row| row.get(0),
-            )
-            .context("count quotes linked to project")?;
-        if quote_count > 0 {
-            bail!(
-                "cannot delete project {} because {quote_count} quote(s) reference it; delete quotes first",
-                project_id.get()
-            );
-        }
+    pub fn soft_delete(&self, target: LifecycleEntityRef) -> Result<()> {
+        self.ensure_can_soft_delete(target)?;
+        self.soft_delete_entity(target.kind(), target.id())
+    }
 
-        self.soft_delete_entity(EntityKind::Project, project_id.get())
+    pub fn restore(&self, target: LifecycleEntityRef) -> Result<()> {
+        self.ensure_can_restore(target)?;
+        self.restore_entity(target.kind(), target.id())
+    }
+
+    pub fn soft_delete_project(&self, project_id: ProjectId) -> Result<()> {
+        self.soft_delete(LifecycleEntityRef::Project(project_id))
     }
 
     pub fn restore_project(&self, project_id: ProjectId) -> Result<()> {
-        self.restore_entity(EntityKind::Project, project_id.get())
+        self.restore(LifecycleEntityRef::Project(project_id))
     }
 
     pub fn list_vendors(&self, include_deleted: bool) -> Result<Vec<Vendor>> {
@@ -1111,41 +1206,11 @@ impl Store {
     }
 
     pub fn soft_delete_vendor(&self, vendor_id: VendorId) -> Result<()> {
-        let quote_count = self
-            .count_active_dependents("quotes", "vendor_id", vendor_id.get())
-            .context("count quotes linked to vendor")?;
-        if quote_count > 0 {
-            bail!(
-                "vendor {} has {quote_count} active quote(s) -- delete quotes first",
-                vendor_id.get()
-            );
-        }
-
-        let incident_count = self
-            .count_active_dependents("incidents", "vendor_id", vendor_id.get())
-            .context("count incidents linked to vendor")?;
-        if incident_count > 0 {
-            bail!(
-                "vendor {} has {incident_count} active incident(s) -- delete incidents first",
-                vendor_id.get()
-            );
-        }
-
-        let service_log_count = self
-            .count_active_dependents("service_log_entries", "vendor_id", vendor_id.get())
-            .context("count service logs linked to vendor")?;
-        if service_log_count > 0 {
-            bail!(
-                "vendor {} has {service_log_count} active service log(s) -- delete service logs first",
-                vendor_id.get()
-            );
-        }
-
-        self.soft_delete_entity(EntityKind::Vendor, vendor_id.get())
+        self.soft_delete(LifecycleEntityRef::Vendor(vendor_id))
     }
 
     pub fn restore_vendor(&self, vendor_id: VendorId) -> Result<()> {
-        self.restore_entity(EntityKind::Vendor, vendor_id.get())
+        self.restore(LifecycleEntityRef::Vendor(vendor_id))
     }
 
     pub fn list_quotes(&self, include_deleted: bool) -> Result<Vec<Quote>> {
@@ -1193,8 +1258,8 @@ impl Store {
     }
 
     pub fn create_quote(&self, quote: &NewQuote) -> Result<QuoteId> {
-        self.require_parent_alive(ParentKind::Project, quote.project_id.get())?;
-        self.require_parent_alive(ParentKind::Vendor, quote.vendor_id.get())?;
+        self.require_parent_alive(ParentEntityRef::Project(quote.project_id))?;
+        self.require_parent_alive(ParentEntityRef::Vendor(quote.vendor_id))?;
 
         let now = now_rfc3339()?;
         self.conn
@@ -1224,8 +1289,8 @@ impl Store {
     }
 
     pub fn update_quote(&self, quote_id: QuoteId, update: &UpdateQuote) -> Result<()> {
-        self.require_parent_alive(ParentKind::Project, update.project_id.get())?;
-        self.require_parent_alive(ParentKind::Vendor, update.vendor_id.get())?;
+        self.require_parent_alive(ParentEntityRef::Project(update.project_id))?;
+        self.require_parent_alive(ParentEntityRef::Vendor(update.vendor_id))?;
 
         let now = now_rfc3339()?;
         let rows_affected = self
@@ -1269,22 +1334,11 @@ impl Store {
     }
 
     pub fn soft_delete_quote(&self, quote_id: QuoteId) -> Result<()> {
-        self.soft_delete_entity(EntityKind::Quote, quote_id.get())
+        self.soft_delete(LifecycleEntityRef::Quote(quote_id))
     }
 
     pub fn restore_quote(&self, quote_id: QuoteId) -> Result<()> {
-        let (project_id, vendor_id): (i64, i64) = self
-            .conn
-            .query_row(
-                "SELECT project_id, vendor_id FROM quotes WHERE id = ?",
-                params![quote_id.get()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .with_context(|| format!("load quote {}", quote_id.get()))?;
-
-        self.require_parent_alive(ParentKind::Project, project_id)?;
-        self.require_parent_alive(ParentKind::Vendor, vendor_id)?;
-        self.restore_entity(EntityKind::Quote, quote_id.get())
+        self.restore(LifecycleEntityRef::Quote(quote_id))
     }
 
     pub fn list_appliances(&self, include_deleted: bool) -> Result<Vec<Appliance>> {
@@ -1414,31 +1468,11 @@ impl Store {
     }
 
     pub fn soft_delete_appliance(&self, appliance_id: ApplianceId) -> Result<()> {
-        let maintenance_count = self
-            .count_active_dependents("maintenance_items", "appliance_id", appliance_id.get())
-            .context("count maintenance items linked to appliance")?;
-        if maintenance_count > 0 {
-            bail!(
-                "appliance {} has {maintenance_count} active maintenance item(s) -- delete or reassign them first",
-                appliance_id.get()
-            );
-        }
-
-        let incident_count = self
-            .count_active_dependents("incidents", "appliance_id", appliance_id.get())
-            .context("count incidents linked to appliance")?;
-        if incident_count > 0 {
-            bail!(
-                "appliance {} has {incident_count} active incident(s) -- delete incidents first",
-                appliance_id.get()
-            );
-        }
-
-        self.soft_delete_entity(EntityKind::Appliance, appliance_id.get())
+        self.soft_delete(LifecycleEntityRef::Appliance(appliance_id))
     }
 
     pub fn restore_appliance(&self, appliance_id: ApplianceId) -> Result<()> {
-        self.restore_entity(EntityKind::Appliance, appliance_id.get())
+        self.restore(LifecycleEntityRef::Appliance(appliance_id))
     }
 
     pub fn list_maintenance_items(&self, include_deleted: bool) -> Result<Vec<MaintenanceItem>> {
@@ -1492,7 +1526,7 @@ impl Store {
 
     pub fn create_maintenance_item(&self, item: &NewMaintenanceItem) -> Result<MaintenanceItemId> {
         if let Some(appliance_id) = item.appliance_id {
-            self.require_parent_alive(ParentKind::Appliance, appliance_id.get())?;
+            self.require_parent_alive(ParentEntityRef::Appliance(appliance_id))?;
         }
 
         let now = now_rfc3339()?;
@@ -1529,7 +1563,7 @@ impl Store {
         update: &UpdateMaintenanceItem,
     ) -> Result<()> {
         if let Some(appliance_id) = update.appliance_id {
-            self.require_parent_alive(ParentKind::Appliance, appliance_id.get())?;
+            self.require_parent_alive(ParentEntityRef::Appliance(appliance_id))?;
         }
 
         let now = now_rfc3339()?;
@@ -1576,35 +1610,11 @@ impl Store {
     }
 
     pub fn soft_delete_maintenance_item(&self, maintenance_id: MaintenanceItemId) -> Result<()> {
-        let service_count = self
-            .count_active_dependents(
-                "service_log_entries",
-                "maintenance_item_id",
-                maintenance_id.get(),
-            )
-            .context("count service logs linked to maintenance item")?;
-        if service_count > 0 {
-            bail!(
-                "maintenance item {} has {service_count} service log(s) -- delete service logs first",
-                maintenance_id.get()
-            );
-        }
-        self.soft_delete_entity(EntityKind::MaintenanceItem, maintenance_id.get())
+        self.soft_delete(LifecycleEntityRef::MaintenanceItem(maintenance_id))
     }
 
     pub fn restore_maintenance_item(&self, maintenance_id: MaintenanceItemId) -> Result<()> {
-        let appliance_id: Option<i64> = self
-            .conn
-            .query_row(
-                "SELECT appliance_id FROM maintenance_items WHERE id = ?",
-                params![maintenance_id.get()],
-                |row| row.get(0),
-            )
-            .with_context(|| format!("load maintenance item {}", maintenance_id.get()))?;
-        if let Some(appliance_id) = appliance_id {
-            self.require_parent_alive(ParentKind::Appliance, appliance_id)?;
-        }
-        self.restore_entity(EntityKind::MaintenanceItem, maintenance_id.get())
+        self.restore(LifecycleEntityRef::MaintenanceItem(maintenance_id))
     }
 
     pub fn list_service_log_entries(&self, include_deleted: bool) -> Result<Vec<ServiceLogEntry>> {
@@ -1738,9 +1748,9 @@ impl Store {
         &self,
         entry: &NewServiceLogEntry,
     ) -> Result<ServiceLogEntryId> {
-        self.require_parent_alive(ParentKind::MaintenanceItem, entry.maintenance_item_id.get())?;
+        self.require_parent_alive(ParentEntityRef::MaintenanceItem(entry.maintenance_item_id))?;
         if let Some(vendor_id) = entry.vendor_id {
-            self.require_parent_alive(ParentKind::Vendor, vendor_id.get())?;
+            self.require_parent_alive(ParentEntityRef::Vendor(vendor_id))?;
         }
 
         let now = now_rfc3339()?;
@@ -1771,12 +1781,9 @@ impl Store {
         entry_id: ServiceLogEntryId,
         update: &UpdateServiceLogEntry,
     ) -> Result<()> {
-        self.require_parent_alive(
-            ParentKind::MaintenanceItem,
-            update.maintenance_item_id.get(),
-        )?;
+        self.require_parent_alive(ParentEntityRef::MaintenanceItem(update.maintenance_item_id))?;
         if let Some(vendor_id) = update.vendor_id {
-            self.require_parent_alive(ParentKind::Vendor, vendor_id.get())?;
+            self.require_parent_alive(ParentEntityRef::Vendor(vendor_id))?;
         }
 
         let now = now_rfc3339()?;
@@ -1815,24 +1822,11 @@ impl Store {
     }
 
     pub fn soft_delete_service_log_entry(&self, entry_id: ServiceLogEntryId) -> Result<()> {
-        self.soft_delete_entity(EntityKind::ServiceLogEntry, entry_id.get())
+        self.soft_delete(LifecycleEntityRef::ServiceLogEntry(entry_id))
     }
 
     pub fn restore_service_log_entry(&self, entry_id: ServiceLogEntryId) -> Result<()> {
-        let (maintenance_item_id, vendor_id): (i64, Option<i64>) = self
-            .conn
-            .query_row(
-                "SELECT maintenance_item_id, vendor_id FROM service_log_entries WHERE id = ?",
-                params![entry_id.get()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .with_context(|| format!("load service log entry {}", entry_id.get()))?;
-
-        self.require_parent_alive(ParentKind::MaintenanceItem, maintenance_item_id)?;
-        if let Some(vendor_id) = vendor_id {
-            self.require_parent_alive(ParentKind::Vendor, vendor_id)?;
-        }
-        self.restore_entity(EntityKind::ServiceLogEntry, entry_id.get())
+        self.restore(LifecycleEntityRef::ServiceLogEntry(entry_id))
     }
 
     pub fn list_incidents(&self, include_deleted: bool) -> Result<Vec<Incident>> {
@@ -1911,10 +1905,10 @@ impl Store {
 
     pub fn create_incident(&self, incident: &NewIncident) -> Result<IncidentId> {
         if let Some(appliance_id) = incident.appliance_id {
-            self.require_parent_alive(ParentKind::Appliance, appliance_id.get())?;
+            self.require_parent_alive(ParentEntityRef::Appliance(appliance_id))?;
         }
         if let Some(vendor_id) = incident.vendor_id {
-            self.require_parent_alive(ParentKind::Vendor, vendor_id.get())?;
+            self.require_parent_alive(ParentEntityRef::Vendor(vendor_id))?;
         }
 
         let now = now_rfc3339()?;
@@ -1949,10 +1943,10 @@ impl Store {
 
     pub fn update_incident(&self, incident_id: IncidentId, update: &UpdateIncident) -> Result<()> {
         if let Some(appliance_id) = update.appliance_id {
-            self.require_parent_alive(ParentKind::Appliance, appliance_id.get())?;
+            self.require_parent_alive(ParentEntityRef::Appliance(appliance_id))?;
         }
         if let Some(vendor_id) = update.vendor_id {
-            self.require_parent_alive(ParentKind::Vendor, vendor_id.get())?;
+            self.require_parent_alive(ParentEntityRef::Vendor(vendor_id))?;
         }
 
         let now = now_rfc3339()?;
@@ -2003,25 +1997,11 @@ impl Store {
     }
 
     pub fn soft_delete_incident(&self, incident_id: IncidentId) -> Result<()> {
-        self.soft_delete_entity(EntityKind::Incident, incident_id.get())
+        self.soft_delete(LifecycleEntityRef::Incident(incident_id))
     }
 
     pub fn restore_incident(&self, incident_id: IncidentId) -> Result<()> {
-        let (appliance_id, vendor_id): (Option<i64>, Option<i64>) = self
-            .conn
-            .query_row(
-                "SELECT appliance_id, vendor_id FROM incidents WHERE id = ?",
-                params![incident_id.get()],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .with_context(|| format!("load incident {}", incident_id.get()))?;
-        if let Some(appliance_id) = appliance_id {
-            self.require_parent_alive(ParentKind::Appliance, appliance_id)?;
-        }
-        if let Some(vendor_id) = vendor_id {
-            self.require_parent_alive(ParentKind::Vendor, vendor_id)?;
-        }
-        self.restore_entity(EntityKind::Incident, incident_id.get())
+        self.restore(LifecycleEntityRef::Incident(incident_id))
     }
 
     pub fn dashboard_counts(&self) -> Result<DashboardCounts> {
@@ -2374,12 +2354,186 @@ impl Store {
             .context("collect chat history")
     }
 
-    fn count_active_dependents(&self, table: &str, fk_column: &str, parent_id: i64) -> Result<i64> {
-        let sql =
-            format!("SELECT COUNT(*) FROM {table} WHERE {fk_column} = ? AND deleted_at IS NULL");
+    fn count_active_dependents(&self, relation: DependentRelation, parent_id: i64) -> Result<i64> {
+        let sql = format!(
+            "SELECT COUNT(*) FROM {} WHERE {} = ? AND deleted_at IS NULL",
+            relation.table(),
+            relation.fk_column()
+        );
         self.conn
             .query_row(&sql, params![parent_id], |row| row.get(0))
-            .with_context(|| format!("count dependents in {table} for {fk_column}={parent_id}"))
+            .with_context(|| {
+                format!(
+                    "count dependents in {} for {}={parent_id}",
+                    relation.table(),
+                    relation.fk_column()
+                )
+            })
+    }
+
+    fn ensure_can_soft_delete(&self, target: LifecycleEntityRef) -> Result<()> {
+        match target {
+            LifecycleEntityRef::Project(project_id) => {
+                let quote_count = self
+                    .count_active_dependents(DependentRelation::ProjectQuotes, project_id.get())
+                    .context("count quotes linked to project")?;
+                if quote_count > 0 {
+                    bail!(
+                        "cannot delete project {} because {quote_count} quote(s) reference it; delete quotes first",
+                        project_id.get()
+                    );
+                }
+            }
+            LifecycleEntityRef::Vendor(vendor_id) => {
+                let quote_count = self
+                    .count_active_dependents(DependentRelation::VendorQuotes, vendor_id.get())
+                    .context("count quotes linked to vendor")?;
+                if quote_count > 0 {
+                    bail!(
+                        "vendor {} has {quote_count} active quote(s) -- delete quotes first",
+                        vendor_id.get()
+                    );
+                }
+
+                let incident_count = self
+                    .count_active_dependents(DependentRelation::VendorIncidents, vendor_id.get())
+                    .context("count incidents linked to vendor")?;
+                if incident_count > 0 {
+                    bail!(
+                        "vendor {} has {incident_count} active incident(s) -- delete incidents first",
+                        vendor_id.get()
+                    );
+                }
+
+                let service_log_count = self
+                    .count_active_dependents(
+                        DependentRelation::VendorServiceLogEntries,
+                        vendor_id.get(),
+                    )
+                    .context("count service logs linked to vendor")?;
+                if service_log_count > 0 {
+                    bail!(
+                        "vendor {} has {service_log_count} active service log(s) -- delete service logs first",
+                        vendor_id.get()
+                    );
+                }
+            }
+            LifecycleEntityRef::Appliance(appliance_id) => {
+                let maintenance_count = self
+                    .count_active_dependents(
+                        DependentRelation::ApplianceMaintenanceItems,
+                        appliance_id.get(),
+                    )
+                    .context("count maintenance items linked to appliance")?;
+                if maintenance_count > 0 {
+                    bail!(
+                        "appliance {} has {maintenance_count} active maintenance item(s) -- delete or reassign them first",
+                        appliance_id.get()
+                    );
+                }
+
+                let incident_count = self
+                    .count_active_dependents(
+                        DependentRelation::ApplianceIncidents,
+                        appliance_id.get(),
+                    )
+                    .context("count incidents linked to appliance")?;
+                if incident_count > 0 {
+                    bail!(
+                        "appliance {} has {incident_count} active incident(s) -- delete incidents first",
+                        appliance_id.get()
+                    );
+                }
+            }
+            LifecycleEntityRef::MaintenanceItem(maintenance_id) => {
+                let service_count = self
+                    .count_active_dependents(
+                        DependentRelation::MaintenanceItemServiceLogEntries,
+                        maintenance_id.get(),
+                    )
+                    .context("count service logs linked to maintenance item")?;
+                if service_count > 0 {
+                    bail!(
+                        "maintenance item {} has {service_count} service log(s) -- delete service logs first",
+                        maintenance_id.get()
+                    );
+                }
+            }
+            LifecycleEntityRef::Quote(_)
+            | LifecycleEntityRef::ServiceLogEntry(_)
+            | LifecycleEntityRef::Incident(_) => {}
+        }
+        Ok(())
+    }
+
+    fn ensure_can_restore(&self, target: LifecycleEntityRef) -> Result<()> {
+        match target {
+            LifecycleEntityRef::Quote(quote_id) => {
+                let (project_id, vendor_id): (i64, i64) = self
+                    .conn
+                    .query_row(
+                        "SELECT project_id, vendor_id FROM quotes WHERE id = ?",
+                        params![quote_id.get()],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .with_context(|| format!("load quote {}", quote_id.get()))?;
+                self.require_parent_alive(ParentEntityRef::Project(ProjectId::new(project_id)))?;
+                self.require_parent_alive(ParentEntityRef::Vendor(VendorId::new(vendor_id)))?;
+            }
+            LifecycleEntityRef::MaintenanceItem(maintenance_id) => {
+                let appliance_id: Option<i64> = self
+                    .conn
+                    .query_row(
+                        "SELECT appliance_id FROM maintenance_items WHERE id = ?",
+                        params![maintenance_id.get()],
+                        |row| row.get(0),
+                    )
+                    .with_context(|| format!("load maintenance item {}", maintenance_id.get()))?;
+                if let Some(appliance_id) = appliance_id {
+                    self.require_parent_alive(ParentEntityRef::Appliance(ApplianceId::new(
+                        appliance_id,
+                    )))?;
+                }
+            }
+            LifecycleEntityRef::ServiceLogEntry(entry_id) => {
+                let (maintenance_item_id, vendor_id): (i64, Option<i64>) = self
+                    .conn
+                    .query_row(
+                        "SELECT maintenance_item_id, vendor_id FROM service_log_entries WHERE id = ?",
+                        params![entry_id.get()],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .with_context(|| format!("load service log entry {}", entry_id.get()))?;
+                self.require_parent_alive(ParentEntityRef::MaintenanceItem(
+                    MaintenanceItemId::new(maintenance_item_id),
+                ))?;
+                if let Some(vendor_id) = vendor_id {
+                    self.require_parent_alive(ParentEntityRef::Vendor(VendorId::new(vendor_id)))?;
+                }
+            }
+            LifecycleEntityRef::Incident(incident_id) => {
+                let (appliance_id, vendor_id): (Option<i64>, Option<i64>) = self
+                    .conn
+                    .query_row(
+                        "SELECT appliance_id, vendor_id FROM incidents WHERE id = ?",
+                        params![incident_id.get()],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .with_context(|| format!("load incident {}", incident_id.get()))?;
+                if let Some(appliance_id) = appliance_id {
+                    self.require_parent_alive(ParentEntityRef::Appliance(ApplianceId::new(
+                        appliance_id,
+                    )))?;
+                }
+                if let Some(vendor_id) = vendor_id {
+                    self.require_parent_alive(ParentEntityRef::Vendor(VendorId::new(vendor_id)))?;
+                }
+            }
+            LifecycleEntityRef::Project(_)
+            | LifecycleEntityRef::Vendor(_)
+            | LifecycleEntityRef::Appliance(_) => {}
+        }
+        Ok(())
     }
 
     fn soft_delete_entity(&self, kind: EntityKind, entity_id: i64) -> Result<()> {
@@ -2444,7 +2598,9 @@ impl Store {
         Ok(())
     }
 
-    fn require_parent_alive(&self, parent_kind: ParentKind, parent_id: i64) -> Result<()> {
+    fn require_parent_alive(&self, parent: ParentEntityRef) -> Result<()> {
+        let parent_kind = parent.kind();
+        let parent_id = parent.id();
         let sql = format!(
             "SELECT deleted_at FROM {} WHERE id = ?",
             parent_kind.table()

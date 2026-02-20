@@ -167,6 +167,60 @@ struct TableUiState {
     filter_active: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TableCommand {
+    MoveRow(isize),
+    MoveColumn(isize),
+    JumpFirstRow,
+    JumpLastRow,
+    JumpFirstColumn,
+    JumpLastColumn,
+    CycleSort,
+    ClearSort,
+    TogglePin,
+    ToggleFilter,
+    ClearPins,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TableStatus {
+    SortUnavailable,
+    SortAsc(&'static str),
+    SortDesc(&'static str),
+    SortCleared,
+    PinUnavailable,
+    PinOn(String),
+    PinOff,
+    PinsCleared,
+    SetPinFirst,
+    FilterOn,
+    FilterOff,
+}
+
+impl TableStatus {
+    fn message(self) -> String {
+        match self {
+            Self::SortUnavailable => "sort unavailable".to_owned(),
+            Self::SortAsc(column) => format!("sort {column} asc"),
+            Self::SortDesc(column) => format!("sort {column} desc"),
+            Self::SortCleared => "sort cleared".to_owned(),
+            Self::PinUnavailable => "pin unavailable".to_owned(),
+            Self::PinOn(value) => format!("pin on ({value})"),
+            Self::PinOff => "pin off".to_owned(),
+            Self::PinsCleared => "pins cleared".to_owned(),
+            Self::SetPinFirst => "set a pin first".to_owned(),
+            Self::FilterOn => "filter on".to_owned(),
+            Self::FilterOff => "filter off".to_owned(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TableEvent {
+    CursorUpdated,
+    Status(TableStatus),
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 struct ViewData {
     dashboard_counts: DashboardCounts,
@@ -293,72 +347,80 @@ fn handle_table_key(state: &mut AppState, view_data: &mut ViewData, key: KeyEven
         return false;
     }
 
+    let Some(command) = table_command_for_key(key) else {
+        return false;
+    };
+
+    let event = apply_table_command(view_data, command);
+    if let TableEvent::Status(status) = event {
+        state.dispatch(AppCommand::SetStatus(status.message()));
+    }
+    true
+}
+
+fn table_command_for_key(key: KeyEvent) -> Option<TableCommand> {
     match (key.code, key.modifiers) {
-        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => {
-            move_row(view_data, 1);
-            true
+        (KeyCode::Char('j'), _) | (KeyCode::Down, _) => Some(TableCommand::MoveRow(1)),
+        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => Some(TableCommand::MoveRow(-1)),
+        (KeyCode::Char('h'), _) | (KeyCode::Left, _) => Some(TableCommand::MoveColumn(-1)),
+        (KeyCode::Char('l'), _) | (KeyCode::Right, _) => Some(TableCommand::MoveColumn(1)),
+        (KeyCode::Char('g'), _) => Some(TableCommand::JumpFirstRow),
+        (KeyCode::Char('G'), _) => Some(TableCommand::JumpLastRow),
+        (KeyCode::Char('^'), _) => Some(TableCommand::JumpFirstColumn),
+        (KeyCode::Char('$'), _) => Some(TableCommand::JumpLastColumn),
+        (KeyCode::Char('s'), KeyModifiers::NONE) => Some(TableCommand::CycleSort),
+        (KeyCode::Char('S'), _) => Some(TableCommand::ClearSort),
+        (KeyCode::Char('n'), KeyModifiers::CONTROL) => Some(TableCommand::ClearPins),
+        (KeyCode::Char('n'), KeyModifiers::NONE) => Some(TableCommand::TogglePin),
+        (KeyCode::Char('N'), _) => Some(TableCommand::ToggleFilter),
+        _ => None,
+    }
+}
+
+fn apply_table_command(view_data: &mut ViewData, command: TableCommand) -> TableEvent {
+    match command {
+        TableCommand::MoveRow(delta) => {
+            move_row(view_data, delta);
+            TableEvent::CursorUpdated
         }
-        (KeyCode::Char('k'), _) | (KeyCode::Up, _) => {
-            move_row(view_data, -1);
-            true
+        TableCommand::MoveColumn(delta) => {
+            move_col(view_data, delta);
+            TableEvent::CursorUpdated
         }
-        (KeyCode::Char('h'), _) | (KeyCode::Left, _) => {
-            move_col(view_data, -1);
-            true
-        }
-        (KeyCode::Char('l'), _) | (KeyCode::Right, _) => {
-            move_col(view_data, 1);
-            true
-        }
-        (KeyCode::Char('g'), _) => {
+        TableCommand::JumpFirstRow => {
             view_data.table_state.selected_row = 0;
-            true
+            TableEvent::CursorUpdated
         }
-        (KeyCode::Char('G'), _) => {
+        TableCommand::JumpLastRow => {
             if let Some(projection) = active_projection(view_data) {
                 view_data.table_state.selected_row = projection.row_count().saturating_sub(1);
             }
-            true
+            TableEvent::CursorUpdated
         }
-        (KeyCode::Char('^'), _) => {
+        TableCommand::JumpFirstColumn => {
             view_data.table_state.selected_col = 0;
-            true
+            TableEvent::CursorUpdated
         }
-        (KeyCode::Char('$'), _) => {
+        TableCommand::JumpLastColumn => {
             if let Some(projection) = active_projection(view_data) {
                 view_data.table_state.selected_col = projection.column_count().saturating_sub(1);
             }
-            true
+            TableEvent::CursorUpdated
         }
-        (KeyCode::Char('s'), KeyModifiers::NONE) => {
-            let status = cycle_sort(view_data);
-            state.dispatch(AppCommand::SetStatus(status));
-            true
-        }
-        (KeyCode::Char('S'), _) => {
+        TableCommand::CycleSort => TableEvent::Status(cycle_sort(view_data)),
+        TableCommand::ClearSort => {
             view_data.table_state.sort = None;
             clamp_table_cursor(view_data);
-            state.dispatch(AppCommand::SetStatus("sort cleared".to_owned()));
-            true
+            TableEvent::Status(TableStatus::SortCleared)
         }
-        (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
+        TableCommand::TogglePin => TableEvent::Status(toggle_pin(view_data)),
+        TableCommand::ToggleFilter => TableEvent::Status(toggle_filter(view_data)),
+        TableCommand::ClearPins => {
             view_data.table_state.pin = None;
             view_data.table_state.filter_active = false;
             clamp_table_cursor(view_data);
-            state.dispatch(AppCommand::SetStatus("pins cleared".to_owned()));
-            true
+            TableEvent::Status(TableStatus::PinsCleared)
         }
-        (KeyCode::Char('n'), KeyModifiers::NONE) => {
-            let status = toggle_pin(view_data);
-            state.dispatch(AppCommand::SetStatus(status));
-            true
-        }
-        (KeyCode::Char('N'), _) => {
-            let status = toggle_filter(view_data);
-            state.dispatch(AppCommand::SetStatus(status));
-            true
-        }
-        _ => false,
     }
 }
 
@@ -869,12 +931,12 @@ fn selected_cell(view_data: &ViewData) -> Option<(usize, TableCell)> {
     Some((col, cell.clone()))
 }
 
-fn cycle_sort(view_data: &mut ViewData) -> String {
+fn cycle_sort(view_data: &mut ViewData) -> TableStatus {
     let Some(projection) = active_projection(view_data) else {
-        return "sort unavailable".to_owned();
+        return TableStatus::SortUnavailable;
     };
     if projection.column_count() == 0 {
-        return "sort unavailable".to_owned();
+        return TableStatus::SortUnavailable;
     }
 
     let column = view_data
@@ -906,18 +968,18 @@ fn cycle_sort(view_data: &mut ViewData) -> String {
         Some(SortSpec {
             direction: SortDirection::Asc,
             ..
-        }) => format!("sort {label} asc"),
+        }) => TableStatus::SortAsc(label),
         Some(SortSpec {
             direction: SortDirection::Desc,
             ..
-        }) => format!("sort {label} desc"),
-        None => "sort cleared".to_owned(),
+        }) => TableStatus::SortDesc(label),
+        None => TableStatus::SortCleared,
     }
 }
 
-fn toggle_pin(view_data: &mut ViewData) -> String {
+fn toggle_pin(view_data: &mut ViewData) -> TableStatus {
     let Some((column, value)) = selected_cell(view_data) else {
-        return "pin unavailable".to_owned();
+        return TableStatus::PinUnavailable;
     };
 
     if let Some(existing) = &view_data.table_state.pin
@@ -927,7 +989,7 @@ fn toggle_pin(view_data: &mut ViewData) -> String {
         view_data.table_state.pin = None;
         view_data.table_state.filter_active = false;
         clamp_table_cursor(view_data);
-        return "pin off".to_owned();
+        return TableStatus::PinOff;
     }
 
     view_data.table_state.pin = Some(PinnedCell {
@@ -935,20 +997,20 @@ fn toggle_pin(view_data: &mut ViewData) -> String {
         value: value.clone(),
     });
     clamp_table_cursor(view_data);
-    format!("pin on ({})", truncate_label(&value.display(), 14))
+    TableStatus::PinOn(truncate_label(&value.display(), 14))
 }
 
-fn toggle_filter(view_data: &mut ViewData) -> String {
+fn toggle_filter(view_data: &mut ViewData) -> TableStatus {
     if view_data.table_state.pin.is_none() {
-        return "set a pin first".to_owned();
+        return TableStatus::SetPinFirst;
     }
 
     view_data.table_state.filter_active = !view_data.table_state.filter_active;
     clamp_table_cursor(view_data);
     if view_data.table_state.filter_active {
-        "filter on".to_owned()
+        TableStatus::FilterOn
     } else {
-        "filter off".to_owned()
+        TableStatus::FilterOff
     }
 }
 
@@ -1208,7 +1270,10 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 
 #[cfg(test)]
 mod tests {
-    use super::{TabSnapshot, ViewData, handle_key_event, refresh_view_data};
+    use super::{
+        TabSnapshot, TableCommand, TableEvent, TableStatus, ViewData, apply_table_command,
+        handle_key_event, refresh_view_data, table_command_for_key,
+    };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
         AppMode, AppState, ChatVisibility, DashboardCounts, FormKind, FormPayload, Project,
@@ -1452,6 +1517,42 @@ mod tests {
         );
         assert!(view_data.table_state.pin.is_none());
         assert!(!view_data.table_state.filter_active);
+    }
+
+    #[test]
+    fn table_command_mapping_covers_sort_and_filter_keys() {
+        assert_eq!(
+            table_command_for_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)),
+            Some(TableCommand::CycleSort)
+        );
+        assert_eq!(
+            table_command_for_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL)),
+            Some(TableCommand::ClearPins)
+        );
+        assert_eq!(
+            table_command_for_key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT)),
+            Some(TableCommand::ToggleFilter)
+        );
+    }
+
+    #[test]
+    fn apply_table_command_returns_typed_status_events() {
+        let state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        let first_sort = apply_table_command(&mut view_data, TableCommand::CycleSort);
+        assert_eq!(first_sort, TableEvent::Status(TableStatus::SortAsc("id")));
+
+        let first_pin = apply_table_command(&mut view_data, TableCommand::TogglePin);
+        assert!(matches!(
+            first_pin,
+            TableEvent::Status(TableStatus::PinOn(_))
+        ));
     }
 
     #[test]

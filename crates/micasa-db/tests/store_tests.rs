@@ -4,9 +4,9 @@
 use anyhow::Result;
 use micasa_app::{DocumentEntityKind, IncidentSeverity, IncidentStatus, ProjectStatus};
 use micasa_db::{
-    HouseProfileInput, NewAppliance, NewDocument, NewIncident, NewMaintenanceItem, NewProject,
-    NewQuote, NewServiceLogEntry, NewVendor, Store, UpdateProject, UpdateServiceLogEntry,
-    UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
+    HouseProfileInput, LifecycleEntityRef, NewAppliance, NewDocument, NewIncident,
+    NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, Store, UpdateProject,
+    UpdateServiceLogEntry, UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
 };
 use time::{Date, Month};
 
@@ -279,6 +279,79 @@ fn quote_restore_requires_live_parents() -> Result<()> {
     assert_eq!(quotes.len(), 1);
     assert_eq!(quotes[0].id, quote_id);
 
+    Ok(())
+}
+
+#[test]
+fn typed_lifecycle_api_soft_delete_and_restore_project() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Lifecycle API".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+
+    store.soft_delete(LifecycleEntityRef::Project(project_id))?;
+    assert!(store.list_projects(false)?.is_empty());
+    assert_eq!(store.list_projects(true)?.len(), 1);
+
+    store.restore(LifecycleEntityRef::Project(project_id))?;
+    let projects = store.list_projects(false)?;
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].id, project_id);
+    Ok(())
+}
+
+#[test]
+fn typed_lifecycle_api_restore_guard_for_quote_parent() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Parent guard".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Guard Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let quote_id = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 50_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    store.soft_delete(LifecycleEntityRef::Quote(quote_id))?;
+    store.soft_delete(LifecycleEntityRef::Project(project_id))?;
+
+    let error = store
+        .restore(LifecycleEntityRef::Quote(quote_id))
+        .expect_err("quote restore should fail when parent project is deleted");
+    assert!(error.to_string().contains("project is deleted"));
     Ok(())
 }
 
