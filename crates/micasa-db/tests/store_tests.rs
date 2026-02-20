@@ -2,10 +2,12 @@
 // Licensed under the Apache License, Version 2.0
 
 use anyhow::Result;
-use micasa_app::{DocumentEntityKind, ProjectStatus};
+use micasa_app::{DocumentEntityKind, IncidentSeverity, IncidentStatus, ProjectStatus};
 use micasa_db::{
-    NewDocument, NewProject, Store, document_cache_dir, evict_stale_cache, validate_db_path,
+    NewAppliance, NewDocument, NewIncident, NewMaintenanceItem, NewProject, NewQuote, NewVendor,
+    Store, UpdateProject, UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
 };
+use time::{Date, Month};
 
 #[test]
 fn validate_db_path_rejects_uri_forms() {
@@ -161,5 +163,272 @@ fn cache_eviction_handles_empty_dir() -> Result<()> {
     let dir = document_cache_dir()?;
     let removed = evict_stale_cache(&dir, 0)?;
     assert_eq!(removed, 0);
+    Ok(())
+}
+
+#[test]
+fn vendor_crud_and_delete_guards() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Vendor A".to_owned(),
+        contact_name: "Alice".to_owned(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    let vendors = store.list_vendors(false)?;
+    assert_eq!(vendors.len(), 1);
+    assert_eq!(vendors[0].id, vendor_id);
+
+    store.update_vendor(
+        vendor_id,
+        &UpdateVendor {
+            name: "Vendor A+".to_owned(),
+            contact_name: "Alice Updated".to_owned(),
+            email: "a@example.com".to_owned(),
+            phone: "555-0000".to_owned(),
+            website: "https://example.com".to_owned(),
+            notes: "Preferred".to_owned(),
+        },
+    )?;
+    let vendors = store.list_vendors(false)?;
+    assert_eq!(vendors[0].name, "Vendor A+");
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Project for guard".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let _quote_id = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 25_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    let delete_error = store
+        .soft_delete_vendor(vendor_id)
+        .expect_err("vendor with active quote should not delete");
+    assert!(delete_error.to_string().contains("active quote"));
+
+    Ok(())
+}
+
+#[test]
+fn quote_restore_requires_live_parents() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    let quote_id = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 10_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_quote(quote_id)?;
+    store.soft_delete_project(project_id)?;
+
+    let restore_error = store
+        .restore_quote(quote_id)
+        .expect_err("restore should fail when parent project is deleted");
+    assert!(restore_error.to_string().contains("project is deleted"));
+
+    store.restore_project(project_id)?;
+    store.restore_quote(quote_id)?;
+    let quotes = store.list_quotes(false)?;
+    assert_eq!(quotes.len(), 1);
+    assert_eq!(quotes[0].id, quote_id);
+
+    Ok(())
+}
+
+#[test]
+fn appliance_and_maintenance_delete_restore_flow() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Dryer".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: "Laundry".to_owned(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Clean vent".to_owned(),
+        category_id,
+        appliance_id: Some(appliance_id),
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    let delete_error = store
+        .soft_delete_appliance(appliance_id)
+        .expect_err("appliance should be protected while maintenance is active");
+    assert!(delete_error.to_string().contains("maintenance item"));
+
+    store.soft_delete_maintenance_item(maintenance_id)?;
+    store.soft_delete_appliance(appliance_id)?;
+
+    let restore_maintenance_error = store
+        .restore_maintenance_item(maintenance_id)
+        .expect_err("maintenance restore should fail when appliance deleted");
+    assert!(
+        restore_maintenance_error
+            .to_string()
+            .contains("appliance is deleted")
+    );
+
+    store.restore_appliance(appliance_id)?;
+    store.restore_maintenance_item(maintenance_id)?;
+
+    let maintenance = store.list_maintenance_items(false)?;
+    assert_eq!(maintenance.len(), 1);
+    assert_eq!(maintenance[0].id, maintenance_id);
+    Ok(())
+}
+
+#[test]
+fn incident_crud_and_restore_parent_guards() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Dishwasher".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: "Kitchen".to_owned(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Repair Co".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Leak".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Urgent,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 10)?,
+        date_resolved: None,
+        location: "Kitchen".to_owned(),
+        cost_cents: Some(8_000),
+        appliance_id: Some(appliance_id),
+        vendor_id: Some(vendor_id),
+        notes: String::new(),
+    })?;
+
+    let incidents = store.list_incidents(false)?;
+    assert_eq!(incidents.len(), 1);
+    assert_eq!(incidents[0].id, incident_id);
+
+    store.soft_delete_incident(incident_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+
+    let restore_error = store
+        .restore_incident(incident_id)
+        .expect_err("incident restore should fail when vendor is deleted");
+    assert!(restore_error.to_string().contains("vendor is deleted"));
+
+    store.restore_vendor(vendor_id)?;
+    store.restore_incident(incident_id)?;
+    let incidents = store.list_incidents(false)?;
+    assert_eq!(incidents.len(), 1);
+    assert_eq!(incidents[0].id, incident_id);
+    Ok(())
+}
+
+#[test]
+fn project_update_persists_fields() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Initial".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: Some(120_000),
+        actual_cents: None,
+    })?;
+
+    store.update_project(
+        project_id,
+        &UpdateProject {
+            title: "Updated".to_owned(),
+            project_type_id,
+            status: ProjectStatus::Underway,
+            description: "In progress".to_owned(),
+            start_date: Some(Date::from_calendar_date(2026, Month::January, 1)?),
+            end_date: Some(Date::from_calendar_date(2026, Month::March, 1)?),
+            budget_cents: Some(150_000),
+            actual_cents: Some(90_000),
+        },
+    )?;
+
+    let project = store.get_project(project_id)?;
+    assert_eq!(project.title, "Updated");
+    assert_eq!(project.status, ProjectStatus::Underway);
+    assert_eq!(project.actual_cents, Some(90_000));
     Ok(())
 }

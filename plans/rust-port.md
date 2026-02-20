@@ -6,7 +6,7 @@
 ## Tracking
 
 - Request date: 2026-02-19
-- Tracking issue: blocked (`gh issue create` fails because issues are disabled for `Byron/micasa`)
+- Tracking issue: [#2 Rust parity slice: tab CRUD and form flows](https://github.com/Byron/micasa/issues/2)
 - Migration owner: Codex session
 
 ## Goals

@@ -12,3 +12,4 @@ anyhow.workspace = true
 crossterm.workspace = true
 micasa-app = { path = "../micasa-app" }
 ratatui.workspace = true
+time.workspace = true

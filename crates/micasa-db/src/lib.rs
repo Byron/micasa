@@ -3,8 +3,10 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use micasa_app::{
-    ChatInput, ChatInputId, DashboardCounts, Document, DocumentEntityKind, DocumentId,
-    MaintenanceCategoryId, Project, ProjectId, ProjectStatus, ProjectTypeId,
+    Appliance, ApplianceId, ChatInput, ChatInputId, DashboardCounts, Document, DocumentEntityKind,
+    DocumentId, Incident, IncidentId, IncidentSeverity, IncidentStatus, MaintenanceCategoryId,
+    MaintenanceItem, MaintenanceItemId, Project, ProjectId, ProjectStatus, ProjectTypeId, Quote,
+    QuoteId, Vendor, VendorId,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
@@ -175,6 +177,144 @@ pub struct NewProject {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateProject {
+    pub title: String,
+    pub project_type_id: ProjectTypeId,
+    pub status: ProjectStatus,
+    pub description: String,
+    pub start_date: Option<Date>,
+    pub end_date: Option<Date>,
+    pub budget_cents: Option<i64>,
+    pub actual_cents: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewVendor {
+    pub name: String,
+    pub contact_name: String,
+    pub email: String,
+    pub phone: String,
+    pub website: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateVendor {
+    pub name: String,
+    pub contact_name: String,
+    pub email: String,
+    pub phone: String,
+    pub website: String,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewQuote {
+    pub project_id: ProjectId,
+    pub vendor_id: VendorId,
+    pub total_cents: i64,
+    pub labor_cents: Option<i64>,
+    pub materials_cents: Option<i64>,
+    pub other_cents: Option<i64>,
+    pub received_date: Option<Date>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateQuote {
+    pub project_id: ProjectId,
+    pub vendor_id: VendorId,
+    pub total_cents: i64,
+    pub labor_cents: Option<i64>,
+    pub materials_cents: Option<i64>,
+    pub other_cents: Option<i64>,
+    pub received_date: Option<Date>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewAppliance {
+    pub name: String,
+    pub brand: String,
+    pub model_number: String,
+    pub serial_number: String,
+    pub purchase_date: Option<Date>,
+    pub warranty_expiry: Option<Date>,
+    pub location: String,
+    pub cost_cents: Option<i64>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateAppliance {
+    pub name: String,
+    pub brand: String,
+    pub model_number: String,
+    pub serial_number: String,
+    pub purchase_date: Option<Date>,
+    pub warranty_expiry: Option<Date>,
+    pub location: String,
+    pub cost_cents: Option<i64>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewMaintenanceItem {
+    pub name: String,
+    pub category_id: MaintenanceCategoryId,
+    pub appliance_id: Option<ApplianceId>,
+    pub last_serviced_at: Option<Date>,
+    pub interval_months: i32,
+    pub manual_url: String,
+    pub manual_text: String,
+    pub notes: String,
+    pub cost_cents: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateMaintenanceItem {
+    pub name: String,
+    pub category_id: MaintenanceCategoryId,
+    pub appliance_id: Option<ApplianceId>,
+    pub last_serviced_at: Option<Date>,
+    pub interval_months: i32,
+    pub manual_url: String,
+    pub manual_text: String,
+    pub notes: String,
+    pub cost_cents: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewIncident {
+    pub title: String,
+    pub description: String,
+    pub status: IncidentStatus,
+    pub severity: IncidentSeverity,
+    pub date_noticed: Date,
+    pub date_resolved: Option<Date>,
+    pub location: String,
+    pub cost_cents: Option<i64>,
+    pub appliance_id: Option<ApplianceId>,
+    pub vendor_id: Option<VendorId>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateIncident {
+    pub title: String,
+    pub description: String,
+    pub status: IncidentStatus,
+    pub severity: IncidentSeverity,
+    pub date_noticed: Date,
+    pub date_resolved: Option<Date>,
+    pub location: String,
+    pub cost_cents: Option<i64>,
+    pub appliance_id: Option<ApplianceId>,
+    pub vendor_id: Option<VendorId>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewDocument {
     pub title: String,
     pub file_name: String,
@@ -183,6 +323,65 @@ pub struct NewDocument {
     pub mime_type: String,
     pub data: Vec<u8>,
     pub notes: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EntityKind {
+    Project,
+    Quote,
+    MaintenanceItem,
+    Appliance,
+    Vendor,
+    Incident,
+}
+
+impl EntityKind {
+    const fn table(self) -> &'static str {
+        match self {
+            Self::Project => "projects",
+            Self::Quote => "quotes",
+            Self::MaintenanceItem => "maintenance_items",
+            Self::Appliance => "appliances",
+            Self::Vendor => "vendors",
+            Self::Incident => "incidents",
+        }
+    }
+
+    const fn deleted_tag(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Quote => "quote",
+            Self::MaintenanceItem => "maintenance",
+            Self::Appliance => "appliance",
+            Self::Vendor => "vendor",
+            Self::Incident => "incident",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ParentKind {
+    Project,
+    Vendor,
+    Appliance,
+}
+
+impl ParentKind {
+    const fn table(self) -> &'static str {
+        match self {
+            Self::Project => "projects",
+            Self::Vendor => "vendors",
+            Self::Appliance => "appliances",
+        }
+    }
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::Vendor => "vendor",
+            Self::Appliance => "appliance",
+        }
+    }
 }
 
 pub struct Store {
@@ -331,6 +530,98 @@ impl Store {
         Ok(ProjectId::new(self.conn.last_insert_rowid()))
     }
 
+    pub fn update_project(&self, project_id: ProjectId, update: &UpdateProject) -> Result<()> {
+        let now = now_rfc3339()?;
+        let rows_affected = self
+            .conn
+            .execute(
+                "
+                UPDATE projects
+                SET
+                  title = ?,
+                  project_type_id = ?,
+                  status = ?,
+                  description = ?,
+                  start_date = ?,
+                  end_date = ?,
+                  budget_cents = ?,
+                  actual_cents = ?,
+                  updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                ",
+                params![
+                    update.title,
+                    update.project_type_id.get(),
+                    update.status.as_str(),
+                    update.description,
+                    update.start_date.map(format_date),
+                    update.end_date.map(format_date),
+                    update.budget_cents,
+                    update.actual_cents,
+                    now,
+                    project_id.get(),
+                ],
+            )
+            .context("update project")?;
+        if rows_affected == 0 {
+            bail!(
+                "project {} not found or deleted -- choose an existing project and retry",
+                project_id.get()
+            );
+        }
+        Ok(())
+    }
+
+    pub fn get_project(&self, project_id: ProjectId) -> Result<Project> {
+        self.conn
+            .query_row(
+                "
+                SELECT
+                  id, title, project_type_id, status, description,
+                  start_date, end_date, budget_cents, actual_cents,
+                  created_at, updated_at, deleted_at
+                FROM projects
+                WHERE id = ?
+                ",
+                params![project_id.get()],
+                |row| {
+                    let status_raw: String = row.get(3)?;
+                    let status = ProjectStatus::parse(&status_raw).ok_or_else(|| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            3,
+                            rusqlite::types::Type::Text,
+                            Box::new(std::io::Error::new(
+                                std::io::ErrorKind::InvalidData,
+                                format!("unknown project status {status_raw}"),
+                            )),
+                        )
+                    })?;
+
+                    let start_date_raw: Option<String> = row.get(5)?;
+                    let end_date_raw: Option<String> = row.get(6)?;
+                    let created_at_raw: String = row.get(9)?;
+                    let updated_at_raw: String = row.get(10)?;
+                    let deleted_at_raw: Option<String> = row.get(11)?;
+
+                    Ok(Project {
+                        id: ProjectId::new(row.get(0)?),
+                        title: row.get(1)?,
+                        project_type_id: ProjectTypeId::new(row.get(2)?),
+                        status,
+                        description: row.get(4)?,
+                        start_date: parse_opt_date(start_date_raw).map_err(to_sql_error)?,
+                        end_date: parse_opt_date(end_date_raw).map_err(to_sql_error)?,
+                        budget_cents: row.get(7)?,
+                        actual_cents: row.get(8)?,
+                        created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                        updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                        deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                    })
+                },
+            )
+            .with_context(|| format!("load project {}", project_id.get()))
+    }
+
     pub fn list_projects(&self, include_deleted: bool) -> Result<Vec<Project>> {
         let mut sql = String::from(
             "
@@ -404,55 +695,790 @@ impl Store {
             );
         }
 
-        let now = now_rfc3339()?;
-        let affected = self
-            .conn
-            .execute(
-                "UPDATE projects SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
-                params![now, now, project_id.get()],
-            )
-            .context("soft delete project")?;
-        if affected == 0 {
-            bail!("project {} not found or already deleted", project_id.get());
-        }
-
-        self.conn
-            .execute(
-                "INSERT INTO deletion_records (entity, target_id, deleted_at) VALUES ('project', ?, ?)",
-                params![project_id.get(), now],
-            )
-            .context("write deletion record")?;
-        Ok(())
+        self.soft_delete_entity(EntityKind::Project, project_id.get())
     }
 
     pub fn restore_project(&self, project_id: ProjectId) -> Result<()> {
-        let now = now_rfc3339()?;
-        let restored = self
-            .conn
-            .execute(
-                "UPDATE projects SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL",
-                params![now, project_id.get()],
-            )
-            .context("restore project")?;
-        if restored == 0 {
-            bail!(
-                "project {} is not deleted or does not exist",
-                project_id.get()
-            );
-        }
+        self.restore_entity(EntityKind::Project, project_id.get())
+    }
 
+    pub fn list_vendors(&self, include_deleted: bool) -> Result<Vec<Vendor>> {
+        let mut sql = String::from(
+            "
+            SELECT
+              id, name, contact_name, email, phone, website, notes,
+              created_at, updated_at, deleted_at
+            FROM vendors
+            ",
+        );
+        if !include_deleted {
+            sql.push_str("WHERE deleted_at IS NULL\n");
+        }
+        sql.push_str("ORDER BY name ASC, id DESC");
+
+        let mut stmt = self.conn.prepare(&sql).context("prepare vendors query")?;
+        let rows = stmt
+            .query_map([], |row| {
+                let created_at_raw: String = row.get(7)?;
+                let updated_at_raw: String = row.get(8)?;
+                let deleted_at_raw: Option<String> = row.get(9)?;
+
+                Ok(Vendor {
+                    id: VendorId::new(row.get(0)?),
+                    name: row.get(1)?,
+                    contact_name: row.get(2)?,
+                    email: row.get(3)?,
+                    phone: row.get(4)?,
+                    website: row.get(5)?,
+                    notes: row.get(6)?,
+                    created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                    updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                    deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                })
+            })
+            .context("query vendors")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect vendors")
+    }
+
+    pub fn create_vendor(&self, vendor: &NewVendor) -> Result<VendorId> {
+        let now = now_rfc3339()?;
         self.conn
             .execute(
                 "
-                UPDATE deletion_records
-                SET restored_at = ?
-                WHERE entity = 'project' AND target_id = ? AND restored_at IS NULL
+                INSERT INTO vendors (
+                  name, contact_name, email, phone, website, notes,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ",
-                params![now, project_id.get()],
+                params![
+                    vendor.name,
+                    vendor.contact_name,
+                    vendor.email,
+                    vendor.phone,
+                    vendor.website,
+                    vendor.notes,
+                    now,
+                    now,
+                ],
             )
-            .context("mark deletion record restored")?;
+            .context("insert vendor")?;
+        Ok(VendorId::new(self.conn.last_insert_rowid()))
+    }
 
+    pub fn update_vendor(&self, vendor_id: VendorId, update: &UpdateVendor) -> Result<()> {
+        let now = now_rfc3339()?;
+        let rows_affected = self
+            .conn
+            .execute(
+                "
+                UPDATE vendors
+                SET
+                  name = ?,
+                  contact_name = ?,
+                  email = ?,
+                  phone = ?,
+                  website = ?,
+                  notes = ?,
+                  updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                ",
+                params![
+                    update.name,
+                    update.contact_name,
+                    update.email,
+                    update.phone,
+                    update.website,
+                    update.notes,
+                    now,
+                    vendor_id.get(),
+                ],
+            )
+            .context("update vendor")?;
+        if rows_affected == 0 {
+            bail!(
+                "vendor {} not found or deleted -- choose an existing vendor and retry",
+                vendor_id.get()
+            );
+        }
         Ok(())
+    }
+
+    pub fn soft_delete_vendor(&self, vendor_id: VendorId) -> Result<()> {
+        let quote_count = self
+            .count_active_dependents("quotes", "vendor_id", vendor_id.get())
+            .context("count quotes linked to vendor")?;
+        if quote_count > 0 {
+            bail!(
+                "vendor {} has {quote_count} active quote(s) -- delete quotes first",
+                vendor_id.get()
+            );
+        }
+
+        let incident_count = self
+            .count_active_dependents("incidents", "vendor_id", vendor_id.get())
+            .context("count incidents linked to vendor")?;
+        if incident_count > 0 {
+            bail!(
+                "vendor {} has {incident_count} active incident(s) -- delete incidents first",
+                vendor_id.get()
+            );
+        }
+
+        self.soft_delete_entity(EntityKind::Vendor, vendor_id.get())
+    }
+
+    pub fn restore_vendor(&self, vendor_id: VendorId) -> Result<()> {
+        self.restore_entity(EntityKind::Vendor, vendor_id.get())
+    }
+
+    pub fn list_quotes(&self, include_deleted: bool) -> Result<Vec<Quote>> {
+        let mut sql = String::from(
+            "
+            SELECT
+              id, project_id, vendor_id, total_cents, labor_cents,
+              materials_cents, other_cents, received_date, notes,
+              created_at, updated_at, deleted_at
+            FROM quotes
+            ",
+        );
+        if !include_deleted {
+            sql.push_str("WHERE deleted_at IS NULL\n");
+        }
+        sql.push_str("ORDER BY updated_at DESC, id DESC");
+
+        let mut stmt = self.conn.prepare(&sql).context("prepare quotes query")?;
+        let rows = stmt
+            .query_map([], |row| {
+                let received_date_raw: Option<String> = row.get(7)?;
+                let created_at_raw: String = row.get(9)?;
+                let updated_at_raw: String = row.get(10)?;
+                let deleted_at_raw: Option<String> = row.get(11)?;
+
+                Ok(Quote {
+                    id: QuoteId::new(row.get(0)?),
+                    project_id: ProjectId::new(row.get(1)?),
+                    vendor_id: VendorId::new(row.get(2)?),
+                    total_cents: row.get(3)?,
+                    labor_cents: row.get(4)?,
+                    materials_cents: row.get(5)?,
+                    other_cents: row.get(6)?,
+                    received_date: parse_opt_date(received_date_raw).map_err(to_sql_error)?,
+                    notes: row.get(8)?,
+                    created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                    updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                    deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                })
+            })
+            .context("query quotes")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect quotes")
+    }
+
+    pub fn create_quote(&self, quote: &NewQuote) -> Result<QuoteId> {
+        self.require_parent_alive(ParentKind::Project, quote.project_id.get())?;
+        self.require_parent_alive(ParentKind::Vendor, quote.vendor_id.get())?;
+
+        let now = now_rfc3339()?;
+        self.conn
+            .execute(
+                "
+                INSERT INTO quotes (
+                  project_id, vendor_id, total_cents, labor_cents,
+                  materials_cents, other_cents, received_date, notes,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ",
+                params![
+                    quote.project_id.get(),
+                    quote.vendor_id.get(),
+                    quote.total_cents,
+                    quote.labor_cents,
+                    quote.materials_cents,
+                    quote.other_cents,
+                    quote.received_date.map(format_date),
+                    quote.notes,
+                    now,
+                    now,
+                ],
+            )
+            .context("insert quote")?;
+        Ok(QuoteId::new(self.conn.last_insert_rowid()))
+    }
+
+    pub fn update_quote(&self, quote_id: QuoteId, update: &UpdateQuote) -> Result<()> {
+        self.require_parent_alive(ParentKind::Project, update.project_id.get())?;
+        self.require_parent_alive(ParentKind::Vendor, update.vendor_id.get())?;
+
+        let now = now_rfc3339()?;
+        let rows_affected = self
+            .conn
+            .execute(
+                "
+                UPDATE quotes
+                SET
+                  project_id = ?,
+                  vendor_id = ?,
+                  total_cents = ?,
+                  labor_cents = ?,
+                  materials_cents = ?,
+                  other_cents = ?,
+                  received_date = ?,
+                  notes = ?,
+                  updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                ",
+                params![
+                    update.project_id.get(),
+                    update.vendor_id.get(),
+                    update.total_cents,
+                    update.labor_cents,
+                    update.materials_cents,
+                    update.other_cents,
+                    update.received_date.map(format_date),
+                    update.notes,
+                    now,
+                    quote_id.get(),
+                ],
+            )
+            .context("update quote")?;
+        if rows_affected == 0 {
+            bail!(
+                "quote {} not found or deleted -- choose an existing quote and retry",
+                quote_id.get()
+            );
+        }
+        Ok(())
+    }
+
+    pub fn soft_delete_quote(&self, quote_id: QuoteId) -> Result<()> {
+        self.soft_delete_entity(EntityKind::Quote, quote_id.get())
+    }
+
+    pub fn restore_quote(&self, quote_id: QuoteId) -> Result<()> {
+        let (project_id, vendor_id): (i64, i64) = self
+            .conn
+            .query_row(
+                "SELECT project_id, vendor_id FROM quotes WHERE id = ?",
+                params![quote_id.get()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .with_context(|| format!("load quote {}", quote_id.get()))?;
+
+        self.require_parent_alive(ParentKind::Project, project_id)?;
+        self.require_parent_alive(ParentKind::Vendor, vendor_id)?;
+        self.restore_entity(EntityKind::Quote, quote_id.get())
+    }
+
+    pub fn list_appliances(&self, include_deleted: bool) -> Result<Vec<Appliance>> {
+        let mut sql = String::from(
+            "
+            SELECT
+              id, name, brand, model_number, serial_number,
+              purchase_date, warranty_expiry, location, cost_cents, notes,
+              created_at, updated_at, deleted_at
+            FROM appliances
+            ",
+        );
+        if !include_deleted {
+            sql.push_str("WHERE deleted_at IS NULL\n");
+        }
+        sql.push_str("ORDER BY updated_at DESC, id DESC");
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .context("prepare appliances query")?;
+        let rows = stmt
+            .query_map([], |row| {
+                let purchase_date_raw: Option<String> = row.get(5)?;
+                let warranty_expiry_raw: Option<String> = row.get(6)?;
+                let created_at_raw: String = row.get(10)?;
+                let updated_at_raw: String = row.get(11)?;
+                let deleted_at_raw: Option<String> = row.get(12)?;
+
+                Ok(Appliance {
+                    id: ApplianceId::new(row.get(0)?),
+                    name: row.get(1)?,
+                    brand: row.get(2)?,
+                    model_number: row.get(3)?,
+                    serial_number: row.get(4)?,
+                    purchase_date: parse_opt_date(purchase_date_raw).map_err(to_sql_error)?,
+                    warranty_expiry: parse_opt_date(warranty_expiry_raw).map_err(to_sql_error)?,
+                    location: row.get(7)?,
+                    cost_cents: row.get(8)?,
+                    notes: row.get(9)?,
+                    created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                    updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                    deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                })
+            })
+            .context("query appliances")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect appliances")
+    }
+
+    pub fn create_appliance(&self, appliance: &NewAppliance) -> Result<ApplianceId> {
+        let now = now_rfc3339()?;
+        self.conn
+            .execute(
+                "
+                INSERT INTO appliances (
+                  name, brand, model_number, serial_number, purchase_date,
+                  warranty_expiry, location, cost_cents, notes,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ",
+                params![
+                    appliance.name,
+                    appliance.brand,
+                    appliance.model_number,
+                    appliance.serial_number,
+                    appliance.purchase_date.map(format_date),
+                    appliance.warranty_expiry.map(format_date),
+                    appliance.location,
+                    appliance.cost_cents,
+                    appliance.notes,
+                    now,
+                    now,
+                ],
+            )
+            .context("insert appliance")?;
+        Ok(ApplianceId::new(self.conn.last_insert_rowid()))
+    }
+
+    pub fn update_appliance(
+        &self,
+        appliance_id: ApplianceId,
+        update: &UpdateAppliance,
+    ) -> Result<()> {
+        let now = now_rfc3339()?;
+        let rows_affected = self
+            .conn
+            .execute(
+                "
+                UPDATE appliances
+                SET
+                  name = ?,
+                  brand = ?,
+                  model_number = ?,
+                  serial_number = ?,
+                  purchase_date = ?,
+                  warranty_expiry = ?,
+                  location = ?,
+                  cost_cents = ?,
+                  notes = ?,
+                  updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                ",
+                params![
+                    update.name,
+                    update.brand,
+                    update.model_number,
+                    update.serial_number,
+                    update.purchase_date.map(format_date),
+                    update.warranty_expiry.map(format_date),
+                    update.location,
+                    update.cost_cents,
+                    update.notes,
+                    now,
+                    appliance_id.get(),
+                ],
+            )
+            .context("update appliance")?;
+        if rows_affected == 0 {
+            bail!(
+                "appliance {} not found or deleted -- choose an existing appliance and retry",
+                appliance_id.get()
+            );
+        }
+        Ok(())
+    }
+
+    pub fn soft_delete_appliance(&self, appliance_id: ApplianceId) -> Result<()> {
+        let maintenance_count = self
+            .count_active_dependents("maintenance_items", "appliance_id", appliance_id.get())
+            .context("count maintenance items linked to appliance")?;
+        if maintenance_count > 0 {
+            bail!(
+                "appliance {} has {maintenance_count} active maintenance item(s) -- delete or reassign them first",
+                appliance_id.get()
+            );
+        }
+
+        let incident_count = self
+            .count_active_dependents("incidents", "appliance_id", appliance_id.get())
+            .context("count incidents linked to appliance")?;
+        if incident_count > 0 {
+            bail!(
+                "appliance {} has {incident_count} active incident(s) -- delete incidents first",
+                appliance_id.get()
+            );
+        }
+
+        self.soft_delete_entity(EntityKind::Appliance, appliance_id.get())
+    }
+
+    pub fn restore_appliance(&self, appliance_id: ApplianceId) -> Result<()> {
+        self.restore_entity(EntityKind::Appliance, appliance_id.get())
+    }
+
+    pub fn list_maintenance_items(&self, include_deleted: bool) -> Result<Vec<MaintenanceItem>> {
+        let mut sql = String::from(
+            "
+            SELECT
+              id, name, category_id, appliance_id, last_serviced_at,
+              interval_months, manual_url, manual_text, notes, cost_cents,
+              created_at, updated_at, deleted_at
+            FROM maintenance_items
+            ",
+        );
+        if !include_deleted {
+            sql.push_str("WHERE deleted_at IS NULL\n");
+        }
+        sql.push_str("ORDER BY updated_at DESC, id DESC");
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .context("prepare maintenance items query")?;
+        let rows = stmt
+            .query_map([], |row| {
+                let appliance_id: Option<i64> = row.get(3)?;
+                let last_serviced_at_raw: Option<String> = row.get(4)?;
+                let created_at_raw: String = row.get(10)?;
+                let updated_at_raw: String = row.get(11)?;
+                let deleted_at_raw: Option<String> = row.get(12)?;
+
+                Ok(MaintenanceItem {
+                    id: MaintenanceItemId::new(row.get(0)?),
+                    name: row.get(1)?,
+                    category_id: MaintenanceCategoryId::new(row.get(2)?),
+                    appliance_id: appliance_id.map(ApplianceId::new),
+                    last_serviced_at: parse_opt_date(last_serviced_at_raw).map_err(to_sql_error)?,
+                    interval_months: row.get(5)?,
+                    manual_url: row.get(6)?,
+                    manual_text: row.get(7)?,
+                    notes: row.get(8)?,
+                    cost_cents: row.get(9)?,
+                    created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                    updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                    deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                })
+            })
+            .context("query maintenance items")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect maintenance items")
+    }
+
+    pub fn create_maintenance_item(&self, item: &NewMaintenanceItem) -> Result<MaintenanceItemId> {
+        if let Some(appliance_id) = item.appliance_id {
+            self.require_parent_alive(ParentKind::Appliance, appliance_id.get())?;
+        }
+
+        let now = now_rfc3339()?;
+        self.conn
+            .execute(
+                "
+                INSERT INTO maintenance_items (
+                  name, category_id, appliance_id, last_serviced_at,
+                  interval_months, manual_url, manual_text, notes, cost_cents,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ",
+                params![
+                    item.name,
+                    item.category_id.get(),
+                    item.appliance_id.map(ApplianceId::get),
+                    item.last_serviced_at.map(format_date),
+                    item.interval_months,
+                    item.manual_url,
+                    item.manual_text,
+                    item.notes,
+                    item.cost_cents,
+                    now,
+                    now,
+                ],
+            )
+            .context("insert maintenance item")?;
+        Ok(MaintenanceItemId::new(self.conn.last_insert_rowid()))
+    }
+
+    pub fn update_maintenance_item(
+        &self,
+        maintenance_id: MaintenanceItemId,
+        update: &UpdateMaintenanceItem,
+    ) -> Result<()> {
+        if let Some(appliance_id) = update.appliance_id {
+            self.require_parent_alive(ParentKind::Appliance, appliance_id.get())?;
+        }
+
+        let now = now_rfc3339()?;
+        let rows_affected = self
+            .conn
+            .execute(
+                "
+                UPDATE maintenance_items
+                SET
+                  name = ?,
+                  category_id = ?,
+                  appliance_id = ?,
+                  last_serviced_at = ?,
+                  interval_months = ?,
+                  manual_url = ?,
+                  manual_text = ?,
+                  notes = ?,
+                  cost_cents = ?,
+                  updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                ",
+                params![
+                    update.name,
+                    update.category_id.get(),
+                    update.appliance_id.map(ApplianceId::get),
+                    update.last_serviced_at.map(format_date),
+                    update.interval_months,
+                    update.manual_url,
+                    update.manual_text,
+                    update.notes,
+                    update.cost_cents,
+                    now,
+                    maintenance_id.get(),
+                ],
+            )
+            .context("update maintenance item")?;
+        if rows_affected == 0 {
+            bail!(
+                "maintenance item {} not found or deleted -- choose an existing item and retry",
+                maintenance_id.get()
+            );
+        }
+        Ok(())
+    }
+
+    pub fn soft_delete_maintenance_item(&self, maintenance_id: MaintenanceItemId) -> Result<()> {
+        let service_count = self
+            .count_active_dependents(
+                "service_log_entries",
+                "maintenance_item_id",
+                maintenance_id.get(),
+            )
+            .context("count service logs linked to maintenance item")?;
+        if service_count > 0 {
+            bail!(
+                "maintenance item {} has {service_count} service log(s) -- delete service logs first",
+                maintenance_id.get()
+            );
+        }
+        self.soft_delete_entity(EntityKind::MaintenanceItem, maintenance_id.get())
+    }
+
+    pub fn restore_maintenance_item(&self, maintenance_id: MaintenanceItemId) -> Result<()> {
+        let appliance_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT appliance_id FROM maintenance_items WHERE id = ?",
+                params![maintenance_id.get()],
+                |row| row.get(0),
+            )
+            .with_context(|| format!("load maintenance item {}", maintenance_id.get()))?;
+        if let Some(appliance_id) = appliance_id {
+            self.require_parent_alive(ParentKind::Appliance, appliance_id)?;
+        }
+        self.restore_entity(EntityKind::MaintenanceItem, maintenance_id.get())
+    }
+
+    pub fn list_incidents(&self, include_deleted: bool) -> Result<Vec<Incident>> {
+        let mut sql = String::from(
+            "
+            SELECT
+              id, title, description, status, severity, date_noticed,
+              date_resolved, location, cost_cents, appliance_id, vendor_id,
+              notes, created_at, updated_at, deleted_at
+            FROM incidents
+            ",
+        );
+        if !include_deleted {
+            sql.push_str("WHERE deleted_at IS NULL\n");
+        }
+        sql.push_str("ORDER BY updated_at DESC, id DESC");
+
+        let mut stmt = self.conn.prepare(&sql).context("prepare incidents query")?;
+        let rows = stmt
+            .query_map([], |row| {
+                let status_raw: String = row.get(3)?;
+                let status = IncidentStatus::parse(&status_raw).ok_or_else(|| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("unknown incident status {status_raw}"),
+                        )),
+                    )
+                })?;
+
+                let severity_raw: String = row.get(4)?;
+                let severity = IncidentSeverity::parse(&severity_raw).ok_or_else(|| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        4,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("unknown incident severity {severity_raw}"),
+                        )),
+                    )
+                })?;
+
+                let date_noticed_raw: String = row.get(5)?;
+                let date_resolved_raw: Option<String> = row.get(6)?;
+                let appliance_id: Option<i64> = row.get(9)?;
+                let vendor_id: Option<i64> = row.get(10)?;
+                let created_at_raw: String = row.get(12)?;
+                let updated_at_raw: String = row.get(13)?;
+                let deleted_at_raw: Option<String> = row.get(14)?;
+
+                Ok(Incident {
+                    id: IncidentId::new(row.get(0)?),
+                    title: row.get(1)?,
+                    description: row.get(2)?,
+                    status,
+                    severity,
+                    date_noticed: parse_date(&date_noticed_raw).map_err(to_sql_error)?,
+                    date_resolved: parse_opt_date(date_resolved_raw).map_err(to_sql_error)?,
+                    location: row.get(7)?,
+                    cost_cents: row.get(8)?,
+                    appliance_id: appliance_id.map(ApplianceId::new),
+                    vendor_id: vendor_id.map(VendorId::new),
+                    notes: row.get(11)?,
+                    created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                    updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                    deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                })
+            })
+            .context("query incidents")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect incidents")
+    }
+
+    pub fn create_incident(&self, incident: &NewIncident) -> Result<IncidentId> {
+        if let Some(appliance_id) = incident.appliance_id {
+            self.require_parent_alive(ParentKind::Appliance, appliance_id.get())?;
+        }
+        if let Some(vendor_id) = incident.vendor_id {
+            self.require_parent_alive(ParentKind::Vendor, vendor_id.get())?;
+        }
+
+        let now = now_rfc3339()?;
+        self.conn
+            .execute(
+                "
+                INSERT INTO incidents (
+                  title, description, status, severity, date_noticed,
+                  date_resolved, location, cost_cents, appliance_id, vendor_id,
+                  notes, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ",
+                params![
+                    incident.title,
+                    incident.description,
+                    incident.status.as_str(),
+                    incident.severity.as_str(),
+                    format_date(incident.date_noticed),
+                    incident.date_resolved.map(format_date),
+                    incident.location,
+                    incident.cost_cents,
+                    incident.appliance_id.map(ApplianceId::get),
+                    incident.vendor_id.map(VendorId::get),
+                    incident.notes,
+                    now,
+                    now,
+                ],
+            )
+            .context("insert incident")?;
+        Ok(IncidentId::new(self.conn.last_insert_rowid()))
+    }
+
+    pub fn update_incident(&self, incident_id: IncidentId, update: &UpdateIncident) -> Result<()> {
+        if let Some(appliance_id) = update.appliance_id {
+            self.require_parent_alive(ParentKind::Appliance, appliance_id.get())?;
+        }
+        if let Some(vendor_id) = update.vendor_id {
+            self.require_parent_alive(ParentKind::Vendor, vendor_id.get())?;
+        }
+
+        let now = now_rfc3339()?;
+        let rows_affected = self
+            .conn
+            .execute(
+                "
+                UPDATE incidents
+                SET
+                  title = ?,
+                  description = ?,
+                  status = ?,
+                  severity = ?,
+                  date_noticed = ?,
+                  date_resolved = ?,
+                  location = ?,
+                  cost_cents = ?,
+                  appliance_id = ?,
+                  vendor_id = ?,
+                  notes = ?,
+                  updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                ",
+                params![
+                    update.title,
+                    update.description,
+                    update.status.as_str(),
+                    update.severity.as_str(),
+                    format_date(update.date_noticed),
+                    update.date_resolved.map(format_date),
+                    update.location,
+                    update.cost_cents,
+                    update.appliance_id.map(ApplianceId::get),
+                    update.vendor_id.map(VendorId::get),
+                    update.notes,
+                    now,
+                    incident_id.get(),
+                ],
+            )
+            .context("update incident")?;
+        if rows_affected == 0 {
+            bail!(
+                "incident {} not found or deleted -- choose an existing incident and retry",
+                incident_id.get()
+            );
+        }
+        Ok(())
+    }
+
+    pub fn soft_delete_incident(&self, incident_id: IncidentId) -> Result<()> {
+        self.soft_delete_entity(EntityKind::Incident, incident_id.get())
+    }
+
+    pub fn restore_incident(&self, incident_id: IncidentId) -> Result<()> {
+        let (appliance_id, vendor_id): (Option<i64>, Option<i64>) = self
+            .conn
+            .query_row(
+                "SELECT appliance_id, vendor_id FROM incidents WHERE id = ?",
+                params![incident_id.get()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .with_context(|| format!("load incident {}", incident_id.get()))?;
+        if let Some(appliance_id) = appliance_id {
+            self.require_parent_alive(ParentKind::Appliance, appliance_id)?;
+        }
+        if let Some(vendor_id) = vendor_id {
+            self.require_parent_alive(ParentKind::Vendor, vendor_id)?;
+        }
+        self.restore_entity(EntityKind::Incident, incident_id.get())
     }
 
     pub fn dashboard_counts(&self) -> Result<DashboardCounts> {
@@ -506,6 +1532,59 @@ impl Store {
             maintenance_due: usize::try_from(maintenance_due).unwrap_or(0),
             incidents_open: usize::try_from(incidents_open).unwrap_or(0),
         })
+    }
+
+    pub fn list_documents(&self, include_deleted: bool) -> Result<Vec<Document>> {
+        let mut sql = String::from(
+            "
+            SELECT
+              id, title, file_name, entity_kind, entity_id, mime_type,
+              size_bytes, sha256, notes, created_at, updated_at, deleted_at
+            FROM documents
+            ",
+        );
+        if !include_deleted {
+            sql.push_str("WHERE deleted_at IS NULL\n");
+        }
+        sql.push_str("ORDER BY updated_at DESC, id DESC");
+
+        let mut stmt = self.conn.prepare(&sql).context("prepare documents query")?;
+        let rows = stmt
+            .query_map([], |row| {
+                let kind_raw: String = row.get(3)?;
+                let kind = DocumentEntityKind::parse(&kind_raw).ok_or_else(|| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        3,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("unknown document entity kind {kind_raw}"),
+                        )),
+                    )
+                })?;
+                let created_at_raw: String = row.get(9)?;
+                let updated_at_raw: String = row.get(10)?;
+                let deleted_at_raw: Option<String> = row.get(11)?;
+
+                Ok(Document {
+                    id: DocumentId::new(row.get(0)?),
+                    title: row.get(1)?,
+                    file_name: row.get(2)?,
+                    entity_kind: kind,
+                    entity_id: row.get(4)?,
+                    mime_type: row.get(5)?,
+                    size_bytes: row.get(6)?,
+                    checksum_sha256: row.get(7)?,
+                    data: Vec::new(),
+                    notes: row.get(8)?,
+                    created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                    updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                    deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                })
+            })
+            .context("query documents")?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect documents")
     }
 
     pub fn insert_document(&self, new_document: &NewDocument) -> Result<DocumentId> {
@@ -750,6 +1829,100 @@ impl Store {
 
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("collect chat history")
+    }
+
+    fn count_active_dependents(&self, table: &str, fk_column: &str, parent_id: i64) -> Result<i64> {
+        let sql =
+            format!("SELECT COUNT(*) FROM {table} WHERE {fk_column} = ? AND deleted_at IS NULL");
+        self.conn
+            .query_row(&sql, params![parent_id], |row| row.get(0))
+            .with_context(|| format!("count dependents in {table} for {fk_column}={parent_id}"))
+    }
+
+    fn soft_delete_entity(&self, kind: EntityKind, entity_id: i64) -> Result<()> {
+        let now = now_rfc3339()?;
+        let sql = format!(
+            "UPDATE {} SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+            kind.table()
+        );
+        let rows_affected = self
+            .conn
+            .execute(&sql, params![now, now, entity_id])
+            .with_context(|| format!("soft delete {} {}", kind.deleted_tag(), entity_id))?;
+        if rows_affected == 0 {
+            bail!(
+                "{} {} not found or already deleted",
+                kind.deleted_tag(),
+                entity_id
+            );
+        }
+        self.conn
+            .execute(
+                "INSERT INTO deletion_records (entity, target_id, deleted_at) VALUES (?, ?, ?)",
+                params![kind.deleted_tag(), entity_id, now],
+            )
+            .with_context(|| format!("record deletion for {} {}", kind.deleted_tag(), entity_id))?;
+        Ok(())
+    }
+
+    fn restore_entity(&self, kind: EntityKind, entity_id: i64) -> Result<()> {
+        let now = now_rfc3339()?;
+        let sql = format!(
+            "UPDATE {} SET deleted_at = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL",
+            kind.table()
+        );
+        let rows_affected = self
+            .conn
+            .execute(&sql, params![now, entity_id])
+            .with_context(|| format!("restore {} {}", kind.deleted_tag(), entity_id))?;
+        if rows_affected == 0 {
+            bail!(
+                "{} {} is not deleted or does not exist",
+                kind.deleted_tag(),
+                entity_id
+            );
+        }
+        self.conn
+            .execute(
+                "
+                UPDATE deletion_records
+                SET restored_at = ?
+                WHERE entity = ? AND target_id = ? AND restored_at IS NULL
+                ",
+                params![now, kind.deleted_tag(), entity_id],
+            )
+            .with_context(|| {
+                format!(
+                    "mark deletion record restored for {} {}",
+                    kind.deleted_tag(),
+                    entity_id
+                )
+            })?;
+        Ok(())
+    }
+
+    fn require_parent_alive(&self, parent_kind: ParentKind, parent_id: i64) -> Result<()> {
+        let sql = format!(
+            "SELECT deleted_at FROM {} WHERE id = ?",
+            parent_kind.table()
+        );
+        let deleted_at: Option<Option<String>> = self
+            .conn
+            .query_row(&sql, params![parent_id], |row| row.get(0))
+            .optional()
+            .with_context(|| {
+                format!(
+                    "load parent {} {} for relationship check",
+                    parent_kind.label(),
+                    parent_id
+                )
+            })?;
+
+        match deleted_at {
+            Some(None) => Ok(()),
+            Some(Some(_)) => bail!("{} is deleted -- restore it first", parent_kind.label()),
+            None => bail!("{} no longer exists", parent_kind.label()),
+        }
     }
 }
 

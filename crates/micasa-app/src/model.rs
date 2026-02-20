@@ -450,7 +450,7 @@ pub struct DeletionRecord {
     pub restored_at: Option<OffsetDateTime>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct DashboardCounts {
     pub projects_due: usize,
     pub maintenance_due: usize,

@@ -2,11 +2,13 @@
 // Licensed under the Apache License, Version 2.0
 
 mod config;
+mod runtime;
 
 use anyhow::{Context, Result};
 use config::Config;
-use micasa_app::{AppState, DashboardCounts, TabKind};
+use micasa_app::{AppState, TabKind};
 use micasa_db::Store;
+use runtime::DbRuntime;
 use std::env;
 use std::path::PathBuf;
 
@@ -107,17 +109,8 @@ fn run() -> Result<()> {
         state.active_tab = TabKind::Projects;
     }
 
-    let counts = if config.show_dashboard() {
-        store.dashboard_counts()?
-    } else {
-        DashboardCounts {
-            projects_due: 0,
-            maintenance_due: 0,
-            incidents_open: 0,
-        }
-    };
-
-    micasa_tui::run_app(&mut state, counts)
+    let mut runtime = DbRuntime::new(&store);
+    micasa_tui::run_app(&mut state, &mut runtime)
 }
 
 fn print_help() {

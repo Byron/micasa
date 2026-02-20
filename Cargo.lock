@@ -953,6 +953,7 @@ dependencies = [
  "crossterm 0.29.0",
  "micasa-app",
  "ratatui",
+ "time",
 ]
 
 [[package]]
