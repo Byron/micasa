@@ -906,6 +906,7 @@ dependencies = [
  "serde",
  "tempfile",
  "time",
+ "tiny_http",
  "toml",
 ]
 

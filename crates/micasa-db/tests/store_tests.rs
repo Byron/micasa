@@ -494,6 +494,86 @@ fn document_cache_extract_refreshes_existing_cache_file() -> Result<()> {
 }
 
 #[test]
+fn insert_document_rejects_oversized_payload() -> Result<()> {
+    let mut store = Store::open_memory()?;
+    store.bootstrap()?;
+    store.set_max_document_size(4)?;
+
+    let error = store
+        .insert_document(&NewDocument {
+            title: "Too big".to_owned(),
+            file_name: "big.bin".to_owned(),
+            entity_kind: DocumentEntityKind::Project,
+            entity_id: 1,
+            mime_type: "application/octet-stream".to_owned(),
+            data: vec![1, 2, 3, 4, 5],
+            notes: String::new(),
+        })
+        .expect_err("oversized document should be rejected");
+    assert!(error.to_string().contains("max allowed"));
+    assert!(error.to_string().contains("shrink the file and retry"));
+    Ok(())
+}
+
+#[test]
+fn extract_document_fails_actionably_for_empty_blob() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Empty".to_owned(),
+        file_name: "empty.bin".to_owned(),
+        entity_kind: DocumentEntityKind::Project,
+        entity_id: 1,
+        mime_type: "application/octet-stream".to_owned(),
+        data: Vec::new(),
+        notes: String::new(),
+    })?;
+
+    let error = store
+        .extract_document(document_id)
+        .expect_err("empty blob should not be extractable");
+    assert!(error.to_string().contains("has no content"));
+    Ok(())
+}
+
+#[test]
+fn deleting_project_with_documents_is_allowed_and_preserves_document_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Docs-linked project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Scope".to_owned(),
+        file_name: "scope.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::Project,
+        entity_id: project_id.get(),
+        mime_type: "application/pdf".to_owned(),
+        data: b"scope".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_project(project_id)?;
+    let documents = store.list_documents(false)?;
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].id, document_id);
+    assert_eq!(documents[0].entity_id, project_id.get());
+    assert_eq!(documents[0].entity_kind, DocumentEntityKind::Project);
+    Ok(())
+}
+
+#[test]
 fn chat_history_deduplicates_and_caps_size() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;

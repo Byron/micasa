@@ -264,8 +264,17 @@ fn parse_duration(raw: &str) -> Result<Duration> {
 
 #[cfg(test)]
 mod tests {
-    use super::Config;
+    use super::{Config, parse_duration};
     use anyhow::Result;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    fn write_config(content: &str) -> Result<(tempfile::TempDir, PathBuf)> {
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("config.toml");
+        std::fs::write(&path, content)?;
+        Ok((temp, path))
+    }
 
     #[test]
     fn missing_config_uses_defaults() -> Result<()> {
@@ -302,6 +311,113 @@ mod tests {
         assert_eq!(config.max_document_size(), 1024);
         assert!(!config.show_dashboard());
         assert_eq!(config.llm_model(), "qwen3");
+        Ok(())
+    }
+
+    #[test]
+    fn malformed_config_returns_parse_error() -> Result<()> {
+        let (_temp, path) = write_config("{{not toml")?;
+        let error = Config::load(&path).expect_err("malformed config should fail");
+        assert!(error.to_string().contains("parse TOML config"));
+        Ok(())
+    }
+
+    #[test]
+    fn unsupported_config_version_is_rejected() -> Result<()> {
+        let (_temp, path) = write_config("version = 1\n")?;
+        let error = Config::load(&path).expect_err("v1 config should fail");
+        assert!(error.to_string().contains("unsupported config version 1"));
+        Ok(())
+    }
+
+    #[test]
+    fn default_path_honors_env_override() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let override_path = temp.path().join("custom-config.toml");
+        // SAFETY: test-only process-local env mutation.
+        unsafe {
+            std::env::set_var("MICASA_CONFIG_PATH", &override_path);
+        }
+        let resolved = Config::default_path()?;
+        // SAFETY: test cleanup for process-local env mutation.
+        unsafe {
+            std::env::remove_var("MICASA_CONFIG_PATH");
+        }
+        assert_eq!(resolved, override_path);
+        Ok(())
+    }
+
+    #[test]
+    fn default_path_uses_config_toml_suffix_when_no_env_override() -> Result<()> {
+        // SAFETY: test-only process-local env mutation.
+        unsafe {
+            std::env::remove_var("MICASA_CONFIG_PATH");
+        }
+        let path = Config::default_path()?;
+        assert!(path.ends_with("config.toml"));
+        Ok(())
+    }
+
+    #[test]
+    fn llm_base_url_trims_trailing_slashes() -> Result<()> {
+        let (_temp, path) = write_config(
+            "version = 2\n[llm]\nbase_url = \"http://localhost:11434/v1///\"\nmodel = \"qwen3\"\n",
+        )?;
+        let config = Config::load(&path)?;
+        assert_eq!(config.llm_base_url(), "http://localhost:11434/v1");
+        Ok(())
+    }
+
+    #[test]
+    fn llm_timeout_parses_ms_seconds_and_minutes() -> Result<()> {
+        assert_eq!(parse_duration("500ms")?, Duration::from_millis(500));
+        assert_eq!(parse_duration("5s")?, Duration::from_secs(5));
+        assert_eq!(parse_duration("2m")?, Duration::from_secs(120));
+        Ok(())
+    }
+
+    #[test]
+    fn llm_timeout_rejects_invalid_duration() {
+        let error = parse_duration("oops").expect_err("invalid duration should fail");
+        let message = error.to_string();
+        assert!(
+            message.contains("invalid duration") || message.contains("invalid timeout duration"),
+            "unexpected message: {message}"
+        );
+    }
+
+    #[test]
+    fn llm_timeout_rejects_non_positive_values_in_config() -> Result<()> {
+        let (_temp, path) = write_config(
+            "version = 2\n[llm]\nbase_url = \"http://localhost:11434/v1\"\nmodel = \"qwen3\"\ntimeout = \"0s\"\n",
+        )?;
+        let error = Config::load(&path).expect_err("zero timeout should fail");
+        assert!(error.to_string().contains("must be positive"));
+        Ok(())
+    }
+
+    #[test]
+    fn storage_limits_are_validated() -> Result<()> {
+        let (_temp, path) =
+            write_config("version = 2\n[storage]\nmax_document_size = 0\ncache_ttl_days = -1\n")?;
+        let error = Config::load(&path).expect_err("invalid storage values should fail");
+        let message = error.to_string();
+        assert!(
+            message.contains("must be positive") || message.contains("must be non-negative"),
+            "unexpected message: {message}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn example_config_includes_required_sections() -> Result<()> {
+        let temp = tempfile::tempdir()?;
+        let path = temp.path().join("config.toml");
+        let example = Config::example_config(&path);
+        assert!(example.contains("version = 2"));
+        assert!(example.contains("[storage]"));
+        assert!(example.contains("[ui]"));
+        assert!(example.contains("[llm]"));
         Ok(())
     }
 }

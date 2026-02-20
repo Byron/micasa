@@ -589,7 +589,8 @@ struct OllamaErrorEnvelope {
 #[cfg(test)]
 mod tests {
     use super::{
-        ColumnInfo, Message, Role, TableInfo, build_sql_prompt, extract_sql, format_results_table,
+        ColumnInfo, Message, Role, TableInfo, build_fallback_prompt, build_sql_prompt,
+        build_summary_prompt, extract_sql, format_results_table,
     };
     use anyhow::Result;
     use time::OffsetDateTime;
@@ -625,6 +626,68 @@ mod tests {
         assert!(prompt.contains("CREATE TABLE projects"));
         assert!(prompt.contains("status=underway"));
         assert!(prompt.contains("House is built in 1940."));
+    }
+
+    #[test]
+    fn build_summary_prompt_includes_question_sql_results_and_context() {
+        let prompt = build_summary_prompt(
+            "How many active projects?",
+            "SELECT COUNT(*) AS count FROM projects",
+            "count\n2",
+            OffsetDateTime::UNIX_EPOCH,
+            Some("Only include non-deleted rows."),
+        );
+        assert!(prompt.contains("How many active projects?"));
+        assert!(prompt.contains("SELECT COUNT(*) AS count FROM projects"));
+        assert!(prompt.contains("count\n2"));
+        assert!(prompt.contains("Only include non-deleted rows."));
+    }
+
+    #[test]
+    fn build_fallback_prompt_includes_schema_data_and_context() {
+        let prompt = build_fallback_prompt(
+            &[TableInfo {
+                name: "projects".to_owned(),
+                columns: vec![
+                    ColumnInfo {
+                        name: "id".to_owned(),
+                        column_type: "INTEGER".to_owned(),
+                        not_null: true,
+                        primary_key: true,
+                    },
+                    ColumnInfo {
+                        name: "title".to_owned(),
+                        column_type: "TEXT".to_owned(),
+                        not_null: true,
+                        primary_key: false,
+                    },
+                ],
+            }],
+            "projects\n- title: Deck",
+            OffsetDateTime::UNIX_EPOCH,
+            Some("House has original 1940 wiring."),
+        );
+        assert!(prompt.contains("### projects"));
+        assert!(prompt.contains("projects\n- title: Deck"));
+        assert!(prompt.contains("House has original 1940 wiring."));
+    }
+
+    #[test]
+    fn format_results_table_renders_rows() {
+        let rendered = format_results_table(
+            &["name".to_owned(), "status".to_owned()],
+            &[vec!["Deck".to_owned(), "underway".to_owned()]],
+        );
+        assert_eq!(rendered, "name | status\nDeck | underway\n");
+    }
+
+    #[test]
+    fn extract_sql_trims_whitespace_and_semicolons() {
+        assert_eq!(extract_sql("  SELECT 1;  "), "SELECT 1");
+        assert_eq!(
+            extract_sql("\nSELECT * FROM projects;;\n"),
+            "SELECT * FROM projects"
+        );
     }
 
     #[test]
