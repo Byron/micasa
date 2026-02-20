@@ -6,10 +6,11 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{execute, terminal};
 use micasa_app::{
-    AppCommand, AppEvent, AppMode, AppState, Appliance, ApplianceId, DashboardCounts, Document,
-    DocumentEntityKind, FormKind, FormPayload, HouseProfile, Incident, IncidentId,
+    AppCommand, AppEvent, AppMode, AppSetting, AppState, Appliance, ApplianceId, DashboardCounts,
+    Document, DocumentEntityKind, FormKind, FormPayload, HouseProfile, Incident, IncidentId,
     IncidentSeverity, MaintenanceItem, MaintenanceItemId, Project, ProjectId, ProjectStatus, Quote,
-    ServiceLogEntry, ServiceLogEntryId, SortDirection, TabKind, Vendor, VendorId,
+    ServiceLogEntry, ServiceLogEntryId, SettingKey, SettingValue, SortDirection, TabKind, Vendor,
+    VendorId,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -40,6 +41,7 @@ pub enum TabSnapshot {
     Appliances(Vec<Appliance>),
     Vendors(Vec<Vendor>),
     Documents(Vec<Document>),
+    Settings(Vec<AppSetting>),
 }
 
 impl TabSnapshot {
@@ -54,6 +56,7 @@ impl TabSnapshot {
             Self::Appliances(_) => TabKind::Appliances,
             Self::Vendors(_) => TabKind::Vendors,
             Self::Documents(_) => TabKind::Documents,
+            Self::Settings(_) => TabKind::Settings,
         }
     }
 
@@ -68,6 +71,7 @@ impl TabSnapshot {
             Self::Appliances(rows) => rows.len(),
             Self::Vendors(rows) => rows.len(),
             Self::Documents(rows) => rows.len(),
+            Self::Settings(rows) => rows.len(),
         }
     }
 }
@@ -258,6 +262,7 @@ struct TableRowProjection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RowTag {
     ProjectStatus(ProjectStatus),
+    Setting(SettingKey),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -428,6 +433,27 @@ enum ChatCommand {
     Model(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FormChoiceKind {
+    None,
+    ProjectStatus,
+    IncidentStatus,
+    IncidentSeverity,
+    DocumentEntityKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FormFieldSpec {
+    label: &'static str,
+    choices: FormChoiceKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FormUiState {
+    kind: FormKind,
+    field_index: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct ChatModelPickerUiState {
     visible: bool,
@@ -550,6 +576,7 @@ struct ViewData {
     column_finder: ColumnFinderUiState,
     note_preview: NotePreviewUiState,
     date_picker: DatePickerUiState,
+    form: Option<FormUiState>,
     detail_stack: Vec<DetailStackEntry>,
     chat: ChatUiState,
     help_visible: bool,
@@ -864,68 +891,22 @@ fn handle_key_event<R: AppRuntime>(
             }
             (KeyCode::Char('a'), KeyModifiers::NONE) => {
                 if let Some(form_kind) = form_for_tab(state.active_tab) {
-                    dispatch_and_refresh(
-                        state,
-                        runtime,
-                        view_data,
-                        AppCommand::OpenForm(form_kind),
-                        internal_tx,
-                    );
-                    if let Some(payload) = template_payload_for_form(form_kind) {
-                        dispatch_and_refresh(
-                            state,
-                            runtime,
-                            view_data,
-                            AppCommand::SetFormPayload(payload),
-                            internal_tx,
-                        );
-                    }
+                    open_form_with_template(state, runtime, view_data, internal_tx, form_kind);
                 } else {
                     emit_status(state, view_data, internal_tx, "form unavailable");
                 }
             }
             (KeyCode::Char('e'), KeyModifiers::NONE) => {
-                if open_inline_date_picker(state, view_data, internal_tx) {
-                    return false;
-                }
-                if let Some(form_kind) = form_for_tab(state.active_tab) {
-                    dispatch_and_refresh(
-                        state,
-                        runtime,
-                        view_data,
-                        AppCommand::OpenForm(form_kind),
-                        internal_tx,
-                    );
-                    if let Some(payload) = template_payload_for_form(form_kind) {
-                        dispatch_and_refresh(
-                            state,
-                            runtime,
-                            view_data,
-                            AppCommand::SetFormPayload(payload),
-                            internal_tx,
-                        );
-                    }
-                } else {
-                    emit_status(state, view_data, internal_tx, "form unavailable");
-                }
+                handle_inline_edit_request(state, runtime, view_data, internal_tx);
             }
             (KeyCode::Char('p'), KeyModifiers::NONE) => {
-                dispatch_and_refresh(
+                open_form_with_template(
                     state,
                     runtime,
                     view_data,
-                    AppCommand::OpenForm(FormKind::HouseProfile),
                     internal_tx,
+                    FormKind::HouseProfile,
                 );
-                if let Some(payload) = template_payload_for_form(FormKind::HouseProfile) {
-                    dispatch_and_refresh(
-                        state,
-                        runtime,
-                        view_data,
-                        AppCommand::SetFormPayload(payload),
-                        internal_tx,
-                    );
-                }
             }
             (KeyCode::Char('d'), KeyModifiers::NONE) => {
                 if let Some((row_id, deleted)) = selected_row_metadata(view_data) {
@@ -1062,19 +1043,526 @@ fn handle_key_event<R: AppRuntime>(
                 );
             }
             (KeyCode::Tab, KeyModifiers::NONE) => {
-                emit_status(state, view_data, internal_tx, "field next");
+                let status = move_form_field_cursor(state, view_data, 1);
+                emit_status(state, view_data, internal_tx, status);
             }
             (KeyCode::BackTab, _) => {
-                emit_status(state, view_data, internal_tx, "field prev");
+                let status = move_form_field_cursor(state, view_data, -1);
+                emit_status(state, view_data, internal_tx, status);
             }
             (KeyCode::Char(ch), KeyModifiers::NONE) if ('1'..='9').contains(&ch) => {
-                emit_status(state, view_data, internal_tx, format!("choice {ch}"));
+                let choice_index = usize::from(ch as u8 - b'1');
+                let status = apply_form_choice(state, view_data, choice_index);
+                emit_status(state, view_data, internal_tx, status);
             }
             _ => {}
         },
     }
 
     false
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InlineEditTarget {
+    Setting(AppSetting),
+    DatePicker,
+    Form(FormKind),
+    Unavailable,
+}
+
+fn handle_inline_edit_request<R: AppRuntime>(
+    state: &mut AppState,
+    runtime: &mut R,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+) {
+    match resolve_inline_edit_target(state, view_data) {
+        InlineEditTarget::Setting(setting) => {
+            apply_setting_edit(state, runtime, view_data, internal_tx, setting)
+        }
+        InlineEditTarget::DatePicker => {
+            let _ = open_inline_date_picker(state, view_data, internal_tx);
+        }
+        InlineEditTarget::Form(kind) => {
+            open_form_with_template(state, runtime, view_data, internal_tx, kind);
+        }
+        InlineEditTarget::Unavailable => {
+            emit_status(state, view_data, internal_tx, "edit unavailable");
+        }
+    }
+}
+
+fn resolve_inline_edit_target(state: &AppState, view_data: &ViewData) -> InlineEditTarget {
+    if state.active_tab == TabKind::Settings {
+        if let Some(setting) = selected_setting(view_data) {
+            return InlineEditTarget::Setting(setting);
+        }
+        return InlineEditTarget::Unavailable;
+    }
+
+    if matches!(selected_cell(view_data), Some((_, TableCell::Date(_)))) {
+        return InlineEditTarget::DatePicker;
+    }
+
+    if let Some(kind) = form_for_tab(state.active_tab) {
+        return InlineEditTarget::Form(kind);
+    }
+
+    InlineEditTarget::Unavailable
+}
+
+fn selected_setting(view_data: &ViewData) -> Option<AppSetting> {
+    let TabSnapshot::Settings(settings) = view_data.active_tab_snapshot.as_ref()? else {
+        return None;
+    };
+    settings.get(view_data.table_state.selected_row).cloned()
+}
+
+fn apply_setting_edit<R: AppRuntime>(
+    state: &mut AppState,
+    runtime: &mut R,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+    setting: AppSetting,
+) {
+    match setting.key {
+        SettingKey::UiShowDashboard => {
+            let SettingValue::Bool(current) = setting.value else {
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    "settings value invalid; expected on/off",
+                );
+                return;
+            };
+            let next = !current;
+            if let Err(error) = runtime.set_show_dashboard_preference(next) {
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("save setting failed: {error}; verify DB permissions and retry"),
+                );
+                return;
+            }
+            if let Err(error) = refresh_view_data(state, runtime, view_data) {
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("reload failed: {error}"),
+                );
+                return;
+            }
+            let status = if next {
+                "dashboard startup on"
+            } else {
+                "dashboard startup off"
+            };
+            emit_status(state, view_data, internal_tx, status);
+        }
+        SettingKey::LlmModel => {
+            let mut models = match runtime.list_chat_models() {
+                Ok(models) => models,
+                Err(error) => {
+                    emit_status(
+                        state,
+                        view_data,
+                        internal_tx,
+                        format!(
+                            "model list failed: {error}; verify LLM server and use /models for details"
+                        ),
+                    );
+                    return;
+                }
+            };
+            models.sort();
+            models.dedup();
+            if models.is_empty() {
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    "no models available; run `ollama pull <model>` and retry",
+                );
+                return;
+            }
+
+            let current =
+                runtime
+                    .active_chat_model()
+                    .ok()
+                    .flatten()
+                    .or_else(|| match setting.value {
+                        SettingValue::Text(value) => {
+                            let trimmed = value.trim();
+                            if trimmed.is_empty() {
+                                None
+                            } else {
+                                Some(trimmed.to_owned())
+                            }
+                        }
+                        SettingValue::Bool(_) => None,
+                    });
+
+            let next = match current
+                .as_ref()
+                .and_then(|model| models.iter().position(|entry| entry == model))
+            {
+                Some(index) => models[(index + 1) % models.len()].clone(),
+                None => models[0].clone(),
+            };
+
+            if let Err(error) = runtime.select_chat_model(&next) {
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("model select failed: {error}"),
+                );
+                return;
+            }
+            if let Err(error) = refresh_view_data(state, runtime, view_data) {
+                emit_status(
+                    state,
+                    view_data,
+                    internal_tx,
+                    format!("reload failed: {error}"),
+                );
+                return;
+            }
+            emit_status(state, view_data, internal_tx, format!("llm model {next}"));
+        }
+    }
+}
+
+fn open_form_with_template<R: AppRuntime>(
+    state: &mut AppState,
+    runtime: &mut R,
+    view_data: &mut ViewData,
+    internal_tx: &Sender<InternalEvent>,
+    form_kind: FormKind,
+) {
+    dispatch_and_refresh(
+        state,
+        runtime,
+        view_data,
+        AppCommand::OpenForm(form_kind),
+        internal_tx,
+    );
+    if let Some(payload) = template_payload_for_form(form_kind) {
+        dispatch_and_refresh(
+            state,
+            runtime,
+            view_data,
+            AppCommand::SetFormPayload(payload),
+            internal_tx,
+        );
+    }
+    sync_form_ui_state(state, view_data);
+}
+
+fn sync_form_ui_state(state: &AppState, view_data: &mut ViewData) {
+    let AppMode::Form(kind) = state.mode else {
+        view_data.form = None;
+        return;
+    };
+
+    let fields = form_field_specs(kind);
+    let max_index = fields.len().saturating_sub(1);
+    let next_index = match view_data.form {
+        Some(form) if form.kind == kind => form.field_index.min(max_index),
+        _ => 0,
+    };
+    view_data.form = Some(FormUiState {
+        kind,
+        field_index: next_index,
+    });
+}
+
+fn move_form_field_cursor(state: &AppState, view_data: &mut ViewData, delta: isize) -> String {
+    sync_form_ui_state(state, view_data);
+    let Some(mut form) = view_data.form else {
+        return "form unavailable".to_owned();
+    };
+    let fields = form_field_specs(form.kind);
+    if fields.is_empty() {
+        return "form has no fields".to_owned();
+    }
+
+    let len = fields.len() as isize;
+    let next = (form.field_index as isize + delta).rem_euclid(len) as usize;
+    form.field_index = next;
+    view_data.form = Some(form);
+    format_form_field_status(form.kind, form.field_index)
+}
+
+fn apply_form_choice(
+    state: &mut AppState,
+    view_data: &mut ViewData,
+    choice_index: usize,
+) -> String {
+    sync_form_ui_state(state, view_data);
+    let Some(form) = view_data.form else {
+        return "form unavailable".to_owned();
+    };
+    let fields = form_field_specs(form.kind);
+    if fields.is_empty() {
+        return "form has no fields".to_owned();
+    }
+    let spec = fields[form.field_index.min(fields.len().saturating_sub(1))];
+
+    let Some(payload) = state.form_payload.clone() else {
+        return "form payload missing".to_owned();
+    };
+
+    let selection_number = choice_index + 1;
+    let (updated, status) = match spec.choices {
+        FormChoiceKind::None => {
+            return format!("no choices for {}", spec.label);
+        }
+        FormChoiceKind::ProjectStatus => {
+            const PROJECT_STATUS_CHOICES: [ProjectStatus; 7] = [
+                ProjectStatus::Ideating,
+                ProjectStatus::Planned,
+                ProjectStatus::Quoted,
+                ProjectStatus::Underway,
+                ProjectStatus::Delayed,
+                ProjectStatus::Completed,
+                ProjectStatus::Abandoned,
+            ];
+            let Some(choice) = PROJECT_STATUS_CHOICES.get(choice_index).copied() else {
+                return format!("choice {selection_number} unavailable");
+            };
+            match payload {
+                FormPayload::Project(mut input) => {
+                    input.status = choice;
+                    (
+                        FormPayload::Project(input),
+                        format!("project status {}", choice.as_str()),
+                    )
+                }
+                _ => return "form field mismatch; reopen form".to_owned(),
+            }
+        }
+        FormChoiceKind::IncidentStatus => {
+            const INCIDENT_STATUS_CHOICES: [micasa_app::IncidentStatus; 3] = [
+                micasa_app::IncidentStatus::Open,
+                micasa_app::IncidentStatus::InProgress,
+                micasa_app::IncidentStatus::Resolved,
+            ];
+            let Some(choice) = INCIDENT_STATUS_CHOICES.get(choice_index).copied() else {
+                return format!("choice {selection_number} unavailable");
+            };
+            match payload {
+                FormPayload::Incident(mut input) => {
+                    input.status = choice;
+                    (
+                        FormPayload::Incident(input),
+                        format!("incident status {}", choice.as_str()),
+                    )
+                }
+                _ => return "form field mismatch; reopen form".to_owned(),
+            }
+        }
+        FormChoiceKind::IncidentSeverity => {
+            const INCIDENT_SEVERITY_CHOICES: [IncidentSeverity; 3] = [
+                IncidentSeverity::Urgent,
+                IncidentSeverity::Soon,
+                IncidentSeverity::Whenever,
+            ];
+            let Some(choice) = INCIDENT_SEVERITY_CHOICES.get(choice_index).copied() else {
+                return format!("choice {selection_number} unavailable");
+            };
+            match payload {
+                FormPayload::Incident(mut input) => {
+                    input.severity = choice;
+                    (
+                        FormPayload::Incident(input),
+                        format!("incident severity {}", choice.as_str()),
+                    )
+                }
+                _ => return "form field mismatch; reopen form".to_owned(),
+            }
+        }
+        FormChoiceKind::DocumentEntityKind => {
+            const DOCUMENT_KIND_CHOICES: [DocumentEntityKind; 8] = [
+                DocumentEntityKind::None,
+                DocumentEntityKind::Project,
+                DocumentEntityKind::Quote,
+                DocumentEntityKind::Maintenance,
+                DocumentEntityKind::Appliance,
+                DocumentEntityKind::ServiceLog,
+                DocumentEntityKind::Vendor,
+                DocumentEntityKind::Incident,
+            ];
+            let Some(choice) = DOCUMENT_KIND_CHOICES.get(choice_index).copied() else {
+                return format!("choice {selection_number} unavailable");
+            };
+            match payload {
+                FormPayload::Document(mut input) => {
+                    input.entity_kind = choice;
+                    (
+                        FormPayload::Document(input),
+                        format!("entity {}", choice.as_str()),
+                    )
+                }
+                _ => return "form field mismatch; reopen form".to_owned(),
+            }
+        }
+    };
+
+    let _events = state.dispatch(AppCommand::SetFormPayload(updated));
+    status
+}
+
+fn format_form_field_status(kind: FormKind, index: usize) -> String {
+    let fields = form_field_specs(kind);
+    if fields.is_empty() {
+        return "form has no fields".to_owned();
+    }
+    let field = fields[index.min(fields.len().saturating_sub(1))];
+    format!("field {} ({}/{})", field.label, index + 1, fields.len())
+}
+
+fn form_field_specs(kind: FormKind) -> &'static [FormFieldSpec] {
+    match kind {
+        FormKind::HouseProfile => &[
+            FormFieldSpec {
+                label: "nickname",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "city",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "state",
+                choices: FormChoiceKind::None,
+            },
+        ],
+        FormKind::Project => &[
+            FormFieldSpec {
+                label: "title",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "type",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "status",
+                choices: FormChoiceKind::ProjectStatus,
+            },
+            FormFieldSpec {
+                label: "budget",
+                choices: FormChoiceKind::None,
+            },
+        ],
+        FormKind::Quote => &[
+            FormFieldSpec {
+                label: "project",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "vendor",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "total",
+                choices: FormChoiceKind::None,
+            },
+        ],
+        FormKind::MaintenanceItem => &[
+            FormFieldSpec {
+                label: "item",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "category",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "interval",
+                choices: FormChoiceKind::None,
+            },
+        ],
+        FormKind::ServiceLogEntry => &[
+            FormFieldSpec {
+                label: "item",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "date",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "vendor",
+                choices: FormChoiceKind::None,
+            },
+        ],
+        FormKind::Incident => &[
+            FormFieldSpec {
+                label: "title",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "status",
+                choices: FormChoiceKind::IncidentStatus,
+            },
+            FormFieldSpec {
+                label: "severity",
+                choices: FormChoiceKind::IncidentSeverity,
+            },
+            FormFieldSpec {
+                label: "noticed",
+                choices: FormChoiceKind::None,
+            },
+        ],
+        FormKind::Appliance => &[
+            FormFieldSpec {
+                label: "name",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "brand",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "location",
+                choices: FormChoiceKind::None,
+            },
+        ],
+        FormKind::Vendor => &[
+            FormFieldSpec {
+                label: "name",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "contact",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "email",
+                choices: FormChoiceKind::None,
+            },
+        ],
+        FormKind::Document => &[
+            FormFieldSpec {
+                label: "title",
+                choices: FormChoiceKind::None,
+            },
+            FormFieldSpec {
+                label: "entity",
+                choices: FormChoiceKind::DocumentEntityKind,
+            },
+            FormFieldSpec {
+                label: "file",
+                choices: FormChoiceKind::None,
+            },
+        ],
+    }
 }
 
 fn open_inline_date_picker(
@@ -2891,7 +3379,7 @@ fn help_overlay_text() -> &'static str {
 nav: j/k/h/l g/G ^/$ d/u pgup/pgdn | b/f tabs | B/F first/last | tab house | D dashboard\n\
 nav: enter follow/drill/preview | s/S sort | t settled | c/C cols | / col jump\n\
 nav: n/N pin/filter | ctrl+n clear pins | i edit | @ chat | ? help\n\
-edit: a add | e edit (date picker/form) | d del/restore | x show deleted | u undo | r redo | ctrl+d/u pgup/pgdn | esc nav\n\
+edit: a add | e edit (setting/date/form) | d del/restore | x show deleted | u undo | r redo | ctrl+d/u pgup/pgdn | esc nav\n\
 form: tab/shift+tab field | 1-9 choose | ctrl+s or enter submit | esc cancel\n\
 date picker: h/l day j/k week H/L month [/] year enter pick esc cancel\n\
 chat model picker: type /model <query> | up/down or ctrl+p/ctrl+n | enter select | esc dismiss\n\
@@ -3449,6 +3937,23 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                 })
                 .collect(),
         },
+        TabSnapshot::Settings(rows) => TableProjection {
+            title: "settings",
+            columns: vec!["id", "setting", "value"],
+            rows: rows
+                .iter()
+                .enumerate()
+                .map(|(index, setting)| TableRowProjection {
+                    cells: vec![
+                        TableCell::Integer((index + 1) as i64),
+                        TableCell::Text(setting.key.label().to_owned()),
+                        TableCell::Text(setting.value.display()),
+                    ],
+                    deleted: false,
+                    tag: Some(RowTag::Setting(setting.key)),
+                })
+                .collect(),
+        },
     }
 }
 
@@ -3744,9 +4249,17 @@ fn status_text(state: &AppState, view_data: &ViewData) -> String {
     };
     let enter_hint = contextual_enter_hint(view_data);
     let mag_label = if view_data.mag_mode { "on" } else { "off" };
-    let default = format!(
+    let mut default = format!(
         "j/k/h/l g/G ^/$ d/u pg | enter {enter_hint} | s/S/t c/C / | n/N ctrl+n | @ chat D | ctrl+o mag:{mag_label} | ctrl+q"
     );
+    if matches!(state.mode, AppMode::Form(_))
+        && let Some(form) = view_data.form
+    {
+        default = format!(
+            "{} | {default}",
+            format_form_field_status(form.kind, form.field_index)
+        );
+    }
     match &state.status_line {
         Some(status) => format!("{mode} | {status} | {default}"),
         None => format!("{mode} | {default}"),
@@ -3757,6 +4270,9 @@ fn contextual_enter_hint(view_data: &ViewData) -> &'static str {
     let Some(tab) = view_data.table_state.tab else {
         return "open";
     };
+    if tab == TabKind::Settings {
+        return "edit";
+    }
     let Some((column, value)) = selected_cell(view_data) else {
         return "open";
     };
@@ -3795,6 +4311,7 @@ fn form_for_tab(tab: TabKind) -> Option<FormKind> {
         TabKind::Appliances => Some(FormKind::Appliance),
         TabKind::Vendors => Some(FormKind::Vendor),
         TabKind::Documents => Some(FormKind::Document),
+        TabKind::Settings => None,
     }
 }
 
@@ -3929,6 +4446,7 @@ fn dispatch_and_refresh<R: AppRuntime>(
             format!("load failed: {error}"),
         );
     }
+    sync_form_ui_state(state, view_data);
     if events
         .iter()
         .any(|event| matches!(event, AppEvent::StatusUpdated(_)))
@@ -3954,6 +4472,7 @@ fn refresh_view_data<R: AppRuntime>(
     runtime: &mut R,
     view_data: &mut ViewData,
 ) -> Result<()> {
+    sync_form_ui_state(state, view_data);
     view_data.dashboard_counts = runtime.load_dashboard_counts()?;
     view_data.dashboard.snapshot = runtime.load_dashboard_snapshot()?;
     if !view_data.dashboard.snapshot.has_rows() {
@@ -4054,8 +4573,9 @@ mod tests {
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
-        AppMode, AppState, ChatVisibility, DashboardCounts, FormKind, FormPayload,
-        IncidentSeverity, Project, ProjectStatus, ProjectTypeId, SortDirection, TabKind,
+        AppMode, AppSetting, AppState, ChatVisibility, DashboardCounts, FormKind, FormPayload,
+        IncidentSeverity, Project, ProjectStatus, ProjectTypeId, SettingKey, SettingValue,
+        SortDirection, TabKind,
     };
     use std::sync::mpsc;
     use time::{Date, Month, OffsetDateTime};
@@ -4317,6 +4837,16 @@ mod tests {
                         "Older estimate",
                     ),
                 ])),
+                TabKind::Settings => Some(TabSnapshot::Settings(vec![
+                    AppSetting {
+                        key: SettingKey::UiShowDashboard,
+                        value: SettingValue::Bool(self.show_dashboard_pref.unwrap_or(true)),
+                    },
+                    AppSetting {
+                        key: SettingKey::LlmModel,
+                        value: SettingValue::Text(self.active_model.clone().unwrap_or_default()),
+                    },
+                ])),
             };
             Ok(snapshot)
         }
@@ -4567,10 +5097,10 @@ mod tests {
     }
 
     #[test]
-    fn form_mode_shortcuts_update_status() {
+    fn form_mode_shortcuts_move_fields_and_apply_choice() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
-            mode: AppMode::Form(FormKind::Project),
+            mode: AppMode::Edit,
             ..AppState::default()
         };
         let mut runtime = TestRuntime::default();
@@ -4582,9 +5112,25 @@ mod tests {
             &mut runtime,
             &mut view_data,
             &tx,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
             KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
         );
-        assert_eq!(state.status_line.as_deref(), Some("field next"));
+        assert_eq!(state.status_line.as_deref(), Some("field type (2/4)"));
+        assert_eq!(
+            view_data.form,
+            Some(super::FormUiState {
+                kind: FormKind::Project,
+                field_index: 1,
+            })
+        );
 
         handle_key_event(
             &mut state,
@@ -4593,7 +5139,23 @@ mod tests {
             &tx,
             KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT),
         );
-        assert_eq!(state.status_line.as_deref(), Some("field prev"));
+        assert_eq!(state.status_line.as_deref(), Some("field title (1/4)"));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+        assert_eq!(state.status_line.as_deref(), Some("field status (3/4)"));
 
         handle_key_event(
             &mut state,
@@ -4602,7 +5164,11 @@ mod tests {
             &tx,
             KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE),
         );
-        assert_eq!(state.status_line.as_deref(), Some("choice 3"));
+        assert_eq!(state.status_line.as_deref(), Some("project status quoted"));
+        assert!(matches!(
+            state.form_payload.as_ref(),
+            Some(FormPayload::Project(input)) if input.status == ProjectStatus::Quoted
+        ));
     }
 
     #[test]
@@ -4692,6 +5258,76 @@ mod tests {
             state.status_line.as_deref(),
             Some("date picked 2026-12-13; open full form to persist")
         );
+    }
+
+    #[test]
+    fn settings_tab_inline_edit_toggles_dashboard_preference() {
+        let mut state = AppState {
+            active_tab: TabKind::Settings,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime {
+            show_dashboard_pref: Some(true),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+        );
+        assert_eq!(runtime.show_dashboard_pref, Some(false));
+        assert_eq!(state.status_line.as_deref(), Some("dashboard startup off"));
+
+        match view_data.active_tab_snapshot.as_ref() {
+            Some(TabSnapshot::Settings(rows)) => {
+                assert_eq!(rows[0].key, SettingKey::UiShowDashboard);
+                assert_eq!(rows[0].value, SettingValue::Bool(false));
+            }
+            _ => panic!("expected settings snapshot"),
+        }
+    }
+
+    #[test]
+    fn settings_tab_inline_edit_cycles_llm_model() {
+        let mut state = AppState {
+            active_tab: TabKind::Settings,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime {
+            available_models: vec!["qwen3".to_owned(), "qwen3:32b".to_owned()],
+            active_model: Some("qwen3".to_owned()),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_row, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+        );
+        assert_eq!(runtime.active_model.as_deref(), Some("qwen3:32b"));
+        assert_eq!(state.status_line.as_deref(), Some("llm model qwen3:32b"));
     }
 
     #[test]

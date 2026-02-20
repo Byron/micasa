@@ -190,10 +190,11 @@ pub enum TabKind {
     Appliances,
     Vendors,
     Documents,
+    Settings,
 }
 
 impl TabKind {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 11] = [
         Self::Dashboard,
         Self::House,
         Self::Projects,
@@ -204,6 +205,7 @@ impl TabKind {
         Self::Appliances,
         Self::Vendors,
         Self::Documents,
+        Self::Settings,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -218,8 +220,97 @@ impl TabKind {
             Self::Appliances => "appliances",
             Self::Vendors => "vendors",
             Self::Documents => "docs",
+            Self::Settings => "settings",
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettingKey {
+    UiShowDashboard,
+    LlmModel,
+}
+
+impl SettingKey {
+    pub const ALL: [Self; 2] = [Self::UiShowDashboard, Self::LlmModel];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::UiShowDashboard => "ui.show_dashboard",
+            Self::LlmModel => "llm.model",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "ui.show_dashboard" => Some(Self::UiShowDashboard),
+            "llm.model" => Some(Self::LlmModel),
+            _ => None,
+        }
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::UiShowDashboard => "dashboard startup",
+            Self::LlmModel => "llm model",
+        }
+    }
+
+    pub const fn expected_value_kind(self) -> SettingValueKind {
+        match self {
+            Self::UiShowDashboard => SettingValueKind::Bool,
+            Self::LlmModel => SettingValueKind::Text,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettingValueKind {
+    Bool,
+    Text,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SettingValue {
+    Bool(bool),
+    Text(String),
+}
+
+impl SettingValue {
+    pub fn parse_for_key(key: SettingKey, raw: &str) -> Option<Self> {
+        match key.expected_value_kind() {
+            SettingValueKind::Bool => match raw.trim().to_ascii_lowercase().as_str() {
+                "1" | "true" | "on" | "yes" => Some(Self::Bool(true)),
+                "0" | "false" | "off" | "no" => Some(Self::Bool(false)),
+                _ => None,
+            },
+            SettingValueKind::Text => Some(Self::Text(raw.to_owned())),
+        }
+    }
+
+    pub fn to_storage(&self, key: SettingKey) -> Option<String> {
+        match (key.expected_value_kind(), self) {
+            (SettingValueKind::Bool, Self::Bool(value)) => {
+                Some(if *value { "true" } else { "false" }.to_owned())
+            }
+            (SettingValueKind::Text, Self::Text(value)) => Some(value.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn display(&self) -> String {
+        match self {
+            Self::Bool(true) => "on".to_owned(),
+            Self::Bool(false) => "off".to_owned(),
+            Self::Text(value) => value.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AppSetting {
+    pub key: SettingKey,
+    pub value: SettingValue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -458,16 +549,41 @@ pub struct DashboardCounts {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Setting {
-    pub id: SettingId,
-    pub key: String,
-    pub value: String,
-    pub updated_at: OffsetDateTime,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatInput {
     pub id: ChatInputId,
     pub input: String,
     pub created_at: OffsetDateTime,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SettingKey, SettingValue};
+
+    #[test]
+    fn bool_setting_parse_and_storage_round_trip() {
+        let parsed = SettingValue::parse_for_key(SettingKey::UiShowDashboard, "true")
+            .expect("parse true bool setting");
+        assert_eq!(parsed, SettingValue::Bool(true));
+        assert_eq!(
+            parsed.to_storage(SettingKey::UiShowDashboard),
+            Some("true".to_owned())
+        );
+    }
+
+    #[test]
+    fn text_setting_parse_and_storage_round_trip() {
+        let parsed = SettingValue::parse_for_key(SettingKey::LlmModel, "qwen3:32b")
+            .expect("parse text setting");
+        assert_eq!(parsed, SettingValue::Text("qwen3:32b".to_owned()));
+        assert_eq!(
+            parsed.to_storage(SettingKey::LlmModel),
+            Some("qwen3:32b".to_owned())
+        );
+    }
+
+    #[test]
+    fn mismatched_setting_value_type_rejected() {
+        let text = SettingValue::Text("qwen3".to_owned());
+        assert!(text.to_storage(SettingKey::UiShowDashboard).is_none());
+    }
 }

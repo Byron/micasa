@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn tab_rotation_wraps() {
         let mut state = AppState {
-            active_tab: TabKind::Documents,
+            active_tab: TabKind::Settings,
             ..AppState::default()
         };
 
@@ -262,8 +262,8 @@ mod tests {
         assert_eq!(first, vec![AppEvent::TabChanged(TabKind::Dashboard)]);
 
         let last = state.dispatch(AppCommand::LastTab);
-        assert_eq!(state.active_tab, TabKind::Documents);
-        assert_eq!(last, vec![AppEvent::TabChanged(TabKind::Documents)]);
+        assert_eq!(state.active_tab, TabKind::Settings);
+        assert_eq!(last, vec![AppEvent::TabChanged(TabKind::Settings)]);
 
         let set = state.dispatch(AppCommand::SetActiveTab(TabKind::Maintenance));
         assert_eq!(state.active_tab, TabKind::Maintenance);

@@ -3,11 +3,11 @@
 
 use anyhow::{Context, Result, anyhow, bail};
 use micasa_app::{
-    Appliance, ApplianceId, ChatInput, ChatInputId, DashboardCounts, Document, DocumentEntityKind,
-    DocumentId, HouseProfile, HouseProfileId, Incident, IncidentId, IncidentSeverity,
-    IncidentStatus, MaintenanceCategoryId, MaintenanceItem, MaintenanceItemId, Project, ProjectId,
-    ProjectStatus, ProjectTypeId, Quote, QuoteId, ServiceLogEntry, ServiceLogEntryId, Vendor,
-    VendorId,
+    AppSetting, Appliance, ApplianceId, ChatInput, ChatInputId, DashboardCounts, Document,
+    DocumentEntityKind, DocumentId, HouseProfile, HouseProfileId, Incident, IncidentId,
+    IncidentSeverity, IncidentStatus, MaintenanceCategoryId, MaintenanceItem, MaintenanceItemId,
+    Project, ProjectId, ProjectStatus, ProjectTypeId, Quote, QuoteId, ServiceLogEntry,
+    ServiceLogEntryId, SettingKey, SettingValue, Vendor, VendorId,
 };
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -27,9 +27,6 @@ pub const MAX_DOCUMENT_SIZE: i64 = 50 << 20;
 
 const CHAT_HISTORY_MAX: i64 = 200;
 const MAX_QUERY_ROWS: usize = 200;
-
-const SETTING_LLM_MODEL: &str = "llm.model";
-const SETTING_SHOW_DASHBOARD: &str = "ui.show_dashboard";
 
 const DEFAULT_PROJECT_TYPES: [&str; 12] = [
     "Appliance",
@@ -2695,7 +2692,7 @@ impl Store {
         Ok(cache_path)
     }
 
-    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+    fn get_setting_raw(&self, key: &str) -> Result<Option<String>> {
         self.conn
             .query_row(
                 "SELECT value FROM settings WHERE key = ?",
@@ -2706,7 +2703,7 @@ impl Store {
             .with_context(|| format!("read setting {key}"))
     }
 
-    pub fn put_setting(&self, key: &str, value: &str) -> Result<()> {
+    fn put_setting_raw(&self, key: &str, value: &str) -> Result<()> {
         let now = now_rfc3339()?;
         self.conn
             .execute(
@@ -2723,30 +2720,88 @@ impl Store {
         Ok(())
     }
 
+    pub fn get_setting(&self, key: SettingKey) -> Result<Option<SettingValue>> {
+        let raw = self.get_setting_raw(key.as_str())?;
+        raw.map(|value| {
+            SettingValue::parse_for_key(key, &value).ok_or_else(|| {
+                anyhow!(
+                    "setting `{}` has invalid value `{}`; run `micasa --check`, then set a valid value in Settings",
+                    key.as_str(),
+                    value
+                )
+            })
+        })
+        .transpose()
+    }
+
+    pub fn put_setting(&self, key: SettingKey, value: SettingValue) -> Result<()> {
+        let raw = value.to_storage(key).ok_or_else(|| {
+            anyhow!(
+                "setting `{}` expected {:?} value; reopen Settings and choose a valid option",
+                key.as_str(),
+                key.expected_value_kind()
+            )
+        })?;
+        self.put_setting_raw(key.as_str(), &raw)
+    }
+
+    pub fn list_settings(&self) -> Result<Vec<AppSetting>> {
+        let mut settings = Vec::with_capacity(SettingKey::ALL.len());
+        for key in SettingKey::ALL {
+            let value = self
+                .get_setting(key)?
+                .unwrap_or_else(|| default_setting_value(key));
+            settings.push(AppSetting { key, value });
+        }
+        Ok(settings)
+    }
+
     pub fn get_last_model(&self) -> Result<Option<String>> {
-        self.get_setting(SETTING_LLM_MODEL)
+        match self.get_setting(SettingKey::LlmModel)? {
+            Some(SettingValue::Text(value)) => {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(trimmed.to_owned()))
+                }
+            }
+            Some(SettingValue::Bool(_)) => bail!(
+                "setting `{}` must be text; open Settings and choose a model name",
+                SettingKey::LlmModel.as_str()
+            ),
+            None => Ok(None),
+        }
     }
 
     pub fn put_last_model(&self, model: &str) -> Result<()> {
-        self.put_setting(SETTING_LLM_MODEL, model)
+        self.put_setting(SettingKey::LlmModel, SettingValue::Text(model.to_owned()))
     }
 
     pub fn get_show_dashboard(&self) -> Result<bool> {
-        Ok(match self.get_setting(SETTING_SHOW_DASHBOARD)? {
-            None => true,
-            Some(value) => value == "true",
-        })
+        match self.get_setting(SettingKey::UiShowDashboard)? {
+            Some(SettingValue::Bool(value)) => Ok(value),
+            Some(SettingValue::Text(_)) => bail!(
+                "setting `{}` must be on/off; open Settings and toggle it",
+                SettingKey::UiShowDashboard.as_str()
+            ),
+            None => Ok(true),
+        }
     }
 
     pub fn get_show_dashboard_override(&self) -> Result<Option<bool>> {
-        Ok(self
-            .get_setting(SETTING_SHOW_DASHBOARD)?
-            .map(|value| value == "true"))
+        match self.get_setting(SettingKey::UiShowDashboard)? {
+            Some(SettingValue::Bool(value)) => Ok(Some(value)),
+            Some(SettingValue::Text(_)) => bail!(
+                "setting `{}` must be on/off; open Settings and toggle it",
+                SettingKey::UiShowDashboard.as_str()
+            ),
+            None => Ok(None),
+        }
     }
 
     pub fn put_show_dashboard(&self, show: bool) -> Result<()> {
-        let value = if show { "true" } else { "false" };
-        self.put_setting(SETTING_SHOW_DASHBOARD, value)
+        self.put_setting(SettingKey::UiShowDashboard, SettingValue::Bool(show))
     }
 
     pub fn append_chat_input(&self, input: &str) -> Result<()> {
@@ -3378,6 +3433,13 @@ fn configure_connection(conn: &Connection) -> Result<()> {
     .context("configure sqlite pragmas")
 }
 
+fn default_setting_value(key: SettingKey) -> SettingValue {
+    match key {
+        SettingKey::UiShowDashboard => SettingValue::Bool(true),
+        SettingKey::LlmModel => SettingValue::Text(String::new()),
+    }
+}
+
 fn now_rfc3339() -> Result<String> {
     OffsetDateTime::now_utc()
         .format(&Rfc3339)
@@ -3496,4 +3558,67 @@ fn set_private_permissions(path: &Path) -> Result<()> {
             .with_context(|| format!("set permissions on {}", path.display()))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Store;
+    use anyhow::Result;
+    use micasa_app::{SettingKey, SettingValue};
+
+    #[test]
+    fn list_settings_returns_typed_defaults() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let settings = store.list_settings()?;
+        assert_eq!(settings.len(), 2);
+        assert_eq!(settings[0].key, SettingKey::UiShowDashboard);
+        assert_eq!(settings[0].value, SettingValue::Bool(true));
+        assert_eq!(settings[1].key, SettingKey::LlmModel);
+        assert_eq!(settings[1].value, SettingValue::Text(String::new()));
+        Ok(())
+    }
+
+    #[test]
+    fn typed_settings_round_trip() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        store.put_show_dashboard(false)?;
+        store.put_last_model("qwen3:32b")?;
+
+        assert!(!store.get_show_dashboard()?);
+        assert_eq!(store.get_last_model()?.as_deref(), Some("qwen3:32b"));
+
+        let settings = store.list_settings()?;
+        assert!(
+            settings
+                .iter()
+                .any(|setting| setting.key == SettingKey::UiShowDashboard
+                    && setting.value == SettingValue::Bool(false))
+        );
+        assert!(
+            settings
+                .iter()
+                .any(|setting| setting.key == SettingKey::LlmModel
+                    && setting.value == SettingValue::Text("qwen3:32b".to_owned()))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_bool_setting_is_actionable() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        store.put_setting_raw(SettingKey::UiShowDashboard.as_str(), "maybe")?;
+        let error = store
+            .get_show_dashboard()
+            .expect_err("invalid bool should be rejected");
+        assert!(error
+            .to_string()
+            .contains("set a valid value in Settings"));
+        Ok(())
+    }
 }

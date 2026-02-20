@@ -87,7 +87,7 @@ impl<'a> DbRuntime<'a> {
                 LifecycleEntityRef::Appliance(micasa_app::ApplianceId::new(row_id))
             }
             TabKind::Vendors => LifecycleEntityRef::Vendor(micasa_app::VendorId::new(row_id)),
-            TabKind::House | TabKind::Documents | TabKind::Dashboard => {
+            TabKind::House | TabKind::Documents | TabKind::Dashboard | TabKind::Settings => {
                 bail!(
                     "tab {} does not support delete/restore actions",
                     tab.label()
@@ -234,6 +234,7 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
             TabKind::Documents => Some(TabSnapshot::Documents(
                 self.store.list_documents(include_deleted)?,
             )),
+            TabKind::Settings => Some(TabSnapshot::Settings(self.store.list_settings()?)),
         };
         Ok(snapshot)
     }
@@ -574,10 +575,10 @@ mod tests {
     use anyhow::Result;
     use micasa_app::{
         FormPayload, HouseProfileFormInput, IncidentSeverity, ProjectFormInput, ProjectStatus,
-        ProjectTypeId, ServiceLogEntryFormInput, TabKind,
+        ProjectTypeId, ServiceLogEntryFormInput, SettingKey, SettingValue, TabKind,
     };
     use micasa_db::{NewMaintenanceItem, NewProject, Store};
-    use micasa_tui::{AppRuntime, LifecycleAction};
+    use micasa_tui::{AppRuntime, LifecycleAction, TabSnapshot};
     use time::{Date, Month};
 
     #[test]
@@ -853,6 +854,35 @@ mod tests {
 
         runtime.set_show_dashboard_preference(true)?;
         assert!(store.get_show_dashboard()?);
+        Ok(())
+    }
+
+    #[test]
+    fn settings_snapshot_returns_typed_setting_rows() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let mut runtime = DbRuntime::with_llm_client(&store, None);
+        runtime.set_show_dashboard_preference(false)?;
+        store.put_last_model("qwen3:32b")?;
+
+        let snapshot = runtime
+            .load_tab_snapshot(TabKind::Settings, false)?
+            .expect("settings snapshot");
+        match snapshot {
+            TabSnapshot::Settings(rows) => {
+                assert!(rows.iter().any(|setting| {
+                    setting.key == SettingKey::UiShowDashboard
+                        && setting.value == SettingValue::Bool(false)
+                }));
+                assert!(rows.iter().any(|setting| {
+                    setting.key == SettingKey::LlmModel
+                        && setting.value == SettingValue::Text("qwen3:32b".to_owned())
+                }));
+            }
+            _ => panic!("expected settings snapshot"),
+        }
+
         Ok(())
     }
 }
