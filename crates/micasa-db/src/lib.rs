@@ -4,9 +4,10 @@
 use anyhow::{Context, Result, anyhow, bail};
 use micasa_app::{
     Appliance, ApplianceId, ChatInput, ChatInputId, DashboardCounts, Document, DocumentEntityKind,
-    DocumentId, Incident, IncidentId, IncidentSeverity, IncidentStatus, MaintenanceCategoryId,
-    MaintenanceItem, MaintenanceItemId, Project, ProjectId, ProjectStatus, ProjectTypeId, Quote,
-    QuoteId, Vendor, VendorId,
+    DocumentId, HouseProfile, HouseProfileId, Incident, IncidentId, IncidentSeverity,
+    IncidentStatus, MaintenanceCategoryId, MaintenanceItem, MaintenanceItemId, Project, ProjectId,
+    ProjectStatus, ProjectTypeId, Quote, QuoteId, ServiceLogEntry, ServiceLogEntryId, Vendor,
+    VendorId,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
@@ -58,7 +59,38 @@ const DEFAULT_MAINTENANCE_CATEGORIES: [&str; 9] = [
 const REQUIRED_SCHEMA: &[(&str, &[&str])] = &[
     (
         "house_profiles",
-        &["id", "nickname", "created_at", "updated_at"],
+        &[
+            "id",
+            "nickname",
+            "address_line_1",
+            "address_line_2",
+            "city",
+            "state",
+            "postal_code",
+            "year_built",
+            "square_feet",
+            "lot_square_feet",
+            "bedrooms",
+            "bathrooms",
+            "foundation_type",
+            "wiring_type",
+            "roof_type",
+            "exterior_type",
+            "heating_type",
+            "cooling_type",
+            "water_source",
+            "sewer_type",
+            "parking_type",
+            "basement_type",
+            "insurance_carrier",
+            "insurance_policy",
+            "insurance_renewal",
+            "property_tax_cents",
+            "hoa_name",
+            "hoa_fee_cents",
+            "created_at",
+            "updated_at",
+        ],
     ),
     ("project_types", &["id", "name", "created_at", "updated_at"]),
     (
@@ -115,6 +147,9 @@ const REQUIRED_SCHEMA: &[(&str, &[&str])] = &[
             "id",
             "maintenance_item_id",
             "serviced_at",
+            "vendor_id",
+            "cost_cents",
+            "notes",
             "created_at",
             "updated_at",
             "deleted_at",
@@ -162,6 +197,37 @@ const REQUIRED_SCHEMA: &[(&str, &[&str])] = &[
 pub struct LookupValue<Id> {
     pub id: Id,
     pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HouseProfileInput {
+    pub nickname: String,
+    pub address_line_1: String,
+    pub address_line_2: String,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub year_built: Option<i32>,
+    pub square_feet: Option<i32>,
+    pub lot_square_feet: Option<i32>,
+    pub bedrooms: Option<i32>,
+    pub bathrooms: Option<f64>,
+    pub foundation_type: String,
+    pub wiring_type: String,
+    pub roof_type: String,
+    pub exterior_type: String,
+    pub heating_type: String,
+    pub cooling_type: String,
+    pub water_source: String,
+    pub sewer_type: String,
+    pub parking_type: String,
+    pub basement_type: String,
+    pub insurance_carrier: String,
+    pub insurance_policy: String,
+    pub insurance_renewal: Option<Date>,
+    pub property_tax_cents: Option<i64>,
+    pub hoa_name: String,
+    pub hoa_fee_cents: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -315,6 +381,24 @@ pub struct UpdateIncident {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewServiceLogEntry {
+    pub maintenance_item_id: MaintenanceItemId,
+    pub serviced_at: Date,
+    pub vendor_id: Option<VendorId>,
+    pub cost_cents: Option<i64>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateServiceLogEntry {
+    pub maintenance_item_id: MaintenanceItemId,
+    pub serviced_at: Date,
+    pub vendor_id: Option<VendorId>,
+    pub cost_cents: Option<i64>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewDocument {
     pub title: String,
     pub file_name: String,
@@ -331,6 +415,7 @@ enum EntityKind {
     Quote,
     MaintenanceItem,
     Appliance,
+    ServiceLogEntry,
     Vendor,
     Incident,
 }
@@ -342,6 +427,7 @@ impl EntityKind {
             Self::Quote => "quotes",
             Self::MaintenanceItem => "maintenance_items",
             Self::Appliance => "appliances",
+            Self::ServiceLogEntry => "service_log_entries",
             Self::Vendor => "vendors",
             Self::Incident => "incidents",
         }
@@ -353,6 +439,7 @@ impl EntityKind {
             Self::Quote => "quote",
             Self::MaintenanceItem => "maintenance",
             Self::Appliance => "appliance",
+            Self::ServiceLogEntry => "service_log",
             Self::Vendor => "vendor",
             Self::Incident => "incident",
         }
@@ -364,6 +451,7 @@ enum ParentKind {
     Project,
     Vendor,
     Appliance,
+    MaintenanceItem,
 }
 
 impl ParentKind {
@@ -372,6 +460,7 @@ impl ParentKind {
             Self::Project => "projects",
             Self::Vendor => "vendors",
             Self::Appliance => "appliances",
+            Self::MaintenanceItem => "maintenance_items",
         }
     }
 
@@ -380,6 +469,7 @@ impl ParentKind {
             Self::Project => "project",
             Self::Vendor => "vendor",
             Self::Appliance => "appliance",
+            Self::MaintenanceItem => "maintenance item",
         }
     }
 }
@@ -499,6 +589,221 @@ impl Store {
 
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("collect maintenance categories")
+    }
+
+    pub fn get_house_profile(&self) -> Result<Option<HouseProfile>> {
+        self.conn
+            .query_row(
+                "
+                SELECT
+                  id, nickname, address_line_1, address_line_2, city, state, postal_code,
+                  year_built, square_feet, lot_square_feet, bedrooms, bathrooms,
+                  foundation_type, wiring_type, roof_type, exterior_type,
+                  heating_type, cooling_type, water_source, sewer_type, parking_type,
+                  basement_type, insurance_carrier, insurance_policy, insurance_renewal,
+                  property_tax_cents, hoa_name, hoa_fee_cents, created_at, updated_at
+                FROM house_profiles
+                ORDER BY id ASC
+                LIMIT 1
+                ",
+                [],
+                |row| {
+                    let insurance_renewal_raw: Option<String> = row.get(24)?;
+                    let created_at_raw: String = row.get(28)?;
+                    let updated_at_raw: String = row.get(29)?;
+                    Ok(HouseProfile {
+                        id: HouseProfileId::new(row.get(0)?),
+                        nickname: row.get(1)?,
+                        address_line_1: row.get(2)?,
+                        address_line_2: row.get(3)?,
+                        city: row.get(4)?,
+                        state: row.get(5)?,
+                        postal_code: row.get(6)?,
+                        year_built: row.get(7)?,
+                        square_feet: row.get(8)?,
+                        lot_square_feet: row.get(9)?,
+                        bedrooms: row.get(10)?,
+                        bathrooms: row.get(11)?,
+                        foundation_type: row.get(12)?,
+                        wiring_type: row.get(13)?,
+                        roof_type: row.get(14)?,
+                        exterior_type: row.get(15)?,
+                        heating_type: row.get(16)?,
+                        cooling_type: row.get(17)?,
+                        water_source: row.get(18)?,
+                        sewer_type: row.get(19)?,
+                        parking_type: row.get(20)?,
+                        basement_type: row.get(21)?,
+                        insurance_carrier: row.get(22)?,
+                        insurance_policy: row.get(23)?,
+                        insurance_renewal: parse_opt_date(insurance_renewal_raw)
+                            .map_err(to_sql_error)?,
+                        property_tax_cents: row.get(25)?,
+                        hoa_name: row.get(26)?,
+                        hoa_fee_cents: row.get(27)?,
+                        created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                        updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                    })
+                },
+            )
+            .optional()
+            .context("load house profile")
+    }
+
+    pub fn create_house_profile(&self, profile: &HouseProfileInput) -> Result<HouseProfileId> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM house_profiles", [], |row| row.get(0))
+            .context("count existing house profiles")?;
+        if count > 0 {
+            bail!("house profile already exists -- edit the existing profile instead");
+        }
+
+        let now = now_rfc3339()?;
+        self.conn
+            .execute(
+                "
+                INSERT INTO house_profiles (
+                  nickname, address_line_1, address_line_2, city, state, postal_code,
+                  year_built, square_feet, lot_square_feet, bedrooms, bathrooms,
+                  foundation_type, wiring_type, roof_type, exterior_type,
+                  heating_type, cooling_type, water_source, sewer_type, parking_type,
+                  basement_type, insurance_carrier, insurance_policy, insurance_renewal,
+                  property_tax_cents, hoa_name, hoa_fee_cents, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ",
+                params![
+                    profile.nickname,
+                    profile.address_line_1,
+                    profile.address_line_2,
+                    profile.city,
+                    profile.state,
+                    profile.postal_code,
+                    profile.year_built,
+                    profile.square_feet,
+                    profile.lot_square_feet,
+                    profile.bedrooms,
+                    profile.bathrooms,
+                    profile.foundation_type,
+                    profile.wiring_type,
+                    profile.roof_type,
+                    profile.exterior_type,
+                    profile.heating_type,
+                    profile.cooling_type,
+                    profile.water_source,
+                    profile.sewer_type,
+                    profile.parking_type,
+                    profile.basement_type,
+                    profile.insurance_carrier,
+                    profile.insurance_policy,
+                    profile.insurance_renewal.map(format_date),
+                    profile.property_tax_cents,
+                    profile.hoa_name,
+                    profile.hoa_fee_cents,
+                    now,
+                    now,
+                ],
+            )
+            .context("insert house profile")?;
+        Ok(HouseProfileId::new(self.conn.last_insert_rowid()))
+    }
+
+    pub fn update_house_profile(&self, profile: &HouseProfileInput) -> Result<()> {
+        let house_profile_id: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT id FROM house_profiles ORDER BY id ASC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("load existing house profile id")?;
+        let Some(house_profile_id) = house_profile_id else {
+            bail!("house profile not found -- create one before updating");
+        };
+
+        let now = now_rfc3339()?;
+        let rows_affected = self
+            .conn
+            .execute(
+                "
+                UPDATE house_profiles
+                SET
+                  nickname = ?,
+                  address_line_1 = ?,
+                  address_line_2 = ?,
+                  city = ?,
+                  state = ?,
+                  postal_code = ?,
+                  year_built = ?,
+                  square_feet = ?,
+                  lot_square_feet = ?,
+                  bedrooms = ?,
+                  bathrooms = ?,
+                  foundation_type = ?,
+                  wiring_type = ?,
+                  roof_type = ?,
+                  exterior_type = ?,
+                  heating_type = ?,
+                  cooling_type = ?,
+                  water_source = ?,
+                  sewer_type = ?,
+                  parking_type = ?,
+                  basement_type = ?,
+                  insurance_carrier = ?,
+                  insurance_policy = ?,
+                  insurance_renewal = ?,
+                  property_tax_cents = ?,
+                  hoa_name = ?,
+                  hoa_fee_cents = ?,
+                  updated_at = ?
+                WHERE id = ?
+                ",
+                params![
+                    profile.nickname,
+                    profile.address_line_1,
+                    profile.address_line_2,
+                    profile.city,
+                    profile.state,
+                    profile.postal_code,
+                    profile.year_built,
+                    profile.square_feet,
+                    profile.lot_square_feet,
+                    profile.bedrooms,
+                    profile.bathrooms,
+                    profile.foundation_type,
+                    profile.wiring_type,
+                    profile.roof_type,
+                    profile.exterior_type,
+                    profile.heating_type,
+                    profile.cooling_type,
+                    profile.water_source,
+                    profile.sewer_type,
+                    profile.parking_type,
+                    profile.basement_type,
+                    profile.insurance_carrier,
+                    profile.insurance_policy,
+                    profile.insurance_renewal.map(format_date),
+                    profile.property_tax_cents,
+                    profile.hoa_name,
+                    profile.hoa_fee_cents,
+                    now,
+                    house_profile_id,
+                ],
+            )
+            .context("update house profile")?;
+        if rows_affected == 0 {
+            bail!("house profile update failed -- retry after reloading the database");
+        }
+        Ok(())
+    }
+
+    pub fn upsert_house_profile(&self, profile: &HouseProfileInput) -> Result<HouseProfileId> {
+        if let Some(existing) = self.get_house_profile()? {
+            self.update_house_profile(profile)?;
+            return Ok(existing.id);
+        }
+        self.create_house_profile(profile)
     }
 
     pub fn create_project(&self, new_project: &NewProject) -> Result<ProjectId> {
@@ -822,6 +1127,16 @@ impl Store {
         if incident_count > 0 {
             bail!(
                 "vendor {} has {incident_count} active incident(s) -- delete incidents first",
+                vendor_id.get()
+            );
+        }
+
+        let service_log_count = self
+            .count_active_dependents("service_log_entries", "vendor_id", vendor_id.get())
+            .context("count service logs linked to vendor")?;
+        if service_log_count > 0 {
+            bail!(
+                "vendor {} has {service_log_count} active service log(s) -- delete service logs first",
                 vendor_id.get()
             );
         }
@@ -1290,6 +1605,234 @@ impl Store {
             self.require_parent_alive(ParentKind::Appliance, appliance_id)?;
         }
         self.restore_entity(EntityKind::MaintenanceItem, maintenance_id.get())
+    }
+
+    pub fn list_service_log_entries(&self, include_deleted: bool) -> Result<Vec<ServiceLogEntry>> {
+        let mut sql = String::from(
+            "
+            SELECT
+              id, maintenance_item_id, serviced_at, vendor_id, cost_cents, notes,
+              created_at, updated_at, deleted_at
+            FROM service_log_entries
+            ",
+        );
+        if !include_deleted {
+            sql.push_str("WHERE deleted_at IS NULL\n");
+        }
+        sql.push_str("ORDER BY serviced_at DESC, id DESC");
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .context("prepare service log query")?;
+        let rows = stmt
+            .query_map([], |row| {
+                let serviced_at_raw: String = row.get(2)?;
+                let vendor_id: Option<i64> = row.get(3)?;
+                let created_at_raw: String = row.get(6)?;
+                let updated_at_raw: String = row.get(7)?;
+                let deleted_at_raw: Option<String> = row.get(8)?;
+
+                Ok(ServiceLogEntry {
+                    id: ServiceLogEntryId::new(row.get(0)?),
+                    maintenance_item_id: MaintenanceItemId::new(row.get(1)?),
+                    serviced_at: parse_date(&serviced_at_raw).map_err(to_sql_error)?,
+                    vendor_id: vendor_id.map(VendorId::new),
+                    cost_cents: row.get(4)?,
+                    notes: row.get(5)?,
+                    created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                    updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                    deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                })
+            })
+            .context("query service log entries")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect service log entries")
+    }
+
+    pub fn list_service_log_for_maintenance(
+        &self,
+        maintenance_id: MaintenanceItemId,
+        include_deleted: bool,
+    ) -> Result<Vec<ServiceLogEntry>> {
+        let mut sql = String::from(
+            "
+            SELECT
+              id, maintenance_item_id, serviced_at, vendor_id, cost_cents, notes,
+              created_at, updated_at, deleted_at
+            FROM service_log_entries
+            WHERE maintenance_item_id = ?
+            ",
+        );
+        if !include_deleted {
+            sql.push_str("AND deleted_at IS NULL\n");
+        }
+        sql.push_str("ORDER BY serviced_at DESC, id DESC");
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .context("prepare maintenance service log query")?;
+        let rows = stmt
+            .query_map(params![maintenance_id.get()], |row| {
+                let serviced_at_raw: String = row.get(2)?;
+                let vendor_id: Option<i64> = row.get(3)?;
+                let created_at_raw: String = row.get(6)?;
+                let updated_at_raw: String = row.get(7)?;
+                let deleted_at_raw: Option<String> = row.get(8)?;
+
+                Ok(ServiceLogEntry {
+                    id: ServiceLogEntryId::new(row.get(0)?),
+                    maintenance_item_id: MaintenanceItemId::new(row.get(1)?),
+                    serviced_at: parse_date(&serviced_at_raw).map_err(to_sql_error)?,
+                    vendor_id: vendor_id.map(VendorId::new),
+                    cost_cents: row.get(4)?,
+                    notes: row.get(5)?,
+                    created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                    updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                    deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                })
+            })
+            .context("query maintenance service log entries")?;
+
+        rows.collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect maintenance service log entries")
+    }
+
+    pub fn get_service_log_entry(&self, entry_id: ServiceLogEntryId) -> Result<ServiceLogEntry> {
+        self.conn
+            .query_row(
+                "
+                SELECT
+                  id, maintenance_item_id, serviced_at, vendor_id, cost_cents, notes,
+                  created_at, updated_at, deleted_at
+                FROM service_log_entries
+                WHERE id = ?
+                ",
+                params![entry_id.get()],
+                |row| {
+                    let serviced_at_raw: String = row.get(2)?;
+                    let vendor_id: Option<i64> = row.get(3)?;
+                    let created_at_raw: String = row.get(6)?;
+                    let updated_at_raw: String = row.get(7)?;
+                    let deleted_at_raw: Option<String> = row.get(8)?;
+
+                    Ok(ServiceLogEntry {
+                        id: ServiceLogEntryId::new(row.get(0)?),
+                        maintenance_item_id: MaintenanceItemId::new(row.get(1)?),
+                        serviced_at: parse_date(&serviced_at_raw).map_err(to_sql_error)?,
+                        vendor_id: vendor_id.map(VendorId::new),
+                        cost_cents: row.get(4)?,
+                        notes: row.get(5)?,
+                        created_at: parse_datetime(&created_at_raw).map_err(to_sql_error)?,
+                        updated_at: parse_datetime(&updated_at_raw).map_err(to_sql_error)?,
+                        deleted_at: parse_opt_datetime(deleted_at_raw).map_err(to_sql_error)?,
+                    })
+                },
+            )
+            .with_context(|| format!("load service log entry {}", entry_id.get()))
+    }
+
+    pub fn create_service_log_entry(
+        &self,
+        entry: &NewServiceLogEntry,
+    ) -> Result<ServiceLogEntryId> {
+        self.require_parent_alive(ParentKind::MaintenanceItem, entry.maintenance_item_id.get())?;
+        if let Some(vendor_id) = entry.vendor_id {
+            self.require_parent_alive(ParentKind::Vendor, vendor_id.get())?;
+        }
+
+        let now = now_rfc3339()?;
+        self.conn
+            .execute(
+                "
+                INSERT INTO service_log_entries (
+                  maintenance_item_id, serviced_at, vendor_id, cost_cents, notes,
+                  created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ",
+                params![
+                    entry.maintenance_item_id.get(),
+                    format_date(entry.serviced_at),
+                    entry.vendor_id.map(VendorId::get),
+                    entry.cost_cents,
+                    entry.notes,
+                    now,
+                    now,
+                ],
+            )
+            .context("insert service log entry")?;
+        Ok(ServiceLogEntryId::new(self.conn.last_insert_rowid()))
+    }
+
+    pub fn update_service_log_entry(
+        &self,
+        entry_id: ServiceLogEntryId,
+        update: &UpdateServiceLogEntry,
+    ) -> Result<()> {
+        self.require_parent_alive(
+            ParentKind::MaintenanceItem,
+            update.maintenance_item_id.get(),
+        )?;
+        if let Some(vendor_id) = update.vendor_id {
+            self.require_parent_alive(ParentKind::Vendor, vendor_id.get())?;
+        }
+
+        let now = now_rfc3339()?;
+        let rows_affected = self
+            .conn
+            .execute(
+                "
+                UPDATE service_log_entries
+                SET
+                  maintenance_item_id = ?,
+                  serviced_at = ?,
+                  vendor_id = ?,
+                  cost_cents = ?,
+                  notes = ?,
+                  updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                ",
+                params![
+                    update.maintenance_item_id.get(),
+                    format_date(update.serviced_at),
+                    update.vendor_id.map(VendorId::get),
+                    update.cost_cents,
+                    update.notes,
+                    now,
+                    entry_id.get(),
+                ],
+            )
+            .context("update service log entry")?;
+        if rows_affected == 0 {
+            bail!(
+                "service log entry {} not found or deleted -- choose an existing entry and retry",
+                entry_id.get()
+            );
+        }
+        Ok(())
+    }
+
+    pub fn soft_delete_service_log_entry(&self, entry_id: ServiceLogEntryId) -> Result<()> {
+        self.soft_delete_entity(EntityKind::ServiceLogEntry, entry_id.get())
+    }
+
+    pub fn restore_service_log_entry(&self, entry_id: ServiceLogEntryId) -> Result<()> {
+        let (maintenance_item_id, vendor_id): (i64, Option<i64>) = self
+            .conn
+            .query_row(
+                "SELECT maintenance_item_id, vendor_id FROM service_log_entries WHERE id = ?",
+                params![entry_id.get()],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .with_context(|| format!("load service log entry {}", entry_id.get()))?;
+
+        self.require_parent_alive(ParentKind::MaintenanceItem, maintenance_item_id)?;
+        if let Some(vendor_id) = vendor_id {
+            self.require_parent_alive(ParentKind::Vendor, vendor_id)?;
+        }
+        self.restore_entity(EntityKind::ServiceLogEntry, entry_id.get())
     }
 
     pub fn list_incidents(&self, include_deleted: bool) -> Result<Vec<Incident>> {

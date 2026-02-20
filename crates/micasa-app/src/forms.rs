@@ -6,7 +6,7 @@ use time::Date;
 
 use crate::{
     ApplianceId, DocumentEntityKind, FormKind, IncidentSeverity, IncidentStatus,
-    MaintenanceCategoryId, ProjectStatus, ProjectTypeId, VendorId,
+    MaintenanceCategoryId, MaintenanceItemId, ProjectStatus, ProjectTypeId, VendorId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -95,13 +95,55 @@ pub struct DocumentFormInput {
     pub notes: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct HouseProfileFormInput {
+    pub nickname: String,
+    pub address_line_1: String,
+    pub address_line_2: String,
+    pub city: String,
+    pub state: String,
+    pub postal_code: String,
+    pub year_built: Option<i32>,
+    pub square_feet: Option<i32>,
+    pub lot_square_feet: Option<i32>,
+    pub bedrooms: Option<i32>,
+    pub bathrooms: Option<f64>,
+    pub foundation_type: String,
+    pub wiring_type: String,
+    pub roof_type: String,
+    pub exterior_type: String,
+    pub heating_type: String,
+    pub cooling_type: String,
+    pub water_source: String,
+    pub sewer_type: String,
+    pub parking_type: String,
+    pub basement_type: String,
+    pub insurance_carrier: String,
+    pub insurance_policy: String,
+    pub insurance_renewal: Option<Date>,
+    pub property_tax_cents: Option<i64>,
+    pub hoa_name: String,
+    pub hoa_fee_cents: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServiceLogEntryFormInput {
+    pub maintenance_item_id: MaintenanceItemId,
+    pub serviced_at: Date,
+    pub vendor_id: Option<VendorId>,
+    pub cost_cents: Option<i64>,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum FormPayload {
+    HouseProfile(Box<HouseProfileFormInput>),
     Project(ProjectFormInput),
     Vendor(VendorFormInput),
     Quote(QuoteFormInput),
     Appliance(ApplianceFormInput),
     Maintenance(MaintenanceItemFormInput),
+    ServiceLogEntry(ServiceLogEntryFormInput),
     Incident(IncidentFormInput),
     Document(DocumentFormInput),
 }
@@ -109,11 +151,13 @@ pub enum FormPayload {
 impl FormPayload {
     pub fn kind(&self) -> FormKind {
         match self {
+            Self::HouseProfile(_) => FormKind::HouseProfile,
             Self::Project(_) => FormKind::Project,
             Self::Vendor(_) => FormKind::Vendor,
             Self::Quote(_) => FormKind::Quote,
             Self::Appliance(_) => FormKind::Appliance,
             Self::Maintenance(_) => FormKind::MaintenanceItem,
+            Self::ServiceLogEntry(_) => FormKind::ServiceLogEntry,
             Self::Incident(_) => FormKind::Incident,
             Self::Document(_) => FormKind::Document,
         }
@@ -121,6 +165,35 @@ impl FormPayload {
 
     pub fn blank_for(kind: FormKind) -> Option<Self> {
         match kind {
+            FormKind::HouseProfile => Some(Self::HouseProfile(Box::new(HouseProfileFormInput {
+                nickname: String::new(),
+                address_line_1: String::new(),
+                address_line_2: String::new(),
+                city: String::new(),
+                state: String::new(),
+                postal_code: String::new(),
+                year_built: None,
+                square_feet: None,
+                lot_square_feet: None,
+                bedrooms: None,
+                bathrooms: None,
+                foundation_type: String::new(),
+                wiring_type: String::new(),
+                roof_type: String::new(),
+                exterior_type: String::new(),
+                heating_type: String::new(),
+                cooling_type: String::new(),
+                water_source: String::new(),
+                sewer_type: String::new(),
+                parking_type: String::new(),
+                basement_type: String::new(),
+                insurance_carrier: String::new(),
+                insurance_policy: String::new(),
+                insurance_renewal: None,
+                property_tax_cents: None,
+                hoa_name: String::new(),
+                hoa_fee_cents: None,
+            }))),
             FormKind::Project => Some(Self::Project(ProjectFormInput {
                 title: String::new(),
                 project_type_id: ProjectTypeId::new(0),
@@ -171,6 +244,14 @@ impl FormPayload {
                 notes: String::new(),
                 cost_cents: None,
             })),
+            FormKind::ServiceLogEntry => Some(Self::ServiceLogEntry(ServiceLogEntryFormInput {
+                maintenance_item_id: MaintenanceItemId::new(0),
+                serviced_at: Date::from_calendar_date(1970, time::Month::January, 1)
+                    .expect("valid baseline date"),
+                vendor_id: None,
+                cost_cents: None,
+                notes: String::new(),
+            })),
             FormKind::Incident => Some(Self::Incident(IncidentFormInput {
                 title: String::new(),
                 description: String::new(),
@@ -194,20 +275,60 @@ impl FormPayload {
                 data: Vec::new(),
                 notes: String::new(),
             })),
-            FormKind::HouseProfile | FormKind::ServiceLogEntry => None,
         }
     }
 
     pub fn validate(&self) -> Result<()> {
         match self {
+            Self::HouseProfile(profile) => profile.validate(),
             Self::Project(project) => project.validate(),
             Self::Vendor(vendor) => vendor.validate(),
             Self::Quote(quote) => quote.validate(),
             Self::Appliance(appliance) => appliance.validate(),
             Self::Maintenance(maintenance) => maintenance.validate(),
+            Self::ServiceLogEntry(entry) => entry.validate(),
             Self::Incident(incident) => incident.validate(),
             Self::Document(document) => document.validate(),
         }
+    }
+}
+
+impl HouseProfileFormInput {
+    pub fn validate(&self) -> Result<()> {
+        if self.nickname.trim().is_empty() {
+            bail!("house nickname is required -- enter a nickname and retry");
+        }
+        for (label, value) in [
+            ("year built", self.year_built),
+            ("square feet", self.square_feet),
+            ("lot square feet", self.lot_square_feet),
+            ("bedrooms", self.bedrooms),
+        ] {
+            if let Some(value) = value
+                && value < 0
+            {
+                bail!("{label} cannot be negative");
+            }
+        }
+        if let Some(bathrooms) = self.bathrooms {
+            if !bathrooms.is_finite() {
+                bail!("bathrooms must be a finite number");
+            }
+            if bathrooms < 0.0 {
+                bail!("bathrooms cannot be negative");
+            }
+        }
+        if let Some(property_tax) = self.property_tax_cents
+            && property_tax < 0
+        {
+            bail!("property tax cannot be negative");
+        }
+        if let Some(hoa_fee) = self.hoa_fee_cents
+            && hoa_fee < 0
+        {
+            bail!("hoa fee cannot be negative");
+        }
+        Ok(())
     }
 }
 
@@ -304,6 +425,20 @@ impl MaintenanceItemFormInput {
     }
 }
 
+impl ServiceLogEntryFormInput {
+    pub fn validate(&self) -> Result<()> {
+        if self.maintenance_item_id.get() <= 0 {
+            bail!("service log maintenance item is required -- choose an item and retry");
+        }
+        if let Some(cost) = self.cost_cents
+            && cost < 0
+        {
+            bail!("service log cost cannot be negative");
+        }
+        Ok(())
+    }
+}
+
 impl IncidentFormInput {
     pub fn validate(&self) -> Result<()> {
         if self.title.trim().is_empty() {
@@ -347,20 +482,21 @@ impl DocumentFormInput {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApplianceFormInput, FormPayload, IncidentFormInput, MaintenanceItemFormInput,
-        ProjectFormInput, QuoteFormInput,
+        ApplianceFormInput, FormPayload, HouseProfileFormInput, IncidentFormInput,
+        MaintenanceItemFormInput, ProjectFormInput, QuoteFormInput, ServiceLogEntryFormInput,
     };
     use crate::{
         DocumentEntityKind, FormKind, IncidentSeverity, IncidentStatus, MaintenanceCategoryId,
-        ProjectId, ProjectStatus, ProjectTypeId, VendorId,
+        MaintenanceItemId, ProjectId, ProjectStatus, ProjectTypeId, VendorId,
     };
     use time::{Date, Month};
 
     #[test]
     fn blank_payload_is_available_for_supported_forms() {
+        assert!(FormPayload::blank_for(FormKind::HouseProfile).is_some());
         assert!(FormPayload::blank_for(FormKind::Project).is_some());
         assert!(FormPayload::blank_for(FormKind::Vendor).is_some());
-        assert!(FormPayload::blank_for(FormKind::HouseProfile).is_none());
+        assert!(FormPayload::blank_for(FormKind::ServiceLogEntry).is_some());
     }
 
     #[test]
@@ -405,6 +541,53 @@ mod tests {
             manual_text: String::new(),
             notes: String::new(),
             cost_cents: None,
+        });
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn house_profile_validation_rejects_empty_nickname() {
+        let payload = FormPayload::HouseProfile(Box::new(HouseProfileFormInput {
+            nickname: String::new(),
+            address_line_1: String::new(),
+            address_line_2: String::new(),
+            city: String::new(),
+            state: String::new(),
+            postal_code: String::new(),
+            year_built: None,
+            square_feet: None,
+            lot_square_feet: None,
+            bedrooms: None,
+            bathrooms: None,
+            foundation_type: String::new(),
+            wiring_type: String::new(),
+            roof_type: String::new(),
+            exterior_type: String::new(),
+            heating_type: String::new(),
+            cooling_type: String::new(),
+            water_source: String::new(),
+            sewer_type: String::new(),
+            parking_type: String::new(),
+            basement_type: String::new(),
+            insurance_carrier: String::new(),
+            insurance_policy: String::new(),
+            insurance_renewal: None,
+            property_tax_cents: None,
+            hoa_name: String::new(),
+            hoa_fee_cents: None,
+        }));
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn service_log_validation_rejects_missing_maintenance_item() {
+        let payload = FormPayload::ServiceLogEntry(ServiceLogEntryFormInput {
+            maintenance_item_id: MaintenanceItemId::new(0),
+            serviced_at: Date::from_calendar_date(2026, Month::January, 5)
+                .expect("valid static date"),
+            vendor_id: None,
+            cost_cents: None,
+            notes: String::new(),
         });
         assert!(payload.validate().is_err());
     }

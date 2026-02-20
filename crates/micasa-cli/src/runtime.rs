@@ -4,8 +4,8 @@
 use anyhow::Result;
 use micasa_app::{FormPayload, TabKind};
 use micasa_db::{
-    NewAppliance, NewDocument, NewIncident, NewMaintenanceItem, NewProject, NewQuote, NewVendor,
-    Store,
+    HouseProfileInput, NewAppliance, NewDocument, NewIncident, NewMaintenanceItem, NewProject,
+    NewQuote, NewServiceLogEntry, NewVendor, Store,
 };
 
 pub struct DbRuntime<'a> {
@@ -26,11 +26,13 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
     fn load_tab_row_count(&mut self, tab: TabKind, include_deleted: bool) -> Result<Option<usize>> {
         let count = match tab {
             TabKind::Dashboard => None,
-            TabKind::House => None,
+            TabKind::House => Some(usize::from(self.store.get_house_profile()?.is_some())),
             TabKind::Projects => Some(self.store.list_projects(include_deleted)?.len()),
             TabKind::Quotes => Some(self.store.list_quotes(include_deleted)?.len()),
             TabKind::Maintenance => Some(self.store.list_maintenance_items(include_deleted)?.len()),
-            TabKind::ServiceLog => None,
+            TabKind::ServiceLog => {
+                Some(self.store.list_service_log_entries(include_deleted)?.len())
+            }
             TabKind::Incidents => Some(self.store.list_incidents(include_deleted)?.len()),
             TabKind::Appliances => Some(self.store.list_appliances(include_deleted)?.len()),
             TabKind::Vendors => Some(self.store.list_vendors(include_deleted)?.len()),
@@ -43,6 +45,37 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
         payload.validate()?;
 
         match payload {
+            FormPayload::HouseProfile(form) => {
+                self.store.upsert_house_profile(&HouseProfileInput {
+                    nickname: form.nickname.clone(),
+                    address_line_1: form.address_line_1.clone(),
+                    address_line_2: form.address_line_2.clone(),
+                    city: form.city.clone(),
+                    state: form.state.clone(),
+                    postal_code: form.postal_code.clone(),
+                    year_built: form.year_built,
+                    square_feet: form.square_feet,
+                    lot_square_feet: form.lot_square_feet,
+                    bedrooms: form.bedrooms,
+                    bathrooms: form.bathrooms,
+                    foundation_type: form.foundation_type.clone(),
+                    wiring_type: form.wiring_type.clone(),
+                    roof_type: form.roof_type.clone(),
+                    exterior_type: form.exterior_type.clone(),
+                    heating_type: form.heating_type.clone(),
+                    cooling_type: form.cooling_type.clone(),
+                    water_source: form.water_source.clone(),
+                    sewer_type: form.sewer_type.clone(),
+                    parking_type: form.parking_type.clone(),
+                    basement_type: form.basement_type.clone(),
+                    insurance_carrier: form.insurance_carrier.clone(),
+                    insurance_policy: form.insurance_policy.clone(),
+                    insurance_renewal: form.insurance_renewal,
+                    property_tax_cents: form.property_tax_cents,
+                    hoa_name: form.hoa_name.clone(),
+                    hoa_fee_cents: form.hoa_fee_cents,
+                })?;
+            }
             FormPayload::Project(form) => {
                 self.store.create_project(&NewProject {
                     title: form.title.clone(),
@@ -103,6 +136,15 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
                     cost_cents: form.cost_cents,
                 })?;
             }
+            FormPayload::ServiceLogEntry(form) => {
+                self.store.create_service_log_entry(&NewServiceLogEntry {
+                    maintenance_item_id: form.maintenance_item_id,
+                    serviced_at: form.serviced_at,
+                    vendor_id: form.vendor_id,
+                    cost_cents: form.cost_cents,
+                    notes: form.notes.clone(),
+                })?;
+            }
             FormPayload::Incident(form) => {
                 self.store.create_incident(&NewIncident {
                     title: form.title.clone(),
@@ -139,9 +181,13 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
 mod tests {
     use super::DbRuntime;
     use anyhow::Result;
-    use micasa_app::{FormPayload, ProjectFormInput, ProjectStatus, ProjectTypeId, TabKind};
-    use micasa_db::{NewProject, Store};
+    use micasa_app::{
+        FormPayload, HouseProfileFormInput, ProjectFormInput, ProjectStatus, ProjectTypeId,
+        ServiceLogEntryFormInput, TabKind,
+    };
+    use micasa_db::{NewMaintenanceItem, NewProject, Store};
     use micasa_tui::AppRuntime;
+    use time::{Date, Month};
 
     #[test]
     fn submit_form_creates_project_row() -> Result<()> {
@@ -197,15 +243,86 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_tabs_report_no_row_count() -> Result<()> {
+    fn house_row_count_tracks_profile_presence() -> Result<()> {
         let store = Store::open_memory()?;
         store.bootstrap()?;
 
         let mut runtime = DbRuntime::new(&store);
-        assert_eq!(runtime.load_tab_row_count(TabKind::House, false)?, None);
+        assert_eq!(runtime.load_tab_row_count(TabKind::House, false)?, Some(0));
+
+        runtime.submit_form(&FormPayload::HouseProfile(Box::new(
+            HouseProfileFormInput {
+                nickname: "Elm Street".to_owned(),
+                address_line_1: "123 Elm".to_owned(),
+                address_line_2: String::new(),
+                city: "Springfield".to_owned(),
+                state: "IL".to_owned(),
+                postal_code: "62701".to_owned(),
+                year_built: Some(1987),
+                square_feet: Some(2400),
+                lot_square_feet: None,
+                bedrooms: Some(4),
+                bathrooms: Some(2.5),
+                foundation_type: String::new(),
+                wiring_type: String::new(),
+                roof_type: String::new(),
+                exterior_type: String::new(),
+                heating_type: String::new(),
+                cooling_type: String::new(),
+                water_source: String::new(),
+                sewer_type: String::new(),
+                parking_type: String::new(),
+                basement_type: String::new(),
+                insurance_carrier: String::new(),
+                insurance_policy: String::new(),
+                insurance_renewal: None,
+                property_tax_cents: None,
+                hoa_name: String::new(),
+                hoa_fee_cents: None,
+            },
+        )))?;
+
+        assert_eq!(runtime.load_tab_row_count(TabKind::House, false)?, Some(1));
+        Ok(())
+    }
+
+    #[test]
+    fn service_log_row_count_respects_deleted_filter() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let category_id = store.list_maintenance_categories()?[0].id;
+        let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+            name: "HVAC filter".to_owned(),
+            category_id,
+            appliance_id: None,
+            last_serviced_at: None,
+            interval_months: 6,
+            manual_url: String::new(),
+            manual_text: String::new(),
+            notes: String::new(),
+            cost_cents: None,
+        })?;
+
+        let mut runtime = DbRuntime::new(&store);
+        runtime.submit_form(&FormPayload::ServiceLogEntry(ServiceLogEntryFormInput {
+            maintenance_item_id: maintenance_id,
+            serviced_at: Date::from_calendar_date(2026, Month::January, 9)?,
+            vendor_id: None,
+            cost_cents: Some(12_500),
+            notes: "Winter check".to_owned(),
+        }))?;
+
+        let entry_id = store.list_service_log_entries(false)?[0].id;
+        store.soft_delete_service_log_entry(entry_id)?;
+
         assert_eq!(
             runtime.load_tab_row_count(TabKind::ServiceLog, false)?,
-            None
+            Some(0)
+        );
+        assert_eq!(
+            runtime.load_tab_row_count(TabKind::ServiceLog, true)?,
+            Some(1)
         );
         Ok(())
     }

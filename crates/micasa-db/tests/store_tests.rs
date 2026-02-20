@@ -4,8 +4,9 @@
 use anyhow::Result;
 use micasa_app::{DocumentEntityKind, IncidentSeverity, IncidentStatus, ProjectStatus};
 use micasa_db::{
-    NewAppliance, NewDocument, NewIncident, NewMaintenanceItem, NewProject, NewQuote, NewVendor,
-    Store, UpdateProject, UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
+    HouseProfileInput, NewAppliance, NewDocument, NewIncident, NewMaintenanceItem, NewProject,
+    NewQuote, NewServiceLogEntry, NewVendor, Store, UpdateProject, UpdateServiceLogEntry,
+    UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
 };
 use time::{Date, Month};
 
@@ -430,5 +431,173 @@ fn project_update_persists_fields() -> Result<()> {
     assert_eq!(project.title, "Updated");
     assert_eq!(project.status, ProjectStatus::Underway);
     assert_eq!(project.actual_cents, Some(90_000));
+    Ok(())
+}
+
+#[test]
+fn house_profile_upsert_and_update() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let first_id = store.upsert_house_profile(&HouseProfileInput {
+        nickname: "Elm Street".to_owned(),
+        address_line_1: "123 Elm".to_owned(),
+        address_line_2: String::new(),
+        city: "Springfield".to_owned(),
+        state: "IL".to_owned(),
+        postal_code: "62701".to_owned(),
+        year_built: Some(1987),
+        square_feet: Some(2400),
+        lot_square_feet: Some(6000),
+        bedrooms: Some(4),
+        bathrooms: Some(2.5),
+        foundation_type: "Slab".to_owned(),
+        wiring_type: String::new(),
+        roof_type: String::new(),
+        exterior_type: String::new(),
+        heating_type: String::new(),
+        cooling_type: String::new(),
+        water_source: String::new(),
+        sewer_type: String::new(),
+        parking_type: String::new(),
+        basement_type: String::new(),
+        insurance_carrier: String::new(),
+        insurance_policy: String::new(),
+        insurance_renewal: Some(Date::from_calendar_date(2026, Month::May, 1)?),
+        property_tax_cents: Some(420_000),
+        hoa_name: String::new(),
+        hoa_fee_cents: None,
+    })?;
+    let first_profile = store
+        .get_house_profile()?
+        .expect("house profile should exist after first upsert");
+    assert_eq!(first_profile.id, first_id);
+    assert_eq!(first_profile.nickname, "Elm Street");
+
+    let second_id = store.upsert_house_profile(&HouseProfileInput {
+        nickname: "Elm Street Updated".to_owned(),
+        address_line_1: "123 Elm".to_owned(),
+        address_line_2: String::new(),
+        city: "Springfield".to_owned(),
+        state: "IL".to_owned(),
+        postal_code: "62701".to_owned(),
+        year_built: Some(1987),
+        square_feet: Some(2500),
+        lot_square_feet: Some(6000),
+        bedrooms: Some(4),
+        bathrooms: Some(2.5),
+        foundation_type: "Slab".to_owned(),
+        wiring_type: String::new(),
+        roof_type: String::new(),
+        exterior_type: String::new(),
+        heating_type: String::new(),
+        cooling_type: String::new(),
+        water_source: String::new(),
+        sewer_type: String::new(),
+        parking_type: String::new(),
+        basement_type: String::new(),
+        insurance_carrier: String::new(),
+        insurance_policy: String::new(),
+        insurance_renewal: Some(Date::from_calendar_date(2026, Month::June, 1)?),
+        property_tax_cents: Some(430_000),
+        hoa_name: String::new(),
+        hoa_fee_cents: None,
+    })?;
+    assert_eq!(second_id, first_id);
+
+    let profile = store
+        .get_house_profile()?
+        .expect("house profile should still exist");
+    assert_eq!(profile.id, first_id);
+    assert_eq!(profile.nickname, "Elm Street Updated");
+    assert_eq!(profile.square_feet, Some(2500));
+    assert_eq!(profile.property_tax_cents, Some(430_000));
+    Ok(())
+}
+
+#[test]
+fn service_log_crud_and_restore_parent_guards() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Tech Co".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "HVAC filter".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    let service_log_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::January, 15)?,
+        vendor_id: Some(vendor_id),
+        cost_cents: Some(12_500),
+        notes: "Initial service".to_owned(),
+    })?;
+    let entry = store.get_service_log_entry(service_log_id)?;
+    assert_eq!(entry.maintenance_item_id, maintenance_id);
+    assert_eq!(entry.vendor_id, Some(vendor_id));
+    assert_eq!(entry.cost_cents, Some(12_500));
+
+    store.update_service_log_entry(
+        service_log_id,
+        &UpdateServiceLogEntry {
+            maintenance_item_id: maintenance_id,
+            serviced_at: Date::from_calendar_date(2026, Month::February, 1)?,
+            vendor_id: None,
+            cost_cents: Some(13_000),
+            notes: "Updated entry".to_owned(),
+        },
+    )?;
+    let updated = store.get_service_log_entry(service_log_id)?;
+    assert_eq!(updated.vendor_id, None);
+    assert_eq!(updated.cost_cents, Some(13_000));
+    assert_eq!(updated.notes, "Updated entry");
+
+    let by_maintenance = store.list_service_log_for_maintenance(maintenance_id, false)?;
+    assert_eq!(by_maintenance.len(), 1);
+    assert_eq!(by_maintenance[0].id, service_log_id);
+
+    let second_service_log_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::March, 1)?,
+        vendor_id: Some(vendor_id),
+        cost_cents: Some(15_000),
+        notes: "Vendor service".to_owned(),
+    })?;
+    let vendor_delete_error = store
+        .soft_delete_vendor(vendor_id)
+        .expect_err("vendor with service logs should be protected");
+    assert!(
+        vendor_delete_error
+            .to_string()
+            .contains("active service log")
+    );
+
+    store.soft_delete_service_log_entry(second_service_log_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+    let restore_error = store
+        .restore_service_log_entry(second_service_log_id)
+        .expect_err("restoring service log should fail when vendor is deleted");
+    assert!(restore_error.to_string().contains("vendor is deleted"));
+
+    store.restore_vendor(vendor_id)?;
+    store.restore_service_log_entry(second_service_log_id)?;
+    let logs = store.list_service_log_entries(false)?;
+    assert_eq!(logs.len(), 2);
     Ok(())
 }

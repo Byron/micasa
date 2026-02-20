@@ -11,7 +11,7 @@ pub enum ChatVisibility {
     Visible,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppState {
     pub mode: AppMode,
     pub active_tab: TabKind,
@@ -36,7 +36,7 @@ impl Default for AppState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum AppCommand {
     NextTab,
     PrevTab,

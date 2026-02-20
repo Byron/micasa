@@ -268,6 +268,37 @@ fn form_for_tab(tab: TabKind) -> Option<FormKind> {
 
 fn template_payload_for_form(kind: FormKind) -> Option<FormPayload> {
     match kind {
+        FormKind::HouseProfile => Some(FormPayload::HouseProfile(Box::new(
+            micasa_app::HouseProfileFormInput {
+                nickname: "My house".to_owned(),
+                address_line_1: String::new(),
+                address_line_2: String::new(),
+                city: String::new(),
+                state: String::new(),
+                postal_code: String::new(),
+                year_built: None,
+                square_feet: None,
+                lot_square_feet: None,
+                bedrooms: None,
+                bathrooms: None,
+                foundation_type: String::new(),
+                wiring_type: String::new(),
+                roof_type: String::new(),
+                exterior_type: String::new(),
+                heating_type: String::new(),
+                cooling_type: String::new(),
+                water_source: String::new(),
+                sewer_type: String::new(),
+                parking_type: String::new(),
+                basement_type: String::new(),
+                insurance_carrier: String::new(),
+                insurance_policy: String::new(),
+                insurance_renewal: None,
+                property_tax_cents: None,
+                hoa_name: String::new(),
+                hoa_fee_cents: None,
+            },
+        ))),
         FormKind::Project => Some(FormPayload::Project(micasa_app::ProjectFormInput {
             title: "New project".to_owned(),
             project_type_id: micasa_app::ProjectTypeId::new(1),
@@ -334,8 +365,17 @@ fn template_payload_for_form(kind: FormKind) -> Option<FormPayload> {
             website: String::new(),
             notes: String::new(),
         })),
+        FormKind::ServiceLogEntry => Some(FormPayload::ServiceLogEntry(
+            micasa_app::ServiceLogEntryFormInput {
+                maintenance_item_id: micasa_app::MaintenanceItemId::new(1),
+                serviced_at: time::Date::from_calendar_date(2026, time::Month::January, 1)
+                    .expect("valid static date"),
+                vendor_id: None,
+                cost_cents: None,
+                notes: String::new(),
+            },
+        )),
         FormKind::Document => None,
-        FormKind::HouseProfile | FormKind::ServiceLogEntry => None,
     }
 }
 
