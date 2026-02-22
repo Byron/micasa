@@ -29,6 +29,10 @@ const HALF_PAGE_ROWS: isize = 10;
 const FULL_PAGE_ROWS: isize = 20;
 const LINK_ARROW: &str = "→";
 const DRILL_ARROW: &str = "↘";
+const FILTER_MARK_ACTIVE: &str = "▼";
+const FILTER_MARK_ACTIVE_INVERTED: &str = "▲";
+const FILTER_MARK_PREVIEW: &str = "▽";
+const FILTER_MARK_PREVIEW_INVERTED: &str = "△";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TabSnapshot {
@@ -3182,6 +3186,32 @@ fn apply_table_command(view_data: &mut ViewData, command: TableCommand) -> Table
     }
 }
 
+fn active_tab_filter_marker(table_state: &TableUiState) -> Option<&'static str> {
+    if table_state.filter_active && table_state.filter_inverted {
+        Some(FILTER_MARK_ACTIVE_INVERTED)
+    } else if table_state.filter_active {
+        Some(FILTER_MARK_ACTIVE)
+    } else if table_state.filter_inverted {
+        Some(FILTER_MARK_PREVIEW_INVERTED)
+    } else if table_state.pin.is_some() {
+        Some(FILTER_MARK_PREVIEW)
+    } else {
+        None
+    }
+}
+
+fn tab_title(tab: TabKind, state: &AppState, table_state: &TableUiState) -> String {
+    if state.active_tab != tab {
+        return format!(" {} ", tab.label());
+    }
+
+    if let Some(marker) = active_tab_filter_marker(table_state) {
+        format!(" {} {} ", tab.label(), marker)
+    } else {
+        format!(" {} ", tab.label())
+    }
+}
+
 fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -3199,7 +3229,7 @@ fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData
             .unwrap_or(0);
         let tab_titles = TabKind::ALL
             .iter()
-            .map(|tab| format!(" {} ", tab.label()))
+            .map(|tab| tab_title(*tab, state, &view_data.table_state))
             .collect::<Vec<String>>();
 
         let tabs = Tabs::new(tab_titles)
@@ -3923,12 +3953,21 @@ fn truncate_label(value: &str, max_chars: usize) -> String {
     }
 }
 
+fn cell_matches_pin_value(value: &TableCell, pin: &TableCell) -> bool {
+    match (value, pin) {
+        (TableCell::Text(value), TableCell::Text(pin)) => {
+            value.trim().to_lowercase() == pin.trim().to_lowercase()
+        }
+        _ => value == pin,
+    }
+}
+
 fn row_matches_pin(row: &TableRowProjection, table_state: &TableUiState) -> bool {
     match &table_state.pin {
         Some(pin) => row
             .cells
             .get(pin.column)
-            .map(|value| value == &pin.value)
+            .map(|value| cell_matches_pin_value(value, &pin.value))
             .unwrap_or(false),
         None => true,
     }
@@ -4006,7 +4045,7 @@ fn projection_for_snapshot(snapshot: &TabSnapshot, table_state: &TableUiState) -
             let pin_match = row
                 .cells
                 .get(pin.column)
-                .map(|value| value == &pin.value)
+                .map(|value| cell_matches_pin_value(value, &pin.value))
                 .unwrap_or(false);
             if table_state.filter_inverted {
                 !pin_match
@@ -4506,7 +4545,7 @@ fn toggle_pin(view_data: &mut ViewData) -> TableStatus {
 
     if let Some(existing) = &view_data.table_state.pin
         && existing.column == column
-        && existing.value == value
+        && cell_matches_pin_value(&existing.value, &value)
     {
         view_data.table_state.pin = None;
         view_data.table_state.filter_active = false;
@@ -6255,8 +6294,16 @@ mod tests {
             &tx,
             KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
         );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT),
+        );
         assert!(view_data.table_state.pin.is_some());
         assert!(view_data.table_state.filter_active);
+        assert!(view_data.table_state.filter_inverted);
 
         handle_key_event(
             &mut state,
@@ -6268,6 +6315,7 @@ mod tests {
         assert!(view_data.table_state.hidden_columns.contains(&2));
         assert!(view_data.table_state.pin.is_none());
         assert!(!view_data.table_state.filter_active);
+        assert!(!view_data.table_state.filter_inverted);
     }
 
     #[test]
@@ -6304,8 +6352,125 @@ mod tests {
             &tx,
             KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
         );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT),
+        );
         assert!(view_data.table_state.pin.is_none());
         assert!(!view_data.table_state.filter_active);
+        assert!(!view_data.table_state.filter_inverted);
+    }
+
+    #[test]
+    fn inverted_null_pin_filter_keeps_only_non_null_rows() {
+        let snapshot = TabSnapshot::ServiceLog(vec![
+            TestRuntime::sample_service_log(1, 2, None, "no vendor"),
+            TestRuntime::sample_service_log(2, 2, Some(7), "vendor one"),
+            TestRuntime::sample_service_log(3, 2, Some(8), "vendor two"),
+        ]);
+
+        let normal = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                tab: Some(TabKind::ServiceLog),
+                pin: Some(super::PinnedCell {
+                    column: 3,
+                    value: super::TableCell::OptionalInteger(None),
+                }),
+                filter_active: true,
+                ..super::TableUiState::default()
+            },
+        );
+        assert_eq!(normal.row_count(), 1);
+        assert!(matches!(
+            normal.rows[0].cells.get(3),
+            Some(super::TableCell::OptionalInteger(None))
+        ));
+
+        let inverted = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                tab: Some(TabKind::ServiceLog),
+                pin: Some(super::PinnedCell {
+                    column: 3,
+                    value: super::TableCell::OptionalInteger(None),
+                }),
+                filter_active: true,
+                filter_inverted: true,
+                ..super::TableUiState::default()
+            },
+        );
+        assert_eq!(inverted.row_count(), 2);
+        assert!(inverted.rows.iter().all(|row| matches!(
+            row.cells.get(3),
+            Some(super::TableCell::OptionalInteger(Some(_)))
+        )));
+    }
+
+    #[test]
+    fn text_pin_matching_is_case_insensitive() {
+        let snapshot = TabSnapshot::Projects(vec![
+            TestRuntime::sample_project(1, "Plan"),
+            TestRuntime::sample_project(2, "PLAN"),
+            TestRuntime::sample_project(3, "Done"),
+        ]);
+
+        let preview_state = super::TableUiState {
+            tab: Some(TabKind::Projects),
+            pin: Some(super::PinnedCell {
+                column: 1,
+                value: super::TableCell::Text("plan".to_owned()),
+            }),
+            ..super::TableUiState::default()
+        };
+
+        let preview = super::projection_for_snapshot(&snapshot, &preview_state);
+        let preview_matches = preview
+            .rows
+            .iter()
+            .filter(|row| super::row_matches_pin(row, &preview_state))
+            .count();
+        assert_eq!(preview_matches, 2);
+
+        let active = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                filter_active: true,
+                ..preview_state
+            },
+        );
+        assert_eq!(active.row_count(), 2);
+        assert!(active.rows.iter().all(|row| {
+            matches!(
+                row.cells.get(1),
+                Some(super::TableCell::Text(value))
+                    if value.eq_ignore_ascii_case("plan")
+            )
+        }));
+    }
+
+    #[test]
+    fn toggle_pin_with_different_text_case_clears_existing_pin() {
+        let mut view_data = view_data_for_test();
+        view_data.active_tab_snapshot = Some(TabSnapshot::Projects(vec![
+            TestRuntime::sample_project(1, "Plan"),
+            TestRuntime::sample_project(2, "PLAN"),
+        ]));
+        view_data.table_state.tab = Some(TabKind::Projects);
+        view_data.table_state.selected_col = 1;
+        view_data.table_state.selected_row = 0;
+
+        let first = super::toggle_pin(&mut view_data);
+        assert!(matches!(first, super::TableStatus::PinOn(_)));
+        assert!(view_data.table_state.pin.is_some());
+
+        view_data.table_state.selected_row = 1;
+        let second = super::toggle_pin(&mut view_data);
+        assert_eq!(second, super::TableStatus::PinOff);
+        assert!(view_data.table_state.pin.is_none());
     }
 
     #[test]
@@ -8038,6 +8203,61 @@ mod tests {
 
         assert!(title.contains("projects r:2"));
         assert!(title.contains("del 1"));
+    }
+
+    #[test]
+    fn active_tab_filter_marker_matches_preview_active_and_inverted_states() {
+        let mut table_state = super::TableUiState::default();
+        assert_eq!(super::active_tab_filter_marker(&table_state), None);
+
+        table_state.pin = Some(super::PinnedCell {
+            column: 1,
+            value: super::TableCell::Text("plan".to_owned()),
+        });
+        assert_eq!(
+            super::active_tab_filter_marker(&table_state),
+            Some(super::FILTER_MARK_PREVIEW)
+        );
+
+        table_state.filter_active = true;
+        assert_eq!(
+            super::active_tab_filter_marker(&table_state),
+            Some(super::FILTER_MARK_ACTIVE)
+        );
+
+        table_state.filter_inverted = true;
+        assert_eq!(
+            super::active_tab_filter_marker(&table_state),
+            Some(super::FILTER_MARK_ACTIVE_INVERTED)
+        );
+
+        table_state.filter_active = false;
+        assert_eq!(
+            super::active_tab_filter_marker(&table_state),
+            Some(super::FILTER_MARK_PREVIEW_INVERTED)
+        );
+    }
+
+    #[test]
+    fn tab_title_only_shows_filter_marker_on_active_tab() {
+        let state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let table_state = super::TableUiState {
+            pin: Some(super::PinnedCell {
+                column: 1,
+                value: super::TableCell::Text("plan".to_owned()),
+            }),
+            ..super::TableUiState::default()
+        };
+
+        let active = super::tab_title(TabKind::Projects, &state, &table_state);
+        assert!(active.contains(super::FILTER_MARK_PREVIEW));
+
+        let inactive = super::tab_title(TabKind::Quotes, &state, &table_state);
+        assert!(!inactive.contains(super::FILTER_MARK_PREVIEW));
+        assert!(inactive.contains(TabKind::Quotes.label()));
     }
 
     #[test]
