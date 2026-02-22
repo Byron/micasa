@@ -5,8 +5,9 @@ use anyhow::Result;
 use micasa_app::{DocumentEntityKind, IncidentSeverity, IncidentStatus, ProjectStatus};
 use micasa_db::{
     HouseProfileInput, LifecycleEntityRef, NewAppliance, NewDocument, NewIncident,
-    NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, Store, UpdateProject,
-    UpdateServiceLogEntry, UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
+    NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, Store,
+    UpdateAppliance, UpdateMaintenanceItem, UpdateProject, UpdateQuote, UpdateServiceLogEntry,
+    UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
 };
 use std::fs;
 use time::{Date, Month};
@@ -1580,6 +1581,199 @@ fn project_update_persists_fields() -> Result<()> {
     assert_eq!(project.title, "Updated");
     assert_eq!(project.status, ProjectStatus::Underway);
     assert_eq!(project.actual_cents, Some(90_000));
+    Ok(())
+}
+
+#[test]
+fn quote_update_persists_fields() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Quote Project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let first_vendor_id = store.create_vendor(&NewVendor {
+        name: "Acme Corp".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let replacement_vendor_id = store.create_vendor(&NewVendor {
+        name: "Acme Corp 2".to_owned(),
+        contact_name: "John Doe".to_owned(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    let quote_id = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id: first_vendor_id,
+        total_cents: 100_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: "initial".to_owned(),
+    })?;
+
+    store.update_quote(
+        quote_id,
+        &UpdateQuote {
+            project_id,
+            vendor_id: replacement_vendor_id,
+            total_cents: 200_000,
+            labor_cents: Some(120_000),
+            materials_cents: Some(60_000),
+            other_cents: Some(20_000),
+            received_date: Some(Date::from_calendar_date(2026, Month::March, 5)?),
+            notes: "updated".to_owned(),
+        },
+    )?;
+
+    let quotes = store.list_quotes(false)?;
+    let quote = quotes
+        .iter()
+        .find(|entry| entry.id == quote_id)
+        .expect("updated quote should be present");
+    assert_eq!(quote.total_cents, 200_000);
+    assert_eq!(quote.vendor_id, replacement_vendor_id);
+    assert_eq!(quote.labor_cents, Some(120_000));
+    assert_eq!(quote.materials_cents, Some(60_000));
+    assert_eq!(quote.other_cents, Some(20_000));
+    assert_eq!(
+        quote.received_date,
+        Some(Date::from_calendar_date(2026, Month::March, 5)?)
+    );
+    assert_eq!(quote.notes, "updated");
+    Ok(())
+}
+
+#[test]
+fn appliance_update_persists_fields() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Fridge".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    store.update_appliance(
+        appliance_id,
+        &UpdateAppliance {
+            name: "Fridge".to_owned(),
+            brand: "Samsung".to_owned(),
+            model_number: "RF28".to_owned(),
+            serial_number: "SN-123".to_owned(),
+            purchase_date: Some(Date::from_calendar_date(2026, Month::January, 2)?),
+            warranty_expiry: Some(Date::from_calendar_date(2028, Month::January, 2)?),
+            location: "Kitchen".to_owned(),
+            cost_cents: Some(210_000),
+            notes: "counter depth".to_owned(),
+        },
+    )?;
+
+    let appliances = store.list_appliances(false)?;
+    let appliance = appliances
+        .iter()
+        .find(|entry| entry.id == appliance_id)
+        .expect("updated appliance should be present");
+    assert_eq!(appliance.brand, "Samsung");
+    assert_eq!(appliance.model_number, "RF28");
+    assert_eq!(appliance.serial_number, "SN-123");
+    assert_eq!(appliance.location, "Kitchen");
+    assert_eq!(appliance.cost_cents, Some(210_000));
+    assert_eq!(appliance.notes, "counter depth");
+    assert_eq!(
+        appliance.purchase_date,
+        Some(Date::from_calendar_date(2026, Month::January, 2)?)
+    );
+    assert_eq!(
+        appliance.warranty_expiry,
+        Some(Date::from_calendar_date(2028, Month::January, 2)?)
+    );
+    Ok(())
+}
+
+#[test]
+fn maintenance_item_update_persists_fields() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Furnace".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Filter Change".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    store.update_maintenance_item(
+        maintenance_id,
+        &UpdateMaintenanceItem {
+            name: "HVAC Filter Change".to_owned(),
+            category_id,
+            appliance_id: Some(appliance_id),
+            last_serviced_at: Some(Date::from_calendar_date(2026, Month::February, 14)?),
+            interval_months: 3,
+            manual_url: "https://example.com/manual".to_owned(),
+            manual_text: "Steps".to_owned(),
+            notes: "quarterly".to_owned(),
+            cost_cents: Some(3_500),
+        },
+    )?;
+
+    let items = store.list_maintenance_items(false)?;
+    let item = items
+        .iter()
+        .find(|entry| entry.id == maintenance_id)
+        .expect("updated maintenance item should be present");
+    assert_eq!(item.name, "HVAC Filter Change");
+    assert_eq!(item.appliance_id, Some(appliance_id));
+    assert_eq!(item.interval_months, 3);
+    assert_eq!(
+        item.last_serviced_at,
+        Some(Date::from_calendar_date(2026, Month::February, 14)?)
+    );
+    assert_eq!(item.manual_url, "https://example.com/manual");
+    assert_eq!(item.manual_text, "Steps");
+    assert_eq!(item.notes, "quarterly");
+    assert_eq!(item.cost_cents, Some(3_500));
     Ok(())
 }
 
