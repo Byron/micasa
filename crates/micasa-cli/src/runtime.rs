@@ -1253,6 +1253,82 @@ mod tests {
     }
 
     #[test]
+    fn demo_seed_runtime_loads_non_empty_snapshots_for_all_tabs() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+        store.seed_demo_data_with_seed(42)?;
+
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+        for tab in [
+            TabKind::House,
+            TabKind::Projects,
+            TabKind::Quotes,
+            TabKind::Maintenance,
+            TabKind::ServiceLog,
+            TabKind::Incidents,
+            TabKind::Appliances,
+            TabKind::Vendors,
+            TabKind::Documents,
+            TabKind::Settings,
+        ] {
+            let snapshot = runtime
+                .load_tab_snapshot(tab, false)?
+                .expect("snapshot should exist");
+            assert!(
+                snapshot.row_count() > 0,
+                "tab {} should have demo rows",
+                tab.label()
+            );
+        }
+
+        let dashboard = runtime.load_dashboard_snapshot()?;
+        let dashboard_rows = dashboard.incidents.len()
+            + dashboard.overdue.len()
+            + dashboard.upcoming.len()
+            + dashboard.active_projects.len()
+            + dashboard.expiring_warranties.len()
+            + dashboard.recent_activity.len();
+        assert!(
+            dashboard_rows > 0,
+            "dashboard should contain demo navigation rows"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn demo_seed_runtime_varied_seeds_still_produce_rows() -> Result<()> {
+        for seed in 42..47 {
+            let store = Store::open_memory()?;
+            store.bootstrap()?;
+            store.seed_demo_data_with_seed(seed)?;
+
+            let mut runtime =
+                DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+            let mut total_rows = 0usize;
+            for tab in [
+                TabKind::House,
+                TabKind::Projects,
+                TabKind::Quotes,
+                TabKind::Maintenance,
+                TabKind::ServiceLog,
+                TabKind::Incidents,
+                TabKind::Appliances,
+                TabKind::Vendors,
+                TabKind::Documents,
+                TabKind::Settings,
+            ] {
+                let snapshot = runtime
+                    .load_tab_snapshot(tab, false)?
+                    .expect("snapshot should exist");
+                total_rows += snapshot.row_count();
+            }
+
+            assert!(total_rows > 0, "seed {} should populate tab rows", seed);
+        }
+        Ok(())
+    }
+
+    #[test]
     fn lifecycle_and_undo_redo_round_trip() -> Result<()> {
         let store = Store::open_memory()?;
         store.bootstrap()?;

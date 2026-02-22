@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 412 tests
+- Rust tests currently (`crates/`): 414 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -36,7 +36,7 @@
 | `internal/app/dashboard_load_test.go` | 9 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/dashboard_rows_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/dashboard_test.go` | 33 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/demo_data_test.go` | 3 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/demo_data_test.go` | 3 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Runtime demo-seed parity is covered with tests for non-empty snapshots across all data tabs, non-empty dashboard nav sections after seeding, and varied-seed runs that still produce populated rows. |
 | `internal/app/detail_test.go` | 57 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/filter_test.go` | 39 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/form_save_test.go` | 18 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -156,6 +156,7 @@
 - Reclassified `internal/app/overlay_status_test.go` to `ported` based on existing Rust overlay suppression tests (`status_text_hides_primary_hints_while_overlays_are_active` and `status_text_shows_primary_hints_when_no_overlays_are_active`).
 - Reclassified `internal/app/testmain_test.go` and `internal/data/testmain_test.go` to `n/a` because both are Go `TestMain` seed/bootstrap harnesses with no direct Rust test-runner analogue.
 - Reclassified `internal/app/form_select_test.go` to `n/a` because it validates `huh` library internals; Rust’s typed form-choice flow does not use `huh`, and numeric choice behavior is already covered in end-to-end form shortcut tests.
+- Added runtime demo-seed parity tests in `crates/micasa-cli/src/runtime.rs` (all-tab non-empty snapshots, dashboard population, and varied-seed population checks) and reclassified `internal/app/demo_data_test.go` to `ported`.
 
 ## Known Gaps
 
