@@ -10742,6 +10742,70 @@ mod tests {
     }
 
     #[test]
+    fn header_label_multi_sort_keeps_short_title_visible() {
+        let projection = super::TableProjection {
+            title: "quotes",
+            columns: vec!["id", "project", "vendor", "total"],
+            rows: vec![super::TableRowProjection {
+                cells: vec![
+                    super::TableCell::Integer(1),
+                    super::TableCell::Integer(2),
+                    super::TableCell::Integer(7),
+                    super::TableCell::Money(Some(11_000)),
+                ],
+                deleted: false,
+                tag: None,
+            }],
+        };
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Quotes),
+            sorts: vec![
+                super::SortSpec {
+                    column: 0,
+                    direction: SortDirection::Asc,
+                },
+                super::SortSpec {
+                    column: 1,
+                    direction: SortDirection::Desc,
+                },
+            ],
+            ..super::TableUiState::default()
+        };
+
+        let label = header_label_for_column(&projection, &table_state, 0);
+        assert!(label.starts_with("id"));
+        assert!(label.contains("▲1"));
+    }
+
+    #[test]
+    fn header_label_single_sort_indicator_keeps_leading_space() {
+        let projection = super::TableProjection {
+            title: "quotes",
+            columns: vec!["id", "project"],
+            rows: vec![super::TableRowProjection {
+                cells: vec![super::TableCell::Integer(1), super::TableCell::Integer(2)],
+                deleted: false,
+                tag: None,
+            }],
+        };
+        let mut table_state = super::TableUiState {
+            tab: Some(TabKind::Quotes),
+            sorts: vec![super::SortSpec {
+                column: 0,
+                direction: SortDirection::Asc,
+            }],
+            ..super::TableUiState::default()
+        };
+
+        let asc = header_label_for_column(&projection, &table_state, 0);
+        assert!(asc.ends_with(" ↑"));
+
+        table_state.sorts[0].direction = SortDirection::Desc;
+        let desc = header_label_for_column(&projection, &table_state, 0);
+        assert!(desc.ends_with(" ↓"));
+    }
+
+    #[test]
     fn header_label_multi_sort_preserves_money_suffix() {
         let projection = super::TableProjection {
             title: "quotes",
@@ -10884,6 +10948,32 @@ mod tests {
         };
         let empty = header_label_for_column(&empty_projection, &table_state, 1);
         assert!(!empty.contains(super::LINK_ARROW));
+    }
+
+    #[test]
+    fn link_target_id_only_accepts_positive_integer_variants() {
+        assert_eq!(
+            super::link_target_id(&super::TableCell::Integer(5)),
+            Some(5)
+        );
+        assert_eq!(super::link_target_id(&super::TableCell::Integer(0)), None);
+        assert_eq!(super::link_target_id(&super::TableCell::Integer(-1)), None);
+        assert_eq!(
+            super::link_target_id(&super::TableCell::OptionalInteger(Some(7))),
+            Some(7)
+        );
+        assert_eq!(
+            super::link_target_id(&super::TableCell::OptionalInteger(Some(0))),
+            None
+        );
+        assert_eq!(
+            super::link_target_id(&super::TableCell::OptionalInteger(None)),
+            None
+        );
+        assert_eq!(
+            super::link_target_id(&super::TableCell::Text("5".to_owned())),
+            None
+        );
     }
 
     #[test]
