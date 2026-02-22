@@ -51,7 +51,7 @@
 | `internal/app/mag_test.go` | 14 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/notes_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Note-preview parity is covered for enter-to-open, empty-note no-op with status, any-key dismiss/key swallowing, overlay text rendering/close hint, and contextual `enter` hint semantics on notes columns. |
-| `internal/app/overlay_status_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/overlay_status_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Overlay status suppression parity is covered for dashboard/help/note-preview/column-finder/date-picker overlays plus no-overlay fallback, including hidden vs visible primary keybinding hints. |
 | `internal/app/rows_test.go` | 24 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/sort_test.go` | 16 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/testmain_test.go` | 1 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -153,6 +153,7 @@
 - Added note-preview parity regressions from `internal/app/notes_test.go` in `crates/micasa-tui/src/lib.rs`: empty-note enter behavior (`no note to preview`), overlay key swallowing (dismiss before nav movement), and contextual `enter` hint rendering as `preview` on notes columns.
 - Added note-preview overlay text rendering parity (`press any key to close` and note body/title content) and reclassified `internal/app/notes_test.go` to `ported`.
 - Added handler-dispatch parity tests in `crates/micasa-tui/src/lib.rs` for full tab→form kind mapping and edit-key routing (`e`) across form-capable vs unsupported tabs, and reclassified `internal/app/handlers_test.go` to `ported`.
+- Reclassified `internal/app/overlay_status_test.go` to `ported` based on existing Rust overlay suppression tests (`status_text_hides_primary_hints_while_overlays_are_active` and `status_text_shows_primary_hints_when_no_overlays_are_active`).
 
 ## Known Gaps
 
