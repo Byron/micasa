@@ -3139,6 +3139,15 @@ fn apply_table_command(view_data: &mut ViewData, command: TableCommand) -> Table
             if !view_data.table_state.hidden_columns.insert(selected) {
                 return TableEvent::Status(TableStatus::ColumnAlreadyHidden(label));
             }
+            if view_data
+                .table_state
+                .pin
+                .as_ref()
+                .is_some_and(|pin| pin.column == selected)
+            {
+                view_data.table_state.pin = None;
+                view_data.table_state.filter_active = false;
+            }
             clamp_table_cursor(view_data);
             TableEvent::Status(TableStatus::ColumnHidden(label))
         }
@@ -4867,13 +4876,14 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 mod tests {
     use super::{
         AppRuntime, ChatHistoryMessage, ChatHistoryRole, ChatPipelineResult, DashboardIncident,
-        DashboardSnapshot, LifecycleAction, TabSnapshot, TableCommand, TableEvent, TableStatus,
-        ViewData, apply_mag_mode_to_text, apply_table_command, coerce_visible_column,
-        contextual_enter_hint, first_visible_column, handle_date_picker_key, handle_key_event,
-        header_label_for_column, help_overlay_text, highlight_column_label, last_visible_column,
-        refresh_view_data, render_chat_overlay_text, render_dashboard_overlay_text,
-        render_dashboard_text, shift_date_by_months, shift_date_by_years, status_text,
-        table_command_for_key, visible_column_indices,
+        DashboardMaintenance, DashboardProject, DashboardSnapshot, LifecycleAction, TabSnapshot,
+        TableCommand, TableEvent, TableStatus, ViewData, apply_mag_mode_to_text,
+        apply_table_command, coerce_visible_column, contextual_enter_hint, dashboard_nav_entries,
+        first_visible_column, handle_date_picker_key, handle_key_event, header_label_for_column,
+        help_overlay_text, highlight_column_label, last_visible_column, refresh_view_data,
+        render_chat_overlay_text, render_dashboard_overlay_text, render_dashboard_text,
+        shift_date_by_months, shift_date_by_years, status_text, table_command_for_key, table_title,
+        visible_column_indices,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
@@ -5936,6 +5946,169 @@ mod tests {
             &mut view_data,
             &tx,
             KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.table_state.pin.is_none());
+        assert!(!view_data.table_state.filter_active);
+    }
+
+    #[test]
+    fn filter_preview_and_active_modes_match_pinned_rows() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_col, 2);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+        assert!(view_data.table_state.pin.is_some());
+        assert!(!view_data.table_state.filter_active);
+
+        let preview_projection = super::active_projection(&view_data).expect("preview projection");
+        assert_eq!(preview_projection.row_count(), 3, "preview keeps all rows");
+        let preview_matches = preview_projection
+            .rows
+            .iter()
+            .filter(|row| super::row_matches_pin(row, &view_data.table_state))
+            .count();
+        assert_eq!(preview_matches, 2, "two quote rows share vendor id 7");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.table_state.filter_active);
+
+        let active_projection = super::active_projection(&view_data).expect("active projection");
+        assert_eq!(
+            active_projection.row_count(),
+            2,
+            "active filter hides non-matches"
+        );
+        assert!(
+            active_projection
+                .rows
+                .iter()
+                .all(|row| super::row_matches_pin(row, &view_data.table_state))
+        );
+    }
+
+    #[test]
+    fn hide_pinned_column_clears_pin_and_deactivates_filter() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_col, 2);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.table_state.pin.is_some());
+        assert!(view_data.table_state.filter_active);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+        );
+        assert!(view_data.table_state.hidden_columns.contains(&2));
+        assert!(view_data.table_state.pin.is_none());
+        assert!(!view_data.table_state.filter_active);
+    }
+
+    #[test]
+    fn pin_and_filter_keys_are_blocked_while_dashboard_overlay_is_visible() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.dashboard.visible);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
         );
         assert!(view_data.table_state.pin.is_none());
         assert!(!view_data.table_state.filter_active);
@@ -7174,6 +7347,326 @@ mod tests {
             &tx,
             KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
         ));
+    }
+
+    #[test]
+    fn dashboard_overlay_navigation_clamps_and_enter_on_header_is_noop() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.dashboard.visible);
+        assert_eq!(view_data.dashboard.cursor, 0);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.dashboard.cursor, 0, "k at top should clamp");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(
+            view_data.dashboard.visible,
+            "enter on section header should be a no-op"
+        );
+        assert_eq!(state.active_tab, TabKind::Projects);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
+        );
+        assert_eq!(view_data.dashboard.cursor, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.dashboard.cursor, 1, "j at bottom should clamp");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.dashboard.cursor, 0);
+    }
+
+    #[test]
+    fn dashboard_overlay_blocks_table_and_mode_keys() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        let start_tab = state.active_tab;
+        let start_col = view_data.table_state.selected_col;
+        let start_sorts = view_data.table_state.sorts.len();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.dashboard.visible);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+
+        assert_eq!(view_data.table_state.selected_col, start_col);
+        assert_eq!(view_data.table_state.sorts.len(), start_sorts);
+        assert_eq!(state.mode, AppMode::Nav);
+        assert_eq!(state.active_tab, start_tab);
+        assert!(view_data.dashboard.visible);
+    }
+
+    #[test]
+    fn dashboard_overlay_tab_switch_keys_close_overlay_and_change_tab() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        let start = state.active_tab;
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+        );
+        assert!(!view_data.dashboard.visible);
+        assert_ne!(state.active_tab, start);
+        assert_eq!(runtime.show_dashboard_pref, Some(false));
+
+        let before_prev = state.active_tab;
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('D'), KeyModifiers::SHIFT),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE),
+        );
+        assert!(!view_data.dashboard.visible);
+        assert_ne!(state.active_tab, before_prev);
+        assert_eq!(runtime.show_dashboard_pref, Some(false));
+    }
+
+    #[test]
+    fn dashboard_nav_entries_order_incidents_before_overdue_and_projects() {
+        let snapshot = DashboardSnapshot {
+            incidents: vec![DashboardIncident {
+                incident_id: micasa_app::IncidentId::new(7),
+                title: "Burst pipe".to_owned(),
+                severity: IncidentSeverity::Urgent,
+                days_open: 3,
+            }],
+            overdue: vec![DashboardMaintenance {
+                maintenance_item_id: micasa_app::MaintenanceItemId::new(11),
+                item_name: "HVAC filter".to_owned(),
+                days_from_now: -5,
+            }],
+            active_projects: vec![DashboardProject {
+                project_id: micasa_app::ProjectId::new(21),
+                title: "Deck".to_owned(),
+                status: ProjectStatus::Underway,
+            }],
+            ..DashboardSnapshot::default()
+        };
+        let entries = dashboard_nav_entries(&snapshot);
+        let labels = entries
+            .iter()
+            .map(|(_, label)| label.as_str())
+            .collect::<Vec<_>>();
+
+        let incidents_idx = labels
+            .iter()
+            .position(|label| *label == "incidents (1)")
+            .expect("incidents section");
+        let overdue_idx = labels
+            .iter()
+            .position(|label| *label == "overdue (1)")
+            .expect("overdue section");
+        let projects_idx = labels
+            .iter()
+            .position(|label| *label == "active projects (1)")
+            .expect("projects section");
+        assert!(incidents_idx < overdue_idx);
+        assert!(overdue_idx < projects_idx);
+    }
+
+    #[test]
+    fn table_title_includes_sort_pin_filter_and_hidden_flags() {
+        let state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        view_data.table_state.sorts = vec![super::SortSpec {
+            column: 0,
+            direction: SortDirection::Asc,
+        }];
+        view_data.table_state.pin = Some(super::PinnedCell {
+            column: 1,
+            value: super::TableCell::Text("abcdefghijklmnop".to_owned()),
+        });
+        view_data.table_state.filter_active = true;
+        view_data.table_state.hide_settled_projects = true;
+        view_data.table_state.hidden_columns.insert(3);
+
+        let projection = super::active_projection(&view_data).expect("projection");
+        let title = table_title(&projection, &view_data.table_state);
+        assert!(title.contains("projects"));
+        assert!(title.contains("sort id:asc#1"));
+        assert!(title.contains("pin title=abcdefghijkl…"));
+        assert!(title.contains("filter on"));
+        assert!(title.contains("settled hidden"));
+        assert!(title.contains("hidden 1"));
+    }
+
+    #[test]
+    fn header_label_single_sort_uses_arrow_and_link_indicator() {
+        let state = AppState {
+            active_tab: TabKind::Quotes,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        view_data.table_state.sorts = vec![super::SortSpec {
+            column: 1,
+            direction: SortDirection::Asc,
+        }];
+        let projection = super::active_projection(&view_data).expect("projection");
+        let asc = header_label_for_column(&projection, &view_data.table_state, 1);
+        assert!(asc.contains(super::LINK_ARROW));
+        assert!(asc.contains("↑"));
+
+        view_data.table_state.sorts[0].direction = SortDirection::Desc;
+        let desc = header_label_for_column(&projection, &view_data.table_state, 1);
+        assert!(desc.contains("↓"));
+    }
+
+    #[test]
+    fn status_text_width_stays_stable_when_filter_state_changes() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        let before = status_text(&state, &view_data);
+        let before_len = before.len();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+        );
+        state.status_line = None;
+        let after = status_text(&state, &view_data);
+        assert_eq!(before_len, after.len());
     }
 
     #[test]

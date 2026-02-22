@@ -8,12 +8,12 @@
 - Primary migration issue: [#2](https://github.com/Byron/micasa/issues/2)
 - Step 8 parity execution: [#5](https://github.com/Byron/micasa/issues/5)
 - Strict matrix + remaining ports pass: [#6](https://github.com/Byron/micasa/issues/6)
-- Snapshot date: 2026-02-20
+- Snapshot date: 2026-02-22
 
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 228 tests
+- Rust tests currently (`crates/`): 238 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -101,6 +101,9 @@
 - Added overlay status-bar suppression parity tests from `internal/app/overlay_status_test.go` and column visibility helper parity tests from `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs`.
 - Added calendar/month-end date navigation parity tests from `internal/app/calendar_test.go` in `crates/micasa-tui/src/lib.rs`.
 - Added help overlay content parity tests from `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs`.
+- Added filter parity tests from `internal/app/filter_test.go` for preview vs active filtering, dashboard-blocked pin/filter actions, and hide-column clearing pinned/filter state in `crates/micasa-tui/src/lib.rs`.
+- Added dashboard parity tests from `internal/app/dashboard_test.go` for overlay navigation clamping, header-enter no-op, table-key blocking, tab-switch close behavior, and section ordering in `crates/micasa-tui/src/lib.rs`.
+- Added view parity tests from `internal/app/view_test.go` for status width stability, header sort/link indicators, and table title sort/pin/filter/hidden flag rendering in `crates/micasa-tui/src/lib.rs`.
 
 ## Known Gaps
 
