@@ -256,10 +256,6 @@ These have been repeatedly requested. Violating them wastes the user's time.
   `nix shell 'nixpkgs#vhs'`, `nix run '.#capture-screenshots'`,
   `nix search 'nixpkgs' vhs`. Bare `nixpkgs#foo` silently drops everything
   after the `#`.
-- **Run `/pre-commit-check` before every commit**: This skill runs the
-  full verification bag (`go mod tidy`, pre-commit, deadcode, go vet,
-  osv-scanner, tests). Run it proactively before `git commit`, not during
-  it. If it cannot run, stop and ask the user why before proceeding.
 - **Nix fallback priority for missing commands**: If a command is not found,
   try these in order: (1) `nix run '.#<tool>'` — preferred, runs the tool
   directly from a flake app; (2) `nix shell 'nixpkgs#<tool>' -c <command>` —
