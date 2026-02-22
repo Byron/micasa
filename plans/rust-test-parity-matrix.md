@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 293 tests
+- Rust tests currently (`crates/`): 298 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -119,6 +119,7 @@
 - Expanded TUI filter parity from Go `internal/app/filter_test.go` and `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs` with null-pin inversion behavior, case-insensitive text pin matching/toggle semantics, and tab-row filter indicator markers (`▽`, `▼`, `△`, `▲`) for preview/active/inverted state.
 - Added additional keybinding parity tests from Go `internal/app/filter_test.go` and `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs` for invert toggle round-trip without pins and full marker state transitions (`n`, `N`, `!`, `ctrl+n`).
 - Added DB query parity tests from Go `internal/data/query_test.go` in `crates/micasa-db/tests/store_tests.rs` for invalid table-name rejection and explicit read-only query rejection of `INSERT`, `DELETE`, and multi-statement SQL with actionable errors.
+- Added LLM SQL formatter parity tests from Go `internal/llm/sqlfmt_test.go` in `crates/micasa-llm/src/lib.rs` for subquery handling, nested subquery column layout, date-function formatting, already-formatted SQL stability, and aggregate-join formatting.
 
 ## Known Gaps
 

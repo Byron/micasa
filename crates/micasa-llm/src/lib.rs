@@ -1461,6 +1461,40 @@ mod tests {
     }
 
     #[test]
+    fn format_sql_subquery() {
+        let got = format_sql(
+            "SELECT name FROM projects WHERE id IN (SELECT project_id FROM quotes WHERE total_cents > 10000)",
+            0,
+        );
+        assert!(got.contains("SELECT name"));
+        assert!(got.contains("FROM projects"));
+        assert!(
+            got.contains("WHERE id IN (SELECT project_id FROM quotes WHERE total_cents > 10000)")
+        );
+    }
+
+    #[test]
+    fn format_sql_nested_subquery_keeps_column_layout() {
+        let got = format_sql(
+            "SELECT name, (SELECT COUNT(*) FROM quotes WHERE project_id = projects.id) AS quote_count FROM projects WHERE status = 'active'",
+            0,
+        );
+        assert!(got.contains("SELECT name,"));
+        assert!(got.contains("AS quote_count"));
+        assert!(got.contains("FROM projects"));
+        assert!(got.contains("WHERE status = 'active'"));
+
+        let lines = got.lines().collect::<Vec<_>>();
+        assert_eq!(
+            lines.len(),
+            4,
+            "expected SELECT, nested column, FROM, WHERE lines"
+        );
+        assert!(lines[1].starts_with("  "));
+        assert!(lines[1].contains("SELECT COUNT(*)"));
+    }
+
+    #[test]
     fn format_sql_group_by() {
         let got = format_sql(
             "SELECT status, COUNT(*) AS cnt FROM projects WHERE deleted_at IS NULL GROUP BY status HAVING cnt > 1 ORDER BY cnt DESC",
@@ -1491,6 +1525,20 @@ mod tests {
     }
 
     #[test]
+    fn format_sql_date_functions() {
+        let got = format_sql(
+            "SELECT name, date(last_serviced_at, '+' || interval_months || ' months') AS next_due FROM maintenance_items WHERE deleted_at IS NULL ORDER BY next_due",
+            0,
+        );
+        assert!(got.contains("SELECT name"));
+        assert!(
+            got.contains("date(last_serviced_at, '+' || interval_months || ' months') AS next_due")
+        );
+        assert!(got.contains("FROM maintenance_items"));
+        assert!(got.contains("ORDER BY next_due"));
+    }
+
+    #[test]
     fn format_sql_between_clause() {
         let got = format_sql(
             "SELECT name FROM appliances WHERE warranty_expiry BETWEEN date('now') AND date('now', '+90 days')",
@@ -1503,6 +1551,25 @@ mod tests {
     #[test]
     fn format_sql_empty() {
         assert_eq!(format_sql("", 0), "");
+    }
+
+    #[test]
+    fn format_sql_already_formatted_retains_structure() {
+        let input = "SELECT name\nFROM projects\nWHERE id = 1";
+        let got = format_sql(input, 0);
+        assert!(got.contains("SELECT name"));
+        assert!(got.contains("FROM projects"));
+        assert!(got.contains("WHERE id = 1"));
+    }
+
+    #[test]
+    fn format_sql_aggregate_with_join() {
+        let got = format_sql(
+            "SELECT SUM(q.total_cents) / 100.0 AS total FROM quotes q JOIN projects p ON q.project_id = p.id WHERE p.deleted_at IS NULL AND q.deleted_at IS NULL",
+            0,
+        );
+        let expected = "SELECT SUM(q.total_cents) / 100.0 AS total\nFROM quotes q\nJOIN projects p\nON q.project_id = p.id\nWHERE p.deleted_at IS NULL\n  AND q.deleted_at IS NULL";
+        assert_eq!(got, expected);
     }
 
     #[test]
