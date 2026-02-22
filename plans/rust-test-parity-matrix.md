@@ -156,3 +156,5 @@
 ## Known Gaps
 
 - Go `internal/app` renderer-heavy suites significantly outnumber current Rust TUI tests.
+- Go `internal/data/store_test.go` still has a long-tail of lifecycle/query assertions not yet translated.
+- Go `internal/config/config_test.go` remains intentionally partial because Rust `config.toml` v2 semantics replaced Go v1 compatibility behavior.
