@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 318 tests
+- Rust tests currently (`crates/`): 323 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -130,6 +130,7 @@
 - Added DB parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for soft-delete persistence across reopen, service-log update assigning vendors, and include-deleted maintenance service-log listing behavior.
 - Added incident-guard parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for incident restore blocked by deleted appliances, vendor deletion blocked by active incidents, and appliance deletion blocked by active incidents.
 - Added incident/document parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for incident restore without parent links and incident deletion while preserving attached document rows.
+- Added document-parent lifecycle parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for appliance/vendor/quote/maintenance/service-log deletion while preserving linked document rows.
 
 ## Known Gaps
 

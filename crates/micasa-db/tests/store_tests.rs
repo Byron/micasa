@@ -980,6 +980,210 @@ fn deleting_project_with_documents_is_allowed_and_preserves_document_rows() -> R
 }
 
 #[test]
+fn deleting_appliance_with_documents_is_allowed_and_preserves_document_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Garage freezer".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: "Garage".to_owned(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Manual".to_owned(),
+        file_name: "freezer-manual.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::Appliance,
+        entity_id: appliance_id.get(),
+        mime_type: "application/pdf".to_owned(),
+        data: b"manual".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_appliance(appliance_id)?;
+    let documents = store.list_documents(false)?;
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].id, document_id);
+    assert_eq!(documents[0].entity_id, appliance_id.get());
+    assert_eq!(documents[0].entity_kind, DocumentEntityKind::Appliance);
+    Ok(())
+}
+
+#[test]
+fn deleting_vendor_with_documents_is_allowed_and_preserves_document_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Local Electric".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Contract".to_owned(),
+        file_name: "contract.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::Vendor,
+        entity_id: vendor_id.get(),
+        mime_type: "application/pdf".to_owned(),
+        data: b"contract".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_vendor(vendor_id)?;
+    let documents = store.list_documents(false)?;
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].id, document_id);
+    assert_eq!(documents[0].entity_id, vendor_id.get());
+    assert_eq!(documents[0].entity_kind, DocumentEntityKind::Vendor);
+    Ok(())
+}
+
+#[test]
+fn deleting_quote_with_documents_is_allowed_and_preserves_document_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Quote parent".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Quote vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let quote_id = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 42_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Quote PDF".to_owned(),
+        file_name: "quote.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::Quote,
+        entity_id: quote_id.get(),
+        mime_type: "application/pdf".to_owned(),
+        data: b"quote".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_quote(quote_id)?;
+    let documents = store.list_documents(false)?;
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].id, document_id);
+    assert_eq!(documents[0].entity_id, quote_id.get());
+    assert_eq!(documents[0].entity_kind, DocumentEntityKind::Quote);
+    Ok(())
+}
+
+#[test]
+fn deleting_maintenance_with_documents_is_allowed_and_preserves_document_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Sump pump check".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 12,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Maintenance checklist".to_owned(),
+        file_name: "checklist.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Maintenance,
+        entity_id: maintenance_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"checklist".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_maintenance_item(maintenance_id)?;
+    let documents = store.list_documents(false)?;
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].id, document_id);
+    assert_eq!(documents[0].entity_id, maintenance_id.get());
+    assert_eq!(documents[0].entity_kind, DocumentEntityKind::Maintenance);
+    Ok(())
+}
+
+#[test]
+fn deleting_service_log_with_documents_is_allowed_and_preserves_document_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Drain line flush".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let service_log_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::May, 1)?,
+        vendor_id: None,
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Service receipt".to_owned(),
+        file_name: "receipt.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::ServiceLog,
+        entity_id: service_log_id.get(),
+        mime_type: "application/pdf".to_owned(),
+        data: b"receipt".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_service_log_entry(service_log_id)?;
+    let documents = store.list_documents(false)?;
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].id, document_id);
+    assert_eq!(documents[0].entity_id, service_log_id.get());
+    assert_eq!(documents[0].entity_kind, DocumentEntityKind::ServiceLog);
+    Ok(())
+}
+
+#[test]
 fn last_model_defaults_to_none_and_round_trips() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
