@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 335 tests
+- Rust tests currently (`crates/`): 338 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -133,6 +133,7 @@
 - Added document-parent lifecycle parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for appliance/vendor/quote/maintenance/service-log deletion while preserving linked document rows.
 - Added additional lifecycle guard parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for project deletion blocked by active quotes (including partial quote deletion), quote restore blocked by deleted vendors, maintenance deletion blocked by active service logs, and service-log restore guard behavior with/without vendor links.
 - Added typed-list filtering parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for maintenance-by-appliance (including include-deleted behavior), quote list/count by vendor/project, and service-log list/count by vendor semantics.
+- Added chain and document-metadata parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for multi-entity delete/restore ordering (appliance→maintenance→service log and vendor→project→quote) and document metadata/list behavior with BLOB exclusion in list queries.
 
 ## Known Gaps
 

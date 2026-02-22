@@ -3248,3 +3248,220 @@ fn list_and_count_service_logs_by_vendor_via_typed_list_filtering() -> Result<()
     assert_eq!(filtered[0].maintenance_item_id, maintenance_id);
     Ok(())
 }
+
+#[test]
+fn three_level_delete_restore_chain_enforces_parent_order() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "HVAC Unit".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Filter change".to_owned(),
+        category_id,
+        appliance_id: Some(appliance_id),
+        last_serviced_at: None,
+        interval_months: 3,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let service_log_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::July, 4)?,
+        vendor_id: None,
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    let delete_error = store
+        .soft_delete_maintenance_item(maintenance_id)
+        .expect_err("active service log should block maintenance delete");
+    assert!(delete_error.to_string().contains("service log"));
+
+    store.soft_delete_service_log_entry(service_log_id)?;
+    store.soft_delete_maintenance_item(maintenance_id)?;
+    store.soft_delete_appliance(appliance_id)?;
+
+    let restore_log_error = store
+        .restore_service_log_entry(service_log_id)
+        .expect_err("service log restore should fail while maintenance is deleted");
+    assert!(
+        restore_log_error
+            .to_string()
+            .contains("maintenance item is deleted")
+    );
+    let restore_maintenance_error = store
+        .restore_maintenance_item(maintenance_id)
+        .expect_err("maintenance restore should fail while appliance is deleted");
+    assert!(
+        restore_maintenance_error
+            .to_string()
+            .contains("appliance is deleted")
+    );
+
+    store.restore_appliance(appliance_id)?;
+    store.restore_maintenance_item(maintenance_id)?;
+    store.restore_service_log_entry(service_log_id)?;
+
+    let maintenance_items = store.list_maintenance_items(false)?;
+    assert_eq!(maintenance_items.len(), 1);
+    assert_eq!(maintenance_items[0].appliance_id, Some(appliance_id));
+    let logs = store.list_service_log_for_maintenance(maintenance_id, false)?;
+    assert_eq!(logs.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn vendor_quote_project_delete_restore_chain_enforces_parent_order() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Chain Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Chain Project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let quote_id = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 1_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    let vendor_delete_error = store
+        .soft_delete_vendor(vendor_id)
+        .expect_err("active quote should block vendor delete");
+    assert!(vendor_delete_error.to_string().contains("active quote"));
+    let project_delete_error = store
+        .soft_delete_project(project_id)
+        .expect_err("active quote should block project delete");
+    assert!(
+        project_delete_error
+            .to_string()
+            .contains("quote(s) reference it")
+    );
+
+    store.soft_delete_quote(quote_id)?;
+    store.soft_delete_project(project_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+
+    let restore_quote_error = store
+        .restore_quote(quote_id)
+        .expect_err("quote restore should fail while project is deleted");
+    assert!(
+        restore_quote_error
+            .to_string()
+            .contains("project is deleted")
+    );
+
+    store.restore_project(project_id)?;
+    let restore_quote_vendor_error = store
+        .restore_quote(quote_id)
+        .expect_err("quote restore should fail while vendor is deleted");
+    assert!(
+        restore_quote_vendor_error
+            .to_string()
+            .contains("vendor is deleted")
+    );
+
+    store.restore_vendor(vendor_id)?;
+    store.restore_quote(quote_id)?;
+
+    assert_eq!(store.list_vendors(false)?.len(), 1);
+    assert_eq!(store.list_quotes(false)?.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn document_metadata_round_trip_and_list_excludes_blob_data() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Doc project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+
+    let content = b"fake pdf content".to_vec();
+    let document_id = store.insert_document(&NewDocument {
+        title: "Quote PDF".to_owned(),
+        file_name: "invoice.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::Project,
+        entity_id: project_id.get(),
+        mime_type: "application/pdf".to_owned(),
+        data: content.clone(),
+        notes: "first draft".to_owned(),
+    })?;
+    let docs = store.list_documents(false)?;
+    assert_eq!(docs.len(), 1);
+    assert_eq!(docs[0].id, document_id);
+    assert_eq!(docs[0].title, "Quote PDF");
+    assert_eq!(docs[0].file_name, "invoice.pdf");
+    assert_eq!(docs[0].size_bytes, i64::try_from(content.len())?);
+    assert_eq!(docs[0].mime_type, "application/pdf");
+    assert_eq!(docs[0].entity_kind, DocumentEntityKind::Project);
+    assert_eq!(docs[0].entity_id, project_id.get());
+    assert_eq!(docs[0].notes, "first draft");
+    assert!(
+        docs[0].data.is_empty(),
+        "list_documents should not hydrate BLOB content"
+    );
+
+    let full = store.get_document(document_id)?;
+    assert_eq!(full.data, content);
+    assert_eq!(full.size_bytes, i64::try_from(content.len())?);
+
+    // Simulate document soft-delete/restore to verify list filtering parity.
+    store.raw_connection().execute(
+        "UPDATE documents SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?",
+        rusqlite::params![document_id.get()],
+    )?;
+    assert!(store.list_documents(false)?.is_empty());
+    let include_deleted = store.list_documents(true)?;
+    assert_eq!(include_deleted.len(), 1);
+    assert!(include_deleted[0].deleted_at.is_some());
+
+    store.raw_connection().execute(
+        "UPDATE documents SET deleted_at = NULL, updated_at = datetime('now') WHERE id = ?",
+        rusqlite::params![document_id.get()],
+    )?;
+    assert_eq!(store.list_documents(false)?.len(), 1);
+    Ok(())
+}
