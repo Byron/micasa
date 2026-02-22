@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 276 tests
+- Rust tests currently (`crates/`): 279 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -113,6 +113,7 @@
 - Added DB settings/chat parity tests from Go `internal/data/settings_test.go` and `internal/data/settings_integration_test.go` in `crates/micasa-db/tests/store_tests.rs` for model/dashboard default+round-trip behavior, persistence across reopen, and non-consecutive chat history duplicates.
 - Added DB parity regressions in `crates/micasa-db/tests/store_tests.rs` for project-spend stability across project edits, dashboard preference persistence across reopen, and empty chat-history defaults.
 - Added DB dashboard parity tests from Go `internal/data/dashboard_test.go` in `crates/micasa-db/tests/store_tests.rs` for expiring-warranty lookback/lookahead windows, recent service-log ordering with limits, and open-incident severity ordering while excluding soft-deleted rows.
+- Added DB cache-eviction parity regressions in `crates/micasa-db/tests/store_tests.rs` for nonexistent-dir handling, subdirectory skip behavior, and overflow-protected TTL validation.
 
 ## Known Gaps
 

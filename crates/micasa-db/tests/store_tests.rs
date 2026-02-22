@@ -1068,6 +1068,37 @@ fn cache_eviction_handles_empty_dir() -> Result<()> {
 }
 
 #[test]
+fn cache_eviction_returns_zero_for_nonexistent_dir() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let missing_dir = temp_dir.path().join("missing-cache-dir");
+
+    let removed = evict_stale_cache(&missing_dir, 1)?;
+    assert_eq!(removed, 0);
+    Ok(())
+}
+
+#[test]
+fn cache_eviction_skips_subdirectories() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let nested_dir = temp_dir.path().join("nested");
+    fs::create_dir(&nested_dir)?;
+
+    let removed = evict_stale_cache(temp_dir.path(), 1)?;
+    assert_eq!(removed, 0);
+    assert!(nested_dir.exists());
+    Ok(())
+}
+
+#[test]
+fn cache_eviction_rejects_overflowing_ttl_days() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let error =
+        evict_stale_cache(temp_dir.path(), i64::MAX).expect_err("overflowing ttl_days should fail");
+    assert!(error.to_string().contains("ttl_days is too large"));
+    Ok(())
+}
+
+#[test]
 fn vendor_crud_and_delete_guards() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
