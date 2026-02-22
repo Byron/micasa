@@ -316,6 +316,16 @@ impl TableCell {
         }
     }
 
+    fn is_null(&self) -> bool {
+        matches!(
+            self,
+            Self::OptionalInteger(None)
+                | Self::Decimal(None)
+                | Self::Date(None)
+                | Self::Money(None)
+        )
+    }
+
     fn cmp_value(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Self::Integer(left), Self::Integer(right)) => left.cmp(right),
@@ -3930,14 +3940,23 @@ fn projection_for_snapshot(snapshot: &TabSnapshot, table_state: &TableUiState) -
                 }
                 let left_value = left.cells.get(sort.column);
                 let right_value = right.cells.get(sort.column);
+                let left_null = left_value.map(TableCell::is_null).unwrap_or(true);
+                let right_null = right_value.map(TableCell::is_null).unwrap_or(true);
+                if left_null && right_null {
+                    continue;
+                }
+                if left_null {
+                    return Ordering::Greater;
+                }
+                if right_null {
+                    return Ordering::Less;
+                }
                 let order = match (left_value, right_value) {
                     (Some(left), Some(right)) => match sort.direction {
                         SortDirection::Asc => left.cmp_value(right),
                         SortDirection::Desc => left.cmp_value(right).reverse(),
                     },
-                    (None, Some(_)) => Ordering::Greater,
-                    (Some(_), None) => Ordering::Less,
-                    (None, None) => Ordering::Equal,
+                    _ => Ordering::Equal,
                 };
                 if order != Ordering::Equal {
                     return order;
@@ -6184,6 +6203,84 @@ mod tests {
         );
         assert_eq!(view_data.table_state.sorts.len(), 1);
         assert_eq!(view_data.table_state.sorts[0].column, 1);
+    }
+
+    #[test]
+    fn sort_keeps_null_money_last_regardless_of_direction() {
+        let low = TestRuntime::sample_project(2, "Low");
+        let high = TestRuntime::sample_project(3, "High");
+        let mut missing = TestRuntime::sample_project(1, "Missing");
+        missing.budget_cents = None;
+
+        let snapshot = TabSnapshot::Projects(vec![high, missing, low]);
+
+        let asc_projection = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                sorts: vec![super::SortSpec {
+                    column: 3,
+                    direction: SortDirection::Asc,
+                }],
+                ..super::TableUiState::default()
+            },
+        );
+        let asc_ids = asc_projection
+            .rows
+            .iter()
+            .filter_map(|row| match row.cells.first() {
+                Some(super::TableCell::Integer(id)) => Some(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(asc_ids, vec![2, 3, 1]);
+
+        let desc_projection = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                sorts: vec![super::SortSpec {
+                    column: 3,
+                    direction: SortDirection::Desc,
+                }],
+                ..super::TableUiState::default()
+            },
+        );
+        let desc_ids = desc_projection
+            .rows
+            .iter()
+            .filter_map(|row| match row.cells.first() {
+                Some(super::TableCell::Integer(id)) => Some(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(desc_ids, vec![3, 2, 1]);
+    }
+
+    #[test]
+    fn sort_uses_id_tiebreaker_for_equal_sort_values() {
+        let p3 = TestRuntime::sample_project(3, "Same");
+        let p1 = TestRuntime::sample_project(1, "Same");
+        let p2 = TestRuntime::sample_project(2, "Same");
+
+        let snapshot = TabSnapshot::Projects(vec![p3, p1, p2]);
+        let projection = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                sorts: vec![super::SortSpec {
+                    column: 1,
+                    direction: SortDirection::Desc,
+                }],
+                ..super::TableUiState::default()
+            },
+        );
+        let ids = projection
+            .rows
+            .iter()
+            .filter_map(|row| match row.cells.first() {
+                Some(super::TableCell::Integer(id)) => Some(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec![1, 2, 3]);
     }
 
     #[test]
