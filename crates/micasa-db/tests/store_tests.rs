@@ -1520,6 +1520,164 @@ fn quote_restore_requires_live_parents() -> Result<()> {
 }
 
 #[test]
+fn delete_project_blocked_by_active_quotes() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Project with quotes".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Quote Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let quote_id = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 33_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    let delete_error = store
+        .soft_delete_project(project_id)
+        .expect_err("project with active quotes should be protected");
+    assert!(
+        delete_error
+            .to_string()
+            .contains("quote(s) reference it; delete quotes first")
+    );
+
+    store.soft_delete_quote(quote_id)?;
+    store.soft_delete_project(project_id)?;
+    Ok(())
+}
+
+#[test]
+fn partial_quote_deletion_still_blocks_project_delete() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Project with multiple quotes".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Shared Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    let first_quote = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 20_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: "first".to_owned(),
+    })?;
+    let second_quote = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 25_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: "second".to_owned(),
+    })?;
+
+    store.soft_delete_quote(first_quote)?;
+    let delete_error = store
+        .soft_delete_project(project_id)
+        .expect_err("remaining active quote should still block project deletion");
+    assert!(
+        delete_error
+            .to_string()
+            .contains("quote(s) reference it; delete quotes first")
+    );
+
+    store.soft_delete_quote(second_quote)?;
+    store.soft_delete_project(project_id)?;
+    Ok(())
+}
+
+#[test]
+fn restore_quote_blocked_by_deleted_vendor() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Quote parent project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Doomed Quote Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let quote_id = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 44_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_quote(quote_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+
+    let restore_error = store
+        .restore_quote(quote_id)
+        .expect_err("quote restore should fail while vendor is deleted");
+    assert!(restore_error.to_string().contains("vendor is deleted"));
+
+    store.restore_vendor(vendor_id)?;
+    store.restore_quote(quote_id)?;
+    Ok(())
+}
+
+#[test]
 fn typed_lifecycle_api_soft_delete_and_restore_project() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -2608,5 +2766,138 @@ fn list_service_log_for_maintenance_respects_include_deleted_flag() -> Result<()
     store.restore_service_log_entry(first_entry_id)?;
     let restored = store.list_service_log_for_maintenance(maintenance_id, false)?;
     assert_eq!(restored.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn delete_maintenance_blocked_by_active_service_logs() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Drain check".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 4,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let service_log_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::June, 7)?,
+        vendor_id: None,
+        cost_cents: None,
+        notes: "completed".to_owned(),
+    })?;
+
+    let delete_error = store
+        .soft_delete_maintenance_item(maintenance_id)
+        .expect_err("maintenance with active service log should be protected");
+    assert!(
+        delete_error
+            .to_string()
+            .contains("service log(s) -- delete service logs first")
+    );
+
+    store.soft_delete_service_log_entry(service_log_id)?;
+    store.soft_delete_maintenance_item(maintenance_id)?;
+    Ok(())
+}
+
+#[test]
+fn restore_service_log_blocked_by_deleted_maintenance() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Sump check".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let service_log_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::June, 1)?,
+        vendor_id: None,
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_service_log_entry(service_log_id)?;
+    store.soft_delete_maintenance_item(maintenance_id)?;
+
+    let restore_error = store
+        .restore_service_log_entry(service_log_id)
+        .expect_err("restoring service log should fail while maintenance is deleted");
+    assert!(
+        restore_error
+            .to_string()
+            .contains("maintenance item is deleted")
+    );
+
+    store.restore_maintenance_item(maintenance_id)?;
+    store.restore_service_log_entry(service_log_id)?;
+    Ok(())
+}
+
+#[test]
+fn restore_service_log_allowed_without_vendor_link() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Old Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Filter swap".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 3,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let service_log_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::June, 3)?,
+        vendor_id: Some(vendor_id),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    store.update_service_log_entry(
+        service_log_id,
+        &UpdateServiceLogEntry {
+            maintenance_item_id: maintenance_id,
+            serviced_at: Date::from_calendar_date(2026, Month::June, 3)?,
+            vendor_id: None,
+            cost_cents: None,
+            notes: "vendor removed".to_owned(),
+        },
+    )?;
+    store.soft_delete_service_log_entry(service_log_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+
+    store.restore_service_log_entry(service_log_id)?;
+    let restored = store.get_service_log_entry(service_log_id)?;
+    assert_eq!(restored.vendor_id, None);
     Ok(())
 }
