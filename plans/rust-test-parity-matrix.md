@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 433 tests
+- Rust tests currently (`crates/`): 438 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -49,7 +49,7 @@
 | `internal/app/lazy_reload_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go stale-flag reload internals (`Tab.Stale`, lazy clear-on-visit) were replaced by Rust’s direct snapshot refresh flow on state transitions/navigation, so there is no one-to-one stale-flag mechanism to port. |
 | `internal/app/lighter_forms_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/mag_test.go` | 14 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers ctrl+o toggling, rounded order-of-magnitude formatters, prose money/bare-number mag transforms, typed table-cell mag gating, and table-money mag rendering without unit (header carries `$`); remaining Go pin-translation helper semantics are not 1:1 in Rust’s typed pin/table model. |
-| `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers Enter-on-plain-cell edit guidance, help overlay toggle/key-absorption, nav-mode Esc status clearing when no detail is open, nav `d` row movement without delete dispatch, and edit-mode `i` no-op behavior; remaining mode/layout edge cases are still open. |
 | `internal/app/notes_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Note-preview parity is covered for enter-to-open, empty-note no-op with status, any-key dismiss/key swallowing, overlay text rendering/close hint, and contextual `enter` hint semantics on notes columns. |
 | `internal/app/overlay_status_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Overlay status suppression parity is covered for dashboard/help/note-preview/column-finder/date-picker overlays plus no-overlay fallback, including hidden vs visible primary keybinding hints. |
 | `internal/app/rows_test.go` | 24 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -162,6 +162,7 @@
 - Added mag-mode parity tests and behavior fixes in `crates/micasa-tui/src/lib.rs` for rounded magnitude formatting (`log10` rounding semantics), prose token transforms (money and bare numbers in one pass), and typed table-cell gating so text/date columns are no longer transformed under mag mode.
 - Added compact-surface parity in `crates/micasa-tui/src/lib.rs`: typed status/severity compact labels, compact interval rendering (`1y 6m`), compact money cell formatting with header-level `$` annotation, and projection-level regression coverage that exercises these behaviors through the table pipeline.
 - Added additional calendar/date-picker parity in `crates/micasa-tui/src/lib.rs` for arrow-key equivalence to `hjkl`, day-step month-boundary crossing, leap-day year-step clamping via keyboard, empty-date picker defaulting to today, and overlay target/hint rendering assertions.
+- Added mode-transition parity tests from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs` for Enter-on-plain-cell guidance, help-overlay mode-key absorption and round-trip toggle, nav Esc status clear behavior, nav `d` row movement without delete dispatch, and edit-mode `i` no-op semantics.
 
 ## Known Gaps
 

@@ -9533,6 +9533,141 @@ mod tests {
     }
 
     #[test]
+    fn enter_on_plain_column_shows_press_i_to_edit_guidance() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        view_data.table_state.selected_col = 1;
+        assert!(matches!(
+            super::selected_cell(&view_data),
+            Some((1, super::TableCell::Text(_)))
+        ));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert_eq!(state.mode, AppMode::Nav);
+        assert_eq!(state.status_line.as_deref(), Some("press i to edit"));
+    }
+
+    #[test]
+    fn help_overlay_toggle_round_trip_and_absorbs_mode_keys() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+        );
+        assert!(view_data.help_visible);
+        assert_eq!(state.status_line.as_deref(), Some("help open"));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+        assert!(view_data.help_visible);
+        assert_eq!(state.mode, AppMode::Nav);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+        );
+        assert!(!view_data.help_visible);
+        assert_eq!(state.status_line.as_deref(), Some("help hidden"));
+    }
+
+    #[test]
+    fn esc_in_nav_mode_clears_status_when_no_detail_is_open() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            status_line: Some("temp status".to_owned()),
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(state.status_line, None);
+    }
+
+    #[test]
+    fn nav_mode_d_key_moves_rows_without_dispatching_delete() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(runtime.lifecycle_count, 0);
+        assert_eq!(state.mode, AppMode::Nav);
+    }
+
+    #[test]
+    fn i_key_is_noop_while_already_in_edit_mode() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.mode, AppMode::Edit);
+    }
+
+    #[test]
     fn dashboard_overlay_navigation_clamps_and_enter_on_header_is_noop() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
