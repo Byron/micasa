@@ -606,6 +606,186 @@ fn total_project_spend_unaffected_by_project_edits() -> Result<()> {
 }
 
 #[test]
+fn list_expiring_warranties_respects_lookback_and_lookahead_windows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    store.create_appliance(&NewAppliance {
+        name: "Soon".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: Some(Date::from_calendar_date(2026, Month::March, 10)?),
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    store.create_appliance(&NewAppliance {
+        name: "Recent".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: Some(Date::from_calendar_date(2026, Month::January, 29)?),
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    store.create_appliance(&NewAppliance {
+        name: "Old".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: Some(Date::from_calendar_date(2025, Month::December, 1)?),
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    store.create_appliance(&NewAppliance {
+        name: "Far".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: Some(Date::from_calendar_date(2026, Month::June, 8)?),
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    store.create_appliance(&NewAppliance {
+        name: "None".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    let expiring = store.list_expiring_warranties(
+        Date::from_calendar_date(2026, Month::February, 8)?,
+        30,
+        90,
+    )?;
+    let names = expiring
+        .into_iter()
+        .map(|entry| entry.name)
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["Recent", "Soon"]);
+    Ok(())
+}
+
+#[test]
+fn list_recent_service_logs_returns_latest_first_with_limit() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_item_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "SL Item".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    let months = [
+        Month::January,
+        Month::February,
+        Month::March,
+        Month::April,
+        Month::May,
+        Month::June,
+        Month::July,
+        Month::August,
+        Month::September,
+        Month::October,
+    ];
+    for month in months {
+        store.create_service_log_entry(&NewServiceLogEntry {
+            maintenance_item_id,
+            serviced_at: Date::from_calendar_date(2025, month, 1)?,
+            vendor_id: None,
+            cost_cents: None,
+            notes: String::new(),
+        })?;
+    }
+
+    let logs = store.list_recent_service_logs(5)?;
+    assert_eq!(logs.len(), 5);
+    assert_eq!(
+        logs[0].serviced_at,
+        Date::from_calendar_date(2025, Month::October, 1)?
+    );
+    assert_eq!(
+        logs[4].serviced_at,
+        Date::from_calendar_date(2025, Month::June, 1)?
+    );
+    Ok(())
+}
+
+#[test]
+fn list_open_incidents_prioritizes_severity_and_skips_deleted() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let urgent_id = store.create_incident(&NewIncident {
+        title: "Urgent leak".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Urgent,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 5)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+    let whenever_id = store.create_incident(&NewIncident {
+        title: "Cracked tile".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::InProgress,
+        severity: IncidentSeverity::Whenever,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 6)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+    let deleted_id = store.create_incident(&NewIncident {
+        title: "Fixed fence".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Soon,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 7)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+    store.soft_delete_incident(deleted_id)?;
+
+    let incidents = store.list_open_incidents()?;
+    assert_eq!(incidents.len(), 2);
+    assert_eq!(incidents[0].id, urgent_id);
+    assert_eq!(incidents[1].id, whenever_id);
+    Ok(())
+}
+
+#[test]
 fn document_blob_round_trip_and_cache_extract() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
