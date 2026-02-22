@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 217 tests
+- Rust tests currently (`crates/`): 228 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -98,6 +98,9 @@
 - Added additional query-surface parity tests from Go `internal/data/query_test.go` in `crates/micasa-db/tests/store_tests.rs`.
 - Added deterministic fake-data generator and full parity tests from Go `internal/fake/fake_test.go` in `crates/micasa-testkit/src/lib.rs`.
 - Added typed validation/value-format module and full Go parity tests from `internal/data/validation_test.go` in `crates/micasa-db/src/validation.rs`.
+- Added overlay status-bar suppression parity tests from `internal/app/overlay_status_test.go` and column visibility helper parity tests from `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs`.
+- Added calendar/month-end date navigation parity tests from `internal/app/calendar_test.go` in `crates/micasa-tui/src/lib.rs`.
+- Added help overlay content parity tests from `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs`.
 
 ## Known Gaps
 

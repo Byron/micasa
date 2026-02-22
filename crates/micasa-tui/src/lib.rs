@@ -4529,6 +4529,11 @@ fn clamp_table_cursor(view_data: &mut ViewData) {
 }
 
 fn status_text(state: &AppState, view_data: &ViewData) -> String {
+    // Match legacy UX: overlays suppress the main status/keybinding bar.
+    if status_hidden_by_overlay(view_data) {
+        return String::new();
+    }
+
     let mode = match state.mode {
         AppMode::Nav => "NAV",
         AppMode::Edit => "EDIT",
@@ -4551,6 +4556,14 @@ fn status_text(state: &AppState, view_data: &ViewData) -> String {
         Some(status) => format!("{mode} | {status} | {default}"),
         None => format!("{mode} | {default}"),
     }
+}
+
+fn status_hidden_by_overlay(view_data: &ViewData) -> bool {
+    view_data.dashboard.visible
+        || view_data.help_visible
+        || view_data.note_preview.visible
+        || view_data.column_finder.visible
+        || view_data.date_picker.visible
 }
 
 fn contextual_enter_hint(view_data: &ViewData) -> &'static str {
@@ -4855,10 +4868,12 @@ mod tests {
     use super::{
         AppRuntime, ChatHistoryMessage, ChatHistoryRole, ChatPipelineResult, DashboardIncident,
         DashboardSnapshot, LifecycleAction, TabSnapshot, TableCommand, TableEvent, TableStatus,
-        ViewData, apply_mag_mode_to_text, apply_table_command, contextual_enter_hint,
-        handle_key_event, header_label_for_column, highlight_column_label, refresh_view_data,
-        render_chat_overlay_text, render_dashboard_overlay_text, render_dashboard_text,
-        table_command_for_key,
+        ViewData, apply_mag_mode_to_text, apply_table_command, coerce_visible_column,
+        contextual_enter_hint, first_visible_column, handle_date_picker_key, handle_key_event,
+        header_label_for_column, help_overlay_text, highlight_column_label, last_visible_column,
+        refresh_view_data, render_chat_overlay_text, render_dashboard_overlay_text,
+        render_dashboard_text, shift_date_by_months, shift_date_by_years, status_text,
+        table_command_for_key, visible_column_indices,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
@@ -4866,6 +4881,7 @@ mod tests {
         IncidentSeverity, Project, ProjectStatus, ProjectTypeId, SettingKey, SettingValue,
         SortDirection, TabKind,
     };
+    use std::collections::BTreeSet;
     use std::sync::mpsc;
     use time::{Date, Month, OffsetDateTime};
 
@@ -5238,6 +5254,14 @@ mod tests {
         ViewData::default()
     }
 
+    fn projection_for_visibility_test() -> super::TableProjection {
+        super::TableProjection {
+            title: "projects",
+            columns: vec!["id", "title", "status", "notes"],
+            rows: vec![],
+        }
+    }
+
     fn internal_tx() -> mpsc::Sender<super::InternalEvent> {
         let (tx, _rx) = mpsc::channel();
         tx
@@ -5599,6 +5623,58 @@ mod tests {
         assert_eq!(
             state.status_line.as_deref(),
             Some("date picked 2026-12-13; open full form to persist")
+        );
+    }
+
+    #[test]
+    fn shift_date_by_months_clamps_from_jan_31_non_leap_year() {
+        let date = Date::from_calendar_date(2025, Month::January, 31).expect("valid date");
+        let shifted = shift_date_by_months(date, 1).expect("month shift should succeed");
+        assert_eq!(
+            shifted,
+            Date::from_calendar_date(2025, Month::February, 28).expect("valid date")
+        );
+    }
+
+    #[test]
+    fn shift_date_by_months_clamps_from_jan_31_leap_year() {
+        let date = Date::from_calendar_date(2024, Month::January, 31).expect("valid date");
+        let shifted = shift_date_by_months(date, 1).expect("month shift should succeed");
+        assert_eq!(
+            shifted,
+            Date::from_calendar_date(2024, Month::February, 29).expect("valid date")
+        );
+    }
+
+    #[test]
+    fn shift_date_by_years_clamps_from_feb_29_to_feb_28() {
+        let date = Date::from_calendar_date(2024, Month::February, 29).expect("valid date");
+        let shifted = shift_date_by_years(date, 1).expect("year shift should succeed");
+        assert_eq!(
+            shifted,
+            Date::from_calendar_date(2025, Month::February, 28).expect("valid date")
+        );
+    }
+
+    #[test]
+    fn date_picker_month_navigation_key_clamps_end_of_month() {
+        let mut state = AppState::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        view_data.date_picker.visible = true;
+        view_data.date_picker.selected =
+            Some(Date::from_calendar_date(2025, Month::January, 31).expect("valid date"));
+
+        handle_date_picker_key(
+            &mut state,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('L'), KeyModifiers::SHIFT),
+        );
+
+        assert_eq!(
+            view_data.date_picker.selected,
+            Some(Date::from_calendar_date(2025, Month::February, 28).expect("valid date"))
         );
     }
 
@@ -6999,6 +7075,81 @@ mod tests {
     }
 
     #[test]
+    fn status_text_hides_primary_hints_while_overlays_are_active() {
+        let state = AppState::default();
+        let mut view_data = view_data_for_test();
+
+        view_data.dashboard.visible = true;
+        let dashboard_status = status_text(&state, &view_data);
+        assert!(!dashboard_status.contains("NAV"));
+        assert!(!dashboard_status.contains("sort"));
+        assert!(!dashboard_status.contains("chat"));
+
+        view_data.dashboard.visible = false;
+        view_data.help_visible = true;
+        let help_status = status_text(&state, &view_data);
+        assert!(!help_status.contains("NAV"));
+        assert!(!help_status.contains("sort"));
+        assert!(!help_status.contains("chat"));
+
+        view_data.help_visible = false;
+        view_data.note_preview.visible = true;
+        view_data.note_preview.text = "test note".to_owned();
+        let note_status = status_text(&state, &view_data);
+        assert!(!note_status.contains("NAV"));
+        assert!(!note_status.contains("sort"));
+        assert!(!note_status.contains("chat"));
+
+        view_data.note_preview.visible = false;
+        view_data.column_finder.visible = true;
+        let finder_status = status_text(&state, &view_data);
+        assert!(!finder_status.contains("NAV"));
+        assert!(!finder_status.contains("sort"));
+        assert!(!finder_status.contains("chat"));
+
+        view_data.column_finder.visible = false;
+        view_data.date_picker.visible = true;
+        let date_status = status_text(&state, &view_data);
+        assert!(!date_status.contains("NAV"));
+        assert!(!date_status.contains("sort"));
+        assert!(!date_status.contains("chat"));
+    }
+
+    #[test]
+    fn status_text_shows_primary_hints_when_no_overlays_are_active() {
+        let state = AppState::default();
+        let view_data = view_data_for_test();
+
+        let status = status_text(&state, &view_data);
+        assert!(status.contains("NAV"));
+        assert!(status.contains("s/S/t"));
+        assert!(status.contains("chat"));
+    }
+
+    #[test]
+    fn visible_column_helpers_skip_hidden_columns() {
+        let projection = projection_for_visibility_test();
+        let hidden = BTreeSet::from([1_usize, 3_usize]);
+
+        assert_eq!(visible_column_indices(&projection, &hidden), vec![0, 2]);
+        assert_eq!(first_visible_column(&projection, &hidden), Some(0));
+        assert_eq!(last_visible_column(&projection, &hidden), Some(2));
+    }
+
+    #[test]
+    fn coerce_visible_column_skips_hidden_and_clamps_edges() {
+        let projection = projection_for_visibility_test();
+        let hidden = BTreeSet::from([1_usize]);
+
+        assert_eq!(coerce_visible_column(&projection, &hidden, 0), Some(0));
+        assert_eq!(coerce_visible_column(&projection, &hidden, 1), Some(2));
+        assert_eq!(coerce_visible_column(&projection, &hidden, 9), Some(3));
+
+        let all_hidden = BTreeSet::from([0_usize, 1_usize, 2_usize, 3_usize]);
+        assert_eq!(coerce_visible_column(&projection, &all_hidden, 0), None);
+    }
+
+    #[test]
     fn quit_keys_exit() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
@@ -7118,6 +7269,30 @@ mod tests {
         assert!(rendered.contains("  sql: SELECT title"));
         assert!(rendered.contains("  sql: FROM projects"));
         assert!(rendered.contains("> /sql"));
+    }
+
+    #[test]
+    fn help_overlay_text_includes_global_section_and_cancel_shortcut() {
+        let help = help_overlay_text();
+        assert!(help.contains("global:"));
+        assert!(help.contains("ctrl+q quit"));
+        assert!(help.contains("ctrl+c cancel llm"));
+    }
+
+    #[test]
+    fn help_overlay_text_includes_settled_toggle_and_half_page_shortcuts() {
+        let help = help_overlay_text();
+        assert!(help.contains("s/S sort"));
+        assert!(help.contains("t settled"));
+        assert!(help.contains("ctrl+d/u"));
+        assert!(help.contains("pgup/pgdn"));
+    }
+
+    #[test]
+    fn help_overlay_text_includes_form_field_navigation_shortcuts() {
+        let help = help_overlay_text();
+        assert!(help.contains("form: tab/shift+tab field"));
+        assert!(help.contains("ctrl+s or enter submit"));
     }
 
     #[test]
