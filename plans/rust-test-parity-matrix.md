@@ -54,7 +54,7 @@
 | `internal/app/overlay_status_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Overlay status suppression parity is covered for dashboard/help/note-preview/column-finder/date-picker overlays plus no-overlay fallback, including hidden vs visible primary keybinding hints. |
 | `internal/app/rows_test.go` | 24 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/sort_test.go` | 16 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/testmain_test.go` | 1 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/testmain_test.go` | 1 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go `TestMain` seed/env harness is package-level test bootstrap plumbing; Rust tests use explicit fixture builders/seeds directly and do not require a `TestMain` equivalent. |
 | `internal/app/undo_test.go` | 15 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/vendor_test.go` | 13 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/view_test.go` | 72 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -69,7 +69,7 @@
 | `internal/data/sqlite/ddlmod_test.go` | 9 | `crates/micasa-db/src/lib.rs` | n/a | Go GORM sqlite dialector internals removed in Rust; behavior covered via rusqlite integration tests. |
 | `internal/data/sqlite/sqlite_test.go` | 11 | `crates/micasa-db/src/lib.rs` | n/a | Go GORM sqlite dialector internals removed in Rust; behavior covered via rusqlite integration tests. |
 | `internal/data/store_test.go` | 90 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
-| `internal/data/testmain_test.go` | 1 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
+| `internal/data/testmain_test.go` | 1 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | n/a | Go `TestMain` seed/env harness is package-level test bootstrap plumbing; Rust DB tests set deterministic seeds within fixtures and do not require a `TestMain` equivalent. |
 | `internal/data/validate_path_test.go` | 4 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Path-validation parity is covered with table-driven valid/invalid cases (URI/file/query/empty/edge forms), URL-like rejection checks, and `Store::open` URI rejection tests. |
 | `internal/data/validation_test.go` | 36 | `crates/micasa-db/src/validation.rs` | ported | Full money/date/interval parser+formatter suite ported with overflow and month-end clamping regressions. |
 | `internal/data/vendor_upsert_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | n/a | Go name-based vendor upsert path was removed in Rust typed-ID forms/runtime; quote/service-log flows require `VendorId`, and vendor mutation semantics are covered by typed CRUD/update tests. |
@@ -154,6 +154,7 @@
 - Added note-preview overlay text rendering parity (`press any key to close` and note body/title content) and reclassified `internal/app/notes_test.go` to `ported`.
 - Added handler-dispatch parity tests in `crates/micasa-tui/src/lib.rs` for full tab→form kind mapping and edit-key routing (`e`) across form-capable vs unsupported tabs, and reclassified `internal/app/handlers_test.go` to `ported`.
 - Reclassified `internal/app/overlay_status_test.go` to `ported` based on existing Rust overlay suppression tests (`status_text_hides_primary_hints_while_overlays_are_active` and `status_text_shows_primary_hints_when_no_overlays_are_active`).
+- Reclassified `internal/app/testmain_test.go` and `internal/data/testmain_test.go` to `n/a` because both are Go `TestMain` seed/bootstrap harnesses with no direct Rust test-runner analogue.
 
 ## Known Gaps
 
