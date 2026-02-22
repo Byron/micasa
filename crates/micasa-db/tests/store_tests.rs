@@ -205,6 +205,18 @@ fn table_columns_include_primary_key_metadata() -> Result<()> {
 }
 
 #[test]
+fn table_columns_invalid_name_is_rejected_with_actionable_message() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let error = store
+        .table_columns("'; DROP TABLE projects; --")
+        .expect_err("invalid identifier should fail");
+    assert!(error.to_string().contains("invalid table name"));
+    Ok(())
+}
+
+#[test]
 fn read_only_query_rejects_attach_and_pragma_keywords() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -227,6 +239,54 @@ fn read_only_query_rejects_attach_and_pragma_keywords() -> Result<()> {
         pragma_error
             .to_string()
             .contains("disallowed keyword: PRAGMA")
+    );
+    Ok(())
+}
+
+#[test]
+fn read_only_query_rejects_insert_statement() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let error = store
+        .read_only_query("INSERT INTO projects (title) VALUES ('hack')")
+        .expect_err("insert should be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("only SELECT queries are allowed")
+    );
+    Ok(())
+}
+
+#[test]
+fn read_only_query_rejects_delete_statement() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let error = store
+        .read_only_query("DELETE FROM projects WHERE id = 1")
+        .expect_err("delete should be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("only SELECT queries are allowed")
+    );
+    Ok(())
+}
+
+#[test]
+fn read_only_query_rejects_multi_statement_queries() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let error = store
+        .read_only_query("SELECT * FROM projects; DROP TABLE projects")
+        .expect_err("multiple statements should be rejected");
+    assert!(
+        error
+            .to_string()
+            .contains("multiple statements are not allowed")
     );
     Ok(())
 }
