@@ -560,6 +560,17 @@ pub struct NewDocument {
     pub notes: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpdateDocument {
+    pub title: String,
+    pub file_name: String,
+    pub entity_kind: DocumentEntityKind,
+    pub entity_id: i64,
+    pub mime_type: String,
+    pub data: Option<Vec<u8>>,
+    pub notes: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleEntityRef {
     Project(ProjectId),
@@ -569,6 +580,7 @@ pub enum LifecycleEntityRef {
     ServiceLogEntry(ServiceLogEntryId),
     Vendor(VendorId),
     Incident(IncidentId),
+    Document(DocumentId),
 }
 
 impl LifecycleEntityRef {
@@ -581,6 +593,7 @@ impl LifecycleEntityRef {
             Self::ServiceLogEntry(_) => EntityKind::ServiceLogEntry,
             Self::Vendor(_) => EntityKind::Vendor,
             Self::Incident(_) => EntityKind::Incident,
+            Self::Document(_) => EntityKind::Document,
         }
     }
 
@@ -593,6 +606,7 @@ impl LifecycleEntityRef {
             Self::ServiceLogEntry(id) => id.get(),
             Self::Vendor(id) => id.get(),
             Self::Incident(id) => id.get(),
+            Self::Document(id) => id.get(),
         }
     }
 }
@@ -669,6 +683,7 @@ enum EntityKind {
     ServiceLogEntry,
     Vendor,
     Incident,
+    Document,
 }
 
 impl EntityKind {
@@ -681,6 +696,7 @@ impl EntityKind {
             Self::ServiceLogEntry => "service_log_entries",
             Self::Vendor => "vendors",
             Self::Incident => "incidents",
+            Self::Document => "documents",
         }
     }
 
@@ -693,6 +709,7 @@ impl EntityKind {
             Self::ServiceLogEntry => "service_log",
             Self::Vendor => "vendor",
             Self::Incident => "incident",
+            Self::Document => "document",
         }
     }
 }
@@ -722,6 +739,21 @@ impl ParentKind {
             Self::Appliance => "appliance",
             Self::MaintenanceItem => "maintenance item",
         }
+    }
+}
+
+const fn document_target_table_and_label(
+    kind: DocumentEntityKind,
+) -> Option<(&'static str, &'static str)> {
+    match kind {
+        DocumentEntityKind::None => None,
+        DocumentEntityKind::Project => Some(("projects", "project")),
+        DocumentEntityKind::Quote => Some(("quotes", "quote")),
+        DocumentEntityKind::Maintenance => Some(("maintenance_items", "maintenance item")),
+        DocumentEntityKind::Appliance => Some(("appliances", "appliance")),
+        DocumentEntityKind::ServiceLog => Some(("service_log_entries", "service log")),
+        DocumentEntityKind::Vendor => Some(("vendors", "vendor")),
+        DocumentEntityKind::Incident => Some(("incidents", "incident")),
     }
 }
 
@@ -2645,6 +2677,96 @@ impl Store {
             .with_context(|| format!("load document {}", document_id.get()))
     }
 
+    pub fn update_document(&self, document_id: DocumentId, update: &UpdateDocument) -> Result<()> {
+        let now = now_rfc3339()?;
+        let rows_affected = if let Some(data) = &update.data {
+            let size = i64::try_from(data.len()).context("document size overflow")?;
+            if size > self.max_document_size {
+                bail!(
+                    "document is {} bytes but max allowed is {}; shrink the file and retry",
+                    size,
+                    self.max_document_size
+                );
+            }
+            let checksum = checksum_sha256(data);
+            self.conn
+                .execute(
+                    "
+                    UPDATE documents
+                    SET
+                      title = ?,
+                      file_name = ?,
+                      entity_kind = ?,
+                      entity_id = ?,
+                      mime_type = ?,
+                      size_bytes = ?,
+                      sha256 = ?,
+                      data = ?,
+                      notes = ?,
+                      updated_at = ?
+                    WHERE id = ? AND deleted_at IS NULL
+                    ",
+                    params![
+                        update.title,
+                        update.file_name,
+                        update.entity_kind.as_str(),
+                        update.entity_id,
+                        update.mime_type,
+                        size,
+                        checksum,
+                        data,
+                        update.notes,
+                        now,
+                        document_id.get(),
+                    ],
+                )
+                .context("update document with replacement data")?
+        } else {
+            self.conn
+                .execute(
+                    "
+                    UPDATE documents
+                    SET
+                      title = ?,
+                      file_name = ?,
+                      entity_kind = ?,
+                      entity_id = ?,
+                      mime_type = ?,
+                      notes = ?,
+                      updated_at = ?
+                    WHERE id = ? AND deleted_at IS NULL
+                    ",
+                    params![
+                        update.title,
+                        update.file_name,
+                        update.entity_kind.as_str(),
+                        update.entity_id,
+                        update.mime_type,
+                        update.notes,
+                        now,
+                        document_id.get(),
+                    ],
+                )
+                .context("update document metadata")?
+        };
+
+        if rows_affected == 0 {
+            bail!(
+                "document {} not found or deleted -- choose an existing document and retry",
+                document_id.get()
+            );
+        }
+        Ok(())
+    }
+
+    pub fn soft_delete_document(&self, document_id: DocumentId) -> Result<()> {
+        self.soft_delete(LifecycleEntityRef::Document(document_id))
+    }
+
+    pub fn restore_document(&self, document_id: DocumentId) -> Result<()> {
+        self.restore(LifecycleEntityRef::Document(document_id))
+    }
+
     pub fn extract_document(&self, document_id: DocumentId) -> Result<PathBuf> {
         let row = self
             .conn
@@ -2981,7 +3103,8 @@ impl Store {
             }
             LifecycleEntityRef::Quote(_)
             | LifecycleEntityRef::ServiceLogEntry(_)
-            | LifecycleEntityRef::Incident(_) => {}
+            | LifecycleEntityRef::Incident(_)
+            | LifecycleEntityRef::Document(_) => {}
         }
         Ok(())
     }
@@ -3047,6 +3170,46 @@ impl Store {
                 }
                 if let Some(vendor_id) = vendor_id {
                     self.require_parent_alive(ParentEntityRef::Vendor(VendorId::new(vendor_id)))?;
+                }
+            }
+            LifecycleEntityRef::Document(document_id) => {
+                let (kind_raw, entity_id): (String, i64) = self
+                    .conn
+                    .query_row(
+                        "SELECT entity_kind, entity_id FROM documents WHERE id = ?",
+                        params![document_id.get()],
+                        |row| Ok((row.get(0)?, row.get(1)?)),
+                    )
+                    .with_context(|| format!("load document {}", document_id.get()))?;
+                let entity_kind = DocumentEntityKind::parse(&kind_raw).ok_or_else(|| {
+                    anyhow!(
+                        "document {} has unknown entity kind `{kind_raw}` -- fix the row and retry",
+                        document_id.get()
+                    )
+                })?;
+                if let Some((target_table, target_label)) =
+                    document_target_table_and_label(entity_kind)
+                {
+                    let deleted: Option<bool> = self
+                        .conn
+                        .query_row(
+                            &format!(
+                                "SELECT deleted_at IS NOT NULL FROM {} WHERE id = ?",
+                                target_table
+                            ),
+                            params![entity_id],
+                            |row| row.get(0),
+                        )
+                        .optional()
+                        .with_context(|| {
+                            format!(
+                                "load document target {} {} for restore guard",
+                                target_label, entity_id
+                            )
+                        })?;
+                    if matches!(deleted, Some(true)) {
+                        bail!("{target_label} is deleted -- restore it first");
+                    }
                 }
             }
             LifecycleEntityRef::Project(_)

@@ -6,8 +6,8 @@ use micasa_app::{DocumentEntityKind, IncidentSeverity, IncidentStatus, ProjectSt
 use micasa_db::{
     HouseProfileInput, LifecycleEntityRef, NewAppliance, NewDocument, NewIncident,
     NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, Store,
-    UpdateAppliance, UpdateMaintenanceItem, UpdateProject, UpdateQuote, UpdateServiceLogEntry,
-    UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
+    UpdateAppliance, UpdateDocument, UpdateMaintenanceItem, UpdateProject, UpdateQuote,
+    UpdateServiceLogEntry, UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
 };
 use std::fs;
 use time::{Date, Month};
@@ -3463,5 +3463,167 @@ fn document_metadata_round_trip_and_list_excludes_blob_data() -> Result<()> {
         rusqlite::params![document_id.get()],
     )?;
     assert_eq!(store.list_documents(false)?.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn document_soft_delete_restore_round_trip() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Contract".to_owned(),
+        file_name: "contract.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::None,
+        entity_id: 0,
+        mime_type: "application/pdf".to_owned(),
+        data: b"contract".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_document(document_id)?;
+    assert!(store.list_documents(false)?.is_empty());
+    let deleted = store.list_documents(true)?;
+    assert_eq!(deleted.len(), 1);
+    assert_eq!(deleted[0].id, document_id);
+    assert!(deleted[0].deleted_at.is_some());
+
+    store.restore_document(document_id)?;
+    let restored = store.list_documents(false)?;
+    assert_eq!(restored.len(), 1);
+    assert_eq!(restored[0].id, document_id);
+    Ok(())
+}
+
+#[test]
+fn restore_document_blocked_by_deleted_project() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Doc Restore Project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Project Note".to_owned(),
+        file_name: "note.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Project,
+        entity_id: project_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"note".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_document(document_id)?;
+    store.soft_delete_project(project_id)?;
+
+    let restore_error = store
+        .restore_document(document_id)
+        .expect_err("restoring document should fail while project is deleted");
+    assert!(restore_error.to_string().contains("project is deleted"));
+
+    store.restore_project(project_id)?;
+    store.restore_document(document_id)?;
+    Ok(())
+}
+
+#[test]
+fn update_document_metadata_preserves_blob_and_link() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Doc update project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Invoice".to_owned(),
+        file_name: "invoice.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::Project,
+        entity_id: project_id.get(),
+        mime_type: "application/pdf".to_owned(),
+        data: b"original-data".to_vec(),
+        notes: "draft".to_owned(),
+    })?;
+    let original = store.get_document(document_id)?;
+
+    store.update_document(
+        document_id,
+        &UpdateDocument {
+            title: "Invoice Final".to_owned(),
+            file_name: "invoice.pdf".to_owned(),
+            entity_kind: DocumentEntityKind::Project,
+            entity_id: project_id.get(),
+            mime_type: "application/pdf".to_owned(),
+            data: None,
+            notes: String::new(),
+        },
+    )?;
+
+    let updated = store.get_document(document_id)?;
+    assert_eq!(updated.title, "Invoice Final");
+    assert_eq!(updated.notes, "");
+    assert_eq!(updated.entity_kind, DocumentEntityKind::Project);
+    assert_eq!(updated.entity_id, project_id.get());
+    assert_eq!(updated.data, original.data);
+    assert_eq!(updated.size_bytes, original.size_bytes);
+    assert_eq!(updated.checksum_sha256, original.checksum_sha256);
+    Ok(())
+}
+
+#[test]
+fn update_document_replaces_blob_and_cache_content() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Receipt".to_owned(),
+        file_name: "receipt.txt".to_owned(),
+        entity_kind: DocumentEntityKind::None,
+        entity_id: 0,
+        mime_type: "text/plain".to_owned(),
+        data: b"old-content".to_vec(),
+        notes: String::new(),
+    })?;
+    let old = store.get_document(document_id)?;
+
+    store.update_document(
+        document_id,
+        &UpdateDocument {
+            title: "Receipt Updated".to_owned(),
+            file_name: "receipt-v2.txt".to_owned(),
+            entity_kind: DocumentEntityKind::None,
+            entity_id: 0,
+            mime_type: "text/plain".to_owned(),
+            data: Some(b"new-content-v2".to_vec()),
+            notes: "replaced".to_owned(),
+        },
+    )?;
+
+    let updated = store.get_document(document_id)?;
+    assert_eq!(updated.title, "Receipt Updated");
+    assert_eq!(updated.file_name, "receipt-v2.txt");
+    assert_eq!(updated.notes, "replaced");
+    assert_eq!(updated.data, b"new-content-v2".to_vec());
+    assert_ne!(updated.checksum_sha256, old.checksum_sha256);
+    assert_ne!(updated.size_bytes, old.size_bytes);
+
+    let extracted_path = store.extract_document(document_id)?;
+    let extracted = fs::read(extracted_path)?;
+    assert_eq!(extracted, b"new-content-v2".to_vec());
     Ok(())
 }
