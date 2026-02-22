@@ -4996,14 +4996,14 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
 mod tests {
     use super::{
         AppRuntime, ChatHistoryMessage, ChatHistoryRole, ChatPipelineResult, DashboardIncident,
-        DashboardMaintenance, DashboardProject, DashboardSnapshot, LifecycleAction, TabSnapshot,
-        TableCommand, TableEvent, TableStatus, ViewData, apply_mag_mode_to_text,
-        apply_table_command, coerce_visible_column, contextual_enter_hint, dashboard_nav_entries,
-        first_visible_column, handle_date_picker_key, handle_key_event, header_label_for_column,
-        help_overlay_text, highlight_column_label, last_visible_column, refresh_view_data,
-        render_breadcrumb_text, render_chat_overlay_text, render_dashboard_overlay_text,
-        render_dashboard_text, render_note_preview_overlay_text, shift_date_by_months,
-        shift_date_by_years, status_text, table_command_for_key, table_title,
+        DashboardMaintenance, DashboardProject, DashboardServiceEntry, DashboardSnapshot,
+        DashboardWarranty, LifecycleAction, TabSnapshot, TableCommand, TableEvent, TableStatus,
+        ViewData, apply_mag_mode_to_text, apply_table_command, coerce_visible_column,
+        contextual_enter_hint, dashboard_nav_entries, first_visible_column, handle_date_picker_key,
+        handle_key_event, header_label_for_column, help_overlay_text, highlight_column_label,
+        last_visible_column, refresh_view_data, render_breadcrumb_text, render_chat_overlay_text,
+        render_dashboard_overlay_text, render_dashboard_text, render_note_preview_overlay_text,
+        shift_date_by_months, shift_date_by_years, status_text, table_command_for_key, table_title,
         visible_column_indices,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -9147,6 +9147,92 @@ mod tests {
             .expect("projects section");
         assert!(incidents_idx < overdue_idx);
         assert!(overdue_idx < projects_idx);
+    }
+
+    #[test]
+    fn dashboard_nav_entries_format_maintenance_and_warranty_relative_durations() {
+        let snapshot = DashboardSnapshot {
+            overdue: vec![DashboardMaintenance {
+                maintenance_item_id: micasa_app::MaintenanceItemId::new(11),
+                item_name: "HVAC filter".to_owned(),
+                days_from_now: -5,
+            }],
+            upcoming: vec![DashboardMaintenance {
+                maintenance_item_id: micasa_app::MaintenanceItemId::new(12),
+                item_name: "Check sump".to_owned(),
+                days_from_now: 10,
+            }],
+            expiring_warranties: vec![
+                DashboardWarranty {
+                    appliance_id: micasa_app::ApplianceId::new(31),
+                    appliance_name: "Fridge".to_owned(),
+                    days_from_now: 7,
+                },
+                DashboardWarranty {
+                    appliance_id: micasa_app::ApplianceId::new(32),
+                    appliance_name: "Oven".to_owned(),
+                    days_from_now: -3,
+                },
+            ],
+            ..DashboardSnapshot::default()
+        };
+
+        let entries = dashboard_nav_entries(&snapshot);
+        let labels = entries
+            .iter()
+            .map(|(_, label)| label.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(labels.contains(&"HVAC filter | 5d overdue"));
+        assert!(labels.contains(&"Check sump | due in 10d"));
+        assert!(labels.contains(&"Fridge | 7d left"));
+        assert!(labels.contains(&"Oven | 3d expired"));
+
+        assert!(entries.iter().any(|(entry, label)| {
+            matches!(entry, super::DashboardNavEntry::Overdue(_))
+                && label == "HVAC filter | 5d overdue"
+        }));
+        assert!(entries.iter().any(|(entry, label)| {
+            matches!(entry, super::DashboardNavEntry::Upcoming(_))
+                && label == "Check sump | due in 10d"
+        }));
+        assert!(entries.iter().any(|(entry, label)| {
+            matches!(entry, super::DashboardNavEntry::ExpiringWarranty(_))
+                && label == "Oven | 3d expired"
+        }));
+    }
+
+    #[test]
+    fn dashboard_nav_entries_include_project_status_and_recent_activity_rows() {
+        let snapshot = DashboardSnapshot {
+            active_projects: vec![DashboardProject {
+                project_id: micasa_app::ProjectId::new(21),
+                title: "Deck".to_owned(),
+                status: ProjectStatus::Underway,
+            }],
+            recent_activity: vec![DashboardServiceEntry {
+                service_log_entry_id: micasa_app::ServiceLogEntryId::new(90),
+                maintenance_item_id: micasa_app::MaintenanceItemId::new(11),
+                serviced_at: Date::from_calendar_date(2026, Month::January, 9).expect("valid date"),
+                cost_cents: Some(9_500),
+            }],
+            ..DashboardSnapshot::default()
+        };
+
+        let entries = dashboard_nav_entries(&snapshot);
+        let labels = entries
+            .iter()
+            .map(|(_, label)| label.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(labels.contains(&"Deck | underway"));
+        assert!(labels.contains(&"2026-01-09 | item 11 | $95.00"));
+    }
+
+    #[test]
+    fn dashboard_nav_entries_empty_snapshot_returns_no_rows() {
+        let entries = dashboard_nav_entries(&DashboardSnapshot::default());
+        assert!(entries.is_empty());
     }
 
     #[test]

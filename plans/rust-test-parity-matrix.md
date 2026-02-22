@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 414 tests
+- Rust tests currently (`crates/`): 420 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -33,8 +33,8 @@
 | `internal/app/chat_test.go` | 12 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/column_finder_test.go` | 27 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/compact_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/dashboard_load_test.go` | 9 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/dashboard_rows_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/dashboard_load_test.go` | 9 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Runtime parity now covers overdue/upcoming classification, active-project filtering, and warranty-window inclusion/exclusion; remaining Go-specific coverage (including insurance-renewal surface) is still open. |
+| `internal/app/dashboard_rows_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Dashboard nav row parity now covers overdue/upcoming/warranty relative-duration text, entry target kinds, project/status rows, recent-activity rows, and empty snapshots; style-specific and extra-column parity remains open. |
 | `internal/app/dashboard_test.go` | 33 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/demo_data_test.go` | 3 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Runtime demo-seed parity is covered with tests for non-empty snapshots across all data tabs, non-empty dashboard nav sections after seeding, and varied-seed runs that still produce populated rows. |
 | `internal/app/detail_test.go` | 57 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -158,6 +158,7 @@
 - Reclassified `internal/app/form_select_test.go` to `n/a` because it validates `huh` library internals; Rust’s typed form-choice flow does not use `huh`, and numeric choice behavior is already covered in end-to-end form shortcut tests.
 - Added runtime demo-seed parity tests in `crates/micasa-cli/src/runtime.rs` (all-tab non-empty snapshots, dashboard population, and varied-seed population checks) and reclassified `internal/app/demo_data_test.go` to `ported`.
 - Reclassified `internal/app/lazy_reload_test.go` to `n/a` because Go stale-flag lazy-reload internals were removed in Rust’s snapshot-refresh architecture.
+- Added dashboard parity tests in `crates/micasa-cli/src/runtime.rs` and `crates/micasa-tui/src/lib.rs` for maintenance overdue/upcoming classification, active-project filtering, warranty-window inclusion, and dashboard nav row/label formatting with typed target entry checks.
 
 ## Known Gaps
 

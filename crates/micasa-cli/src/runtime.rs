@@ -1105,7 +1105,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
     use std::time::Duration;
-    use time::{Date, Month};
+    use time::{Date, Duration as TimeDuration, Month, OffsetDateTime};
     use tiny_http::{Header, Response, Server};
 
     #[test]
@@ -1425,6 +1425,222 @@ mod tests {
         let snapshot = runtime.load_dashboard_snapshot()?;
         assert!(!snapshot.incidents.is_empty());
         assert!(!snapshot.recent_activity.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn dashboard_snapshot_classifies_maintenance_overdue_and_upcoming_windows() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let today = OffsetDateTime::now_utc().date();
+        let category_id = store.list_maintenance_categories()?[0].id;
+
+        store.create_maintenance_item(&NewMaintenanceItem {
+            name: "Overdue filter".to_owned(),
+            category_id,
+            appliance_id: None,
+            last_serviced_at: Some(today - TimeDuration::days(75)),
+            interval_months: 1,
+            manual_url: String::new(),
+            manual_text: String::new(),
+            notes: String::new(),
+            cost_cents: None,
+        })?;
+        store.create_maintenance_item(&NewMaintenanceItem {
+            name: "Upcoming filter".to_owned(),
+            category_id,
+            appliance_id: None,
+            last_serviced_at: Some(today - TimeDuration::days(20)),
+            interval_months: 1,
+            manual_url: String::new(),
+            manual_text: String::new(),
+            notes: String::new(),
+            cost_cents: None,
+        })?;
+        store.create_maintenance_item(&NewMaintenanceItem {
+            name: "Future filter".to_owned(),
+            category_id,
+            appliance_id: None,
+            last_serviced_at: Some(today),
+            interval_months: 3,
+            manual_url: String::new(),
+            manual_text: String::new(),
+            notes: String::new(),
+            cost_cents: None,
+        })?;
+
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+        let snapshot = runtime.load_dashboard_snapshot()?;
+
+        let overdue = snapshot
+            .overdue
+            .iter()
+            .find(|entry| entry.item_name == "Overdue filter")
+            .expect("overdue item should be present");
+        assert!(overdue.days_from_now < 0);
+
+        let upcoming = snapshot
+            .upcoming
+            .iter()
+            .find(|entry| entry.item_name == "Upcoming filter")
+            .expect("upcoming item should be present");
+        assert!((0..=30).contains(&upcoming.days_from_now));
+
+        assert!(
+            snapshot
+                .overdue
+                .iter()
+                .all(|entry| entry.item_name != "Future filter")
+        );
+        assert!(
+            snapshot
+                .upcoming
+                .iter()
+                .all(|entry| entry.item_name != "Future filter")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn dashboard_snapshot_filters_active_projects_to_underway_or_delayed() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+        let project_type_id = store.list_project_types()?[0].id;
+
+        store.create_project(&NewProject {
+            title: "Planned project".to_owned(),
+            project_type_id,
+            status: ProjectStatus::Planned,
+            description: String::new(),
+            start_date: None,
+            end_date: None,
+            budget_cents: None,
+            actual_cents: None,
+        })?;
+        store.create_project(&NewProject {
+            title: "Underway project".to_owned(),
+            project_type_id,
+            status: ProjectStatus::Underway,
+            description: String::new(),
+            start_date: None,
+            end_date: None,
+            budget_cents: None,
+            actual_cents: None,
+        })?;
+        store.create_project(&NewProject {
+            title: "Delayed project".to_owned(),
+            project_type_id,
+            status: ProjectStatus::Delayed,
+            description: String::new(),
+            start_date: None,
+            end_date: None,
+            budget_cents: None,
+            actual_cents: None,
+        })?;
+        store.create_project(&NewProject {
+            title: "Completed project".to_owned(),
+            project_type_id,
+            status: ProjectStatus::Completed,
+            description: String::new(),
+            start_date: None,
+            end_date: None,
+            budget_cents: None,
+            actual_cents: None,
+        })?;
+
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+        let snapshot = runtime.load_dashboard_snapshot()?;
+        let titles = snapshot
+            .active_projects
+            .iter()
+            .map(|project| project.title.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(titles.contains(&"Underway project"));
+        assert!(titles.contains(&"Delayed project"));
+        assert!(!titles.contains(&"Planned project"));
+        assert!(!titles.contains(&"Completed project"));
+        Ok(())
+    }
+
+    #[test]
+    fn dashboard_snapshot_warranty_window_includes_expired_and_soon_excludes_far_future()
+    -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+        let today = OffsetDateTime::now_utc().date();
+
+        store.create_appliance(&micasa_db::NewAppliance {
+            name: "Expired warranty".to_owned(),
+            brand: String::new(),
+            model_number: String::new(),
+            serial_number: String::new(),
+            purchase_date: None,
+            warranty_expiry: Some(today - TimeDuration::days(10)),
+            location: String::new(),
+            cost_cents: None,
+            notes: String::new(),
+        })?;
+        store.create_appliance(&micasa_db::NewAppliance {
+            name: "Soon warranty".to_owned(),
+            brand: String::new(),
+            model_number: String::new(),
+            serial_number: String::new(),
+            purchase_date: None,
+            warranty_expiry: Some(today + TimeDuration::days(25)),
+            location: String::new(),
+            cost_cents: None,
+            notes: String::new(),
+        })?;
+        store.create_appliance(&micasa_db::NewAppliance {
+            name: "Far warranty".to_owned(),
+            brand: String::new(),
+            model_number: String::new(),
+            serial_number: String::new(),
+            purchase_date: None,
+            warranty_expiry: Some(today + TimeDuration::days(130)),
+            location: String::new(),
+            cost_cents: None,
+            notes: String::new(),
+        })?;
+        store.create_appliance(&micasa_db::NewAppliance {
+            name: "No warranty".to_owned(),
+            brand: String::new(),
+            model_number: String::new(),
+            serial_number: String::new(),
+            purchase_date: None,
+            warranty_expiry: None,
+            location: String::new(),
+            cost_cents: None,
+            notes: String::new(),
+        })?;
+
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+        let snapshot = runtime.load_dashboard_snapshot()?;
+
+        let names = snapshot
+            .expiring_warranties
+            .iter()
+            .map(|entry| entry.appliance_name.as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"Expired warranty"));
+        assert!(names.contains(&"Soon warranty"));
+        assert!(!names.contains(&"Far warranty"));
+        assert!(!names.contains(&"No warranty"));
+
+        let expired = snapshot
+            .expiring_warranties
+            .iter()
+            .find(|entry| entry.appliance_name == "Expired warranty")
+            .expect("expired warranty row should exist");
+        let soon = snapshot
+            .expiring_warranties
+            .iter()
+            .find(|entry| entry.appliance_name == "Soon warranty")
+            .expect("soon warranty row should exist");
+        assert!(expired.days_from_now < 0);
+        assert!(soon.days_from_now >= 0);
         Ok(())
     }
 
