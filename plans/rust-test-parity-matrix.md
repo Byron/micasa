@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 445 tests
+- Rust tests currently (`crates/`): 449 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -30,7 +30,7 @@
 | `cmd/micasa/main_test.go` | 8 | `crates/micasa-cli/src/main.rs`, `crates/micasa-cli/src/config.rs` | n/a | Go CLI-only surface (`--demo`, `--years`, ldflags-driven `--version`, positional DB path resolver) was intentionally replaced by documented Rust config-v2 CLI; equivalent Rust path precedence/error semantics are covered in config/main tests. |
 | `internal/app/bench_test.go` | 16 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go file is benchmark-only (`Benchmark*`) throughput harnessing. Rust functional parity is enforced by tests; perf benchmarking is tracked separately and not a Step 8 behavior-port gate. |
 | `internal/app/calendar_test.go` | 22 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers date-picker open/esc/enter flows, h/j/k/l and arrow-key navigation, month/year clamping from end-of-month and leap-day edges, empty-date default-to-today behavior, and overlay hint/target text rendering; Go `calendarGrid`-specific fixed-layout/alignment helpers are architecture-specific and not 1:1 with Rust’s overlay text picker. |
-| `internal/app/chat_test.go` | 12 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/chat_test.go` | 12 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers in-flight cancellation status, late chunk/event ignore behavior (`AnswerChunk`, `SqlChunk`, `SqlReady` after cancel), partial-output interruption annotation (`(interrupted)`), model command/picker flows, chat history navigation/submission, and chat mag-mode rendering toggles; Go spinner-string and BubbleTea viewport internals are architecture-specific. |
 | `internal/app/column_finder_test.go` | 27 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers slash-open behavior (and blocking in edit/dashboard contexts), hidden-column jump/unhide behavior, query typing/backspace/UTF-8 backspace/ctrl+u clear, cursor clamp after narrowing, up/down and ctrl+p navigation clamping, esc close status, and match highlighting; Go fuzzy-score ordering internals are not 1:1 with Rust’s typed subsequence matcher. |
 | `internal/app/compact_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers compact interval rendering, typed status/severity short labels, compact money cell display, and `$` header annotation in the table projection/render pipeline; Go-only status-style map assertions and exact `cell.Null` transform semantics are architecture-specific and remain n/a-equivalent gaps. |
 | `internal/app/dashboard_load_test.go` | 9 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Runtime parity now covers overdue/upcoming classification, active-project filtering, and warranty-window inclusion/exclusion; remaining Go-specific coverage (including insurance-renewal surface) is still open. |
@@ -164,6 +164,7 @@
 - Added additional calendar/date-picker parity in `crates/micasa-tui/src/lib.rs` for arrow-key equivalence to `hjkl`, day-step month-boundary crossing, leap-day year-step clamping via keyboard, empty-date picker defaulting to today, and overlay target/hint rendering assertions.
 - Added mode-transition parity tests from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs` for Enter-on-plain-cell guidance, help-overlay mode-key absorption and round-trip toggle, nav Esc status clear behavior, nav `d` row movement without delete dispatch, and edit-mode `i` no-op semantics.
 - Added column-finder parity tests and behavior from Go `internal/app/column_finder_test.go` in `crates/micasa-tui/src/lib.rs`, including slash open/blocking semantics, query edit controls (typing/backspace/UTF-8 backspace/ctrl+u clear), cursor clamp after re-filter, navigation clamp/esc close behavior, and overlay rendering assertions.
+- Added chat parity tests from Go `internal/app/chat_test.go` in `crates/micasa-tui/src/lib.rs` for partial-output cancel annotation, late SQL pipeline event dropping after cancellation, and mag-mode toggles over already-rendered chat responses; also fixed `ctrl+c` cancellation behavior to append `(interrupted)` when partial output exists.
 
 ## Known Gaps
 

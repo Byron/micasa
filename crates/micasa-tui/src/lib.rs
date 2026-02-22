@@ -926,7 +926,7 @@ fn handle_key_event<R: AppRuntime>(
     }
 
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
-        if cancel_in_flight_chat(runtime, view_data, false).is_some() {
+        if cancel_in_flight_chat(runtime, view_data, true).is_some() {
             emit_status(state, view_data, internal_tx, "chat canceled");
         } else {
             emit_status(
@@ -2667,7 +2667,12 @@ fn cancel_in_flight_chat<R: AppRuntime>(
         if !has_body && !has_sql {
             view_data.chat.transcript.remove(in_flight.assistant_index);
         } else if annotate_partial {
-            response.body = format!("{}\n(interrupted)", response.body.trim_end());
+            let body = response.body.trim_end();
+            if body.is_empty() {
+                response.body = "(interrupted)".to_owned();
+            } else {
+                response.body = format!("{body}\n(interrupted)");
+            }
         }
     }
 
@@ -9499,6 +9504,209 @@ mod tests {
                 .iter()
                 .any(|message| message.body.contains("late"))
         );
+    }
+
+    #[test]
+    fn ctrl_c_marks_partial_chat_output_as_interrupted() {
+        let mut state = AppState {
+            chat: ChatVisibility::Visible,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        view_data.chat.transcript = vec![
+            super::ChatMessage {
+                role: super::ChatRole::User,
+                body: "interrupted answer".to_owned(),
+                sql: None,
+            },
+            super::ChatMessage {
+                role: super::ChatRole::Assistant,
+                body: "partial answer".to_owned(),
+                sql: None,
+            },
+        ];
+        view_data.chat.in_flight = Some(super::ChatInFlight {
+            request_id: 42,
+            assistant_index: 1,
+            stage: super::ChatPipelineStage::Summary,
+        });
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.chat.in_flight.is_none());
+        assert_eq!(state.status_line.as_deref(), Some("chat canceled"));
+        let last = view_data
+            .chat
+            .transcript
+            .last()
+            .expect("partial response should remain");
+        assert_eq!(last.body, "partial answer\n(interrupted)");
+    }
+
+    #[test]
+    fn ctrl_c_marks_partial_sql_output_as_interrupted() {
+        let mut state = AppState {
+            chat: ChatVisibility::Visible,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        view_data.chat.transcript = vec![
+            super::ChatMessage {
+                role: super::ChatRole::User,
+                body: "interrupted sql".to_owned(),
+                sql: None,
+            },
+            super::ChatMessage {
+                role: super::ChatRole::Assistant,
+                body: String::new(),
+                sql: Some("SELECT".to_owned()),
+            },
+        ];
+        view_data.chat.in_flight = Some(super::ChatInFlight {
+            request_id: 43,
+            assistant_index: 1,
+            stage: super::ChatPipelineStage::Sql,
+        });
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.chat.in_flight.is_none());
+        let last = view_data
+            .chat
+            .transcript
+            .last()
+            .expect("partial response should remain");
+        assert_eq!(last.body, "(interrupted)");
+        assert_eq!(last.sql.as_deref(), Some("SELECT"));
+    }
+
+    #[test]
+    fn late_sql_events_after_cancellation_are_ignored() {
+        let mut state = AppState {
+            chat: ChatVisibility::Visible,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let (tx, rx) = internal_channel();
+        view_data.chat.transcript = vec![
+            super::ChatMessage {
+                role: super::ChatRole::User,
+                body: "cancel sql".to_owned(),
+                sql: None,
+            },
+            super::ChatMessage {
+                role: super::ChatRole::Assistant,
+                body: String::new(),
+                sql: None,
+            },
+        ];
+        view_data.chat.in_flight = Some(super::ChatInFlight {
+            request_id: 44,
+            assistant_index: 1,
+            stage: super::ChatPipelineStage::Sql,
+        });
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.chat.in_flight.is_none());
+        assert_eq!(state.status_line.as_deref(), Some("chat canceled"));
+        assert_eq!(view_data.chat.transcript.len(), 1);
+
+        tx.send(super::InternalEvent::ChatPipeline(
+            super::ChatPipelineEvent::SqlChunk {
+                request_id: 44,
+                chunk: "SELECT ".to_owned(),
+            },
+        ))
+        .expect("send late sql chunk");
+        tx.send(super::InternalEvent::ChatPipeline(
+            super::ChatPipelineEvent::SqlReady {
+                request_id: 44,
+                sql: "SELECT 1".to_owned(),
+            },
+        ))
+        .expect("send late sql ready");
+        pump_internal(&mut state, &mut view_data, &tx, &rx);
+
+        assert!(!view_data.chat.transcript.iter().any(|message| {
+            message
+                .sql
+                .as_deref()
+                .is_some_and(|sql| sql.contains("SELECT"))
+        }));
+    }
+
+    #[test]
+    fn chat_mag_mode_toggle_updates_existing_rendered_output() {
+        let mut state = AppState::default();
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('@'), KeyModifiers::NONE),
+        );
+        view_data.chat.transcript.push(super::ChatMessage {
+            role: super::ChatRole::User,
+            body: "how much?".to_owned(),
+            sql: None,
+        });
+        view_data.chat.transcript.push(super::ChatMessage {
+            role: super::ChatRole::Assistant,
+            body: "You spent $5,234.23 on kitchen upgrades.".to_owned(),
+            sql: None,
+        });
+
+        let normal = super::render_chat_overlay_text(&view_data.chat, view_data.mag_mode);
+        assert!(normal.contains("$5,234.23"));
+        assert!(!normal.contains("↑4"));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.mag_mode);
+        let mag = super::render_chat_overlay_text(&view_data.chat, view_data.mag_mode);
+        assert!(!mag.contains("$5,234.23"));
+        assert!(mag.contains("↑4"));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        );
+        assert!(!view_data.mag_mode);
+        let normal_again = super::render_chat_overlay_text(&view_data.chat, view_data.mag_mode);
+        assert!(normal_again.contains("$5,234.23"));
     }
 
     #[test]
