@@ -1125,6 +1125,62 @@ mod tests {
     };
     use anyhow::Result;
     use time::OffsetDateTime;
+    use time::macros::datetime;
+
+    fn prompt_test_tables() -> Vec<TableInfo> {
+        vec![
+            TableInfo {
+                name: "projects".to_owned(),
+                columns: vec![
+                    ColumnInfo {
+                        name: "id".to_owned(),
+                        column_type: "integer".to_owned(),
+                        not_null: false,
+                        primary_key: true,
+                    },
+                    ColumnInfo {
+                        name: "title".to_owned(),
+                        column_type: "text".to_owned(),
+                        not_null: true,
+                        primary_key: false,
+                    },
+                    ColumnInfo {
+                        name: "budget_cents".to_owned(),
+                        column_type: "integer".to_owned(),
+                        not_null: false,
+                        primary_key: false,
+                    },
+                    ColumnInfo {
+                        name: "status".to_owned(),
+                        column_type: "text".to_owned(),
+                        not_null: false,
+                        primary_key: false,
+                    },
+                ],
+            },
+            TableInfo {
+                name: "appliances".to_owned(),
+                columns: vec![
+                    ColumnInfo {
+                        name: "id".to_owned(),
+                        column_type: "integer".to_owned(),
+                        not_null: false,
+                        primary_key: true,
+                    },
+                    ColumnInfo {
+                        name: "name".to_owned(),
+                        column_type: "text".to_owned(),
+                        not_null: true,
+                        primary_key: false,
+                    },
+                ],
+            },
+        ]
+    }
+
+    fn prompt_test_now() -> OffsetDateTime {
+        datetime!(2026-02-13 10:00 UTC)
+    }
 
     #[test]
     fn extract_sql_handles_fenced_blocks() {
@@ -1157,6 +1213,29 @@ mod tests {
         assert!(prompt.contains("CREATE TABLE projects"));
         assert!(prompt.contains("status=underway"));
         assert!(prompt.contains("House is built in 1940."));
+    }
+
+    #[test]
+    fn build_sql_prompt_includes_ddl_examples_rules_and_date() {
+        let prompt = build_sql_prompt(
+            &prompt_test_tables(),
+            prompt_test_now(),
+            None,
+            Some("Budgets are in CAD."),
+        );
+        assert!(prompt.contains("CREATE TABLE projects"));
+        assert!(prompt.contains("id integer PRIMARY KEY"));
+        assert!(prompt.contains("title text NOT NULL"));
+        assert!(prompt.contains("budget_cents integer"));
+        assert!(prompt.contains("CREATE TABLE appliances"));
+        assert!(prompt.contains("SELECT COUNT(*)"));
+        assert!(prompt.contains("SUM(actual_cents) / 100.0"));
+        assert!(prompt.contains("deleted_at IS NULL"));
+        assert!(prompt.contains("divide by 100.0"));
+        assert!(prompt.contains("Never emit INSERT/UPDATE/DELETE/DDL."));
+        assert!(prompt.contains("Friday, February 13, 2026"));
+        assert!(prompt.contains("## Additional context"));
+        assert!(prompt.contains("Budgets are in CAD."));
     }
 
     #[test]
@@ -1309,6 +1388,20 @@ mod tests {
     }
 
     #[test]
+    fn build_summary_prompt_includes_current_date_and_extra_context() {
+        let prompt = build_summary_prompt(
+            "How many projects?",
+            "SELECT COUNT(*) AS count FROM projects",
+            "count\n3",
+            prompt_test_now(),
+            Some("Currency is CAD."),
+        );
+        assert!(prompt.contains("Friday, February 13, 2026"));
+        assert!(prompt.contains("## Additional context"));
+        assert!(prompt.contains("Currency is CAD."));
+    }
+
+    #[test]
     fn build_fallback_prompt_includes_schema_data_and_context() {
         let prompt = build_fallback_prompt(
             &[TableInfo {
@@ -1335,6 +1428,26 @@ mod tests {
         assert!(prompt.contains("### projects"));
         assert!(prompt.contains("projects\n- title: Deck"));
         assert!(prompt.contains("House has original 1940 wiring."));
+    }
+
+    #[test]
+    fn build_fallback_prompt_includes_schema_date_data_and_context() {
+        let prompt = build_fallback_prompt(
+            &prompt_test_tables(),
+            "### projects (3 rows)\n- id: 1, title: Fix roof",
+            prompt_test_now(),
+            Some("House is a 1920s craftsman."),
+        );
+        assert!(prompt.contains("### projects"));
+        assert!(prompt.contains("- id integer PK"));
+        assert!(prompt.contains("- title text NOT NULL"));
+        assert!(prompt.contains("- status text"));
+        assert!(prompt.contains("## Current data"));
+        assert!(prompt.contains("Fix roof"));
+        assert!(prompt.contains("Friday, February 13, 2026"));
+        assert!(prompt.contains("## Additional context"));
+        assert!(prompt.contains("1920s craftsman"));
+        assert!(prompt.contains("home management app"));
     }
 
     #[test]
@@ -1416,6 +1529,14 @@ mod tests {
         assert_eq!(extract_sql("  SELECT 1;  "), "SELECT 1");
         assert_eq!(
             extract_sql("\nSELECT * FROM projects;;\n"),
+            "SELECT * FROM projects"
+        );
+    }
+
+    #[test]
+    fn extract_sql_returns_bare_sql_unchanged() {
+        assert_eq!(
+            extract_sql("SELECT * FROM projects"),
             "SELECT * FROM projects"
         );
     }

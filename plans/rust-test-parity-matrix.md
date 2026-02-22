@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 402 tests
+- Rust tests currently (`crates/`): 406 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -27,7 +27,7 @@
 
 | Go Test File | Go Tests | Rust Target(s) | Status | Notes |
 |---|---:|---|---|---|
-| `cmd/micasa/main_test.go` | 8 | `crates/micasa-cli/src/main.rs` | partial | Argument parsing test coverage added; additional CLI integration parity pending. |
+| `cmd/micasa/main_test.go` | 8 | `crates/micasa-cli/src/main.rs`, `crates/micasa-cli/src/config.rs` | n/a | Go CLI-only surface (`--demo`, `--years`, ldflags-driven `--version`, positional DB path resolver) was intentionally replaced by documented Rust config-v2 CLI; equivalent Rust path precedence/error semantics are covered in config/main tests. |
 | `internal/app/bench_test.go` | 16 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/calendar_test.go` | 22 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/chat_test.go` | 12 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -74,8 +74,8 @@
 | `internal/data/validation_test.go` | 36 | `crates/micasa-db/src/validation.rs` | ported | Full money/date/interval parser+formatter suite ported with overflow and month-end clamping regressions. |
 | `internal/data/vendor_upsert_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | n/a | Go name-based vendor upsert path was removed in Rust typed-ID forms/runtime; quote/service-log flows require `VendorId`, and vendor mutation semantics are covered by typed CRUD/update tests. |
 | `internal/fake/fake_test.go` | 16 | `crates/micasa-testkit/src/lib.rs` | ported | Deterministic typed faker implemented and full fake suite parity tests added. |
-| `internal/llm/client_test.go` | 18 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Ping/list/streaming/server-error/pull model and cancellation/disconnect semantics are covered; some client edge variants remain. |
-| `internal/llm/prompt_test.go` | 29 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Prompt extraction and SQL/summary/fallback prompt coverage is strong, with additional long-tail prompt-shape parity still pending. |
+| `internal/llm/client_test.go` | 18 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Full client parity is covered for ping/list success+error paths, model-not-found remediation, chat complete/stream behavior, stream cancellation/disconnect, pull stream parsing, and cleaned OpenAI/Ollama/plain-text/unparsable error responses. |
+| `internal/llm/prompt_test.go` | 29 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-cli/src/runtime.rs` | ported | SQL/fallback/summary prompt builders, result-table formatting, SQL extraction (bare/fenced/trimmed), date/context sections, schema/relationship notes, and incident/group-by examples are all covered with direct Rust parity tests. |
 | `internal/llm/sqlfmt_test.go` | 20 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Full SQL formatter/tokenizer parity suite (including subqueries, date functions, aggregate join, wrapping, tokenization) is covered. |
 
 ## Module Port Order
@@ -147,6 +147,8 @@
 - Added typed deterministic seeding APIs in `crates/micasa-db/src/lib.rs` (`seed_demo_data{,_with_seed}`, `seed_scaled_data{,_with_seed}`, `SeedSummary`) and ported full Go parity suites from `internal/data/seed_demo_test.go` and `internal/data/seed_scaled_test.go` in `crates/micasa-db/tests/store_tests.rs`.
 - Added full path-validation parity from Go `internal/data/validate_path_test.go` in `crates/micasa-db/tests/store_tests.rs`: table-driven valid/invalid path coverage plus URL-like rejection and `Store::open` URI rejection checks.
 - Expanded config-v2 parity tests in `crates/micasa-cli/src/config.rs` for DB path precedence and validation: `[storage].db_path` override, `MICASA_DB_PATH` fallback, platform default fallback, and URI-style path rejection, with test env mutation serialized to avoid cross-test races.
+- Reclassified Go `cmd/micasa/main_test.go` parity status to `n/a` based on docs-backed CLI contract changes in Rust (`configuration-v2.md`): old Go-only `--demo`/`--years`/ldflags-version behavior is intentionally removed, while Rust CLI/config path behavior remains covered by tests.
+- Added direct Go-equivalent prompt parity tests in `crates/micasa-llm/src/lib.rs` for DDL/date/context rendering and bare SQL extraction, and reclassified `internal/llm/client_test.go` and `internal/llm/prompt_test.go` to `ported`.
 
 ## Known Gaps
 
