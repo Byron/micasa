@@ -3891,3 +3891,286 @@ fn update_document_replaces_blob_and_cache_content() -> Result<()> {
     assert_eq!(extracted, b"new-content-v2".to_vec());
     Ok(())
 }
+
+#[test]
+fn document_content_survives_delete_restore_round_trip() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let payload = b"survive-me".to_vec();
+    let document_id = store.insert_document(&NewDocument {
+        title: "Survivor".to_owned(),
+        file_name: "survivor.txt".to_owned(),
+        entity_kind: DocumentEntityKind::None,
+        entity_id: 0,
+        mime_type: "text/plain".to_owned(),
+        data: payload.clone(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_document(document_id)?;
+    store.restore_document(document_id)?;
+    let restored = store.get_document(document_id)?;
+    assert_eq!(restored.data, payload);
+    Ok(())
+}
+
+#[test]
+fn unlinked_document_full_lifecycle_round_trip() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let document_id = store.insert_document(&NewDocument {
+        title: "Unlinked".to_owned(),
+        file_name: "unlinked.txt".to_owned(),
+        entity_kind: DocumentEntityKind::None,
+        entity_id: 0,
+        mime_type: "text/plain".to_owned(),
+        data: b"v1".to_vec(),
+        notes: "start".to_owned(),
+    })?;
+    store.update_document(
+        document_id,
+        &UpdateDocument {
+            title: "Unlinked v2".to_owned(),
+            file_name: "unlinked-v2.txt".to_owned(),
+            entity_kind: DocumentEntityKind::None,
+            entity_id: 0,
+            mime_type: "text/plain".to_owned(),
+            data: Some(b"v2-content".to_vec()),
+            notes: String::new(),
+        },
+    )?;
+    store.soft_delete_document(document_id)?;
+    store.restore_document(document_id)?;
+
+    let restored = store.get_document(document_id)?;
+    assert_eq!(restored.title, "Unlinked v2");
+    assert_eq!(restored.file_name, "unlinked-v2.txt");
+    assert_eq!(restored.data, b"v2-content".to_vec());
+    assert_eq!(restored.notes, "");
+    assert_eq!(restored.entity_kind, DocumentEntityKind::None);
+    assert_eq!(restored.entity_id, 0);
+    Ok(())
+}
+
+#[test]
+fn list_documents_for_entity_via_typed_filtering() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Doc list target".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let other_project_id = store.create_project(&NewProject {
+        title: "Doc list other".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    store.insert_document(&NewDocument {
+        title: "Target doc".to_owned(),
+        file_name: "target.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Project,
+        entity_id: project_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"target".to_vec(),
+        notes: String::new(),
+    })?;
+    store.insert_document(&NewDocument {
+        title: "Other doc".to_owned(),
+        file_name: "other.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Project,
+        entity_id: other_project_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"other".to_vec(),
+        notes: String::new(),
+    })?;
+
+    let filtered = store
+        .list_documents(false)?
+        .into_iter()
+        .filter(|document| {
+            document.entity_kind == DocumentEntityKind::Project
+                && document.entity_id == project_id.get()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].title, "Target doc");
+    Ok(())
+}
+
+#[test]
+fn list_documents_for_entity_include_deleted_via_typed_filtering() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Doc incident".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Soon,
+        date_noticed: Date::from_calendar_date(2026, Month::September, 1)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Incident doc".to_owned(),
+        file_name: "incident.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Incident,
+        entity_id: incident_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"incident".to_vec(),
+        notes: String::new(),
+    })?;
+    store.soft_delete_document(document_id)?;
+
+    let visible = store
+        .list_documents(false)?
+        .into_iter()
+        .filter(|document| {
+            document.entity_kind == DocumentEntityKind::Incident
+                && document.entity_id == incident_id.get()
+        })
+        .collect::<Vec<_>>();
+    assert!(visible.is_empty());
+
+    let include_deleted = store
+        .list_documents(true)?
+        .into_iter()
+        .filter(|document| {
+            document.entity_kind == DocumentEntityKind::Incident
+                && document.entity_id == incident_id.get()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(include_deleted.len(), 1);
+    assert!(include_deleted[0].deleted_at.is_some());
+    Ok(())
+}
+
+#[test]
+fn count_documents_for_entity_via_typed_filtering() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Doc vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Doc count project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+
+    store.insert_document(&NewDocument {
+        title: "Vendor doc 1".to_owned(),
+        file_name: "v1.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Vendor,
+        entity_id: vendor_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"v1".to_vec(),
+        notes: String::new(),
+    })?;
+    store.insert_document(&NewDocument {
+        title: "Vendor doc 2".to_owned(),
+        file_name: "v2.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Vendor,
+        entity_id: vendor_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"v2".to_vec(),
+        notes: String::new(),
+    })?;
+    store.insert_document(&NewDocument {
+        title: "Project doc".to_owned(),
+        file_name: "p.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Project,
+        entity_id: project_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"p".to_vec(),
+        notes: String::new(),
+    })?;
+
+    let vendor_count = store
+        .list_documents(false)?
+        .into_iter()
+        .filter(|document| {
+            document.entity_kind == DocumentEntityKind::Vendor
+                && document.entity_id == vendor_id.get()
+        })
+        .count();
+    assert_eq!(vendor_count, 2);
+
+    let empty_count = store
+        .list_documents(false)?
+        .into_iter()
+        .filter(|document| {
+            document.entity_kind == DocumentEntityKind::Appliance && document.entity_id == 999
+        })
+        .count();
+    assert_eq!(empty_count, 0);
+    Ok(())
+}
+
+#[test]
+fn multiple_documents_list_order_uses_updated_at_then_id_desc() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let first_id = store.insert_document(&NewDocument {
+        title: "First".to_owned(),
+        file_name: "first.txt".to_owned(),
+        entity_kind: DocumentEntityKind::None,
+        entity_id: 0,
+        mime_type: "text/plain".to_owned(),
+        data: b"first".to_vec(),
+        notes: String::new(),
+    })?;
+    let second_id = store.insert_document(&NewDocument {
+        title: "Second".to_owned(),
+        file_name: "second.txt".to_owned(),
+        entity_kind: DocumentEntityKind::None,
+        entity_id: 0,
+        mime_type: "text/plain".to_owned(),
+        data: b"second".to_vec(),
+        notes: String::new(),
+    })?;
+
+    // Force identical timestamps to assert deterministic id-desc tiebreaking.
+    store.raw_connection().execute(
+        "UPDATE documents SET updated_at = '2026-09-01T00:00:00Z' WHERE id IN (?, ?)",
+        rusqlite::params![first_id.get(), second_id.get()],
+    )?;
+
+    let docs = store.list_documents(false)?;
+    assert_eq!(docs.len(), 2);
+    assert_eq!(docs[0].id, second_id);
+    assert_eq!(docs[1].id, first_id);
+    Ok(())
+}
