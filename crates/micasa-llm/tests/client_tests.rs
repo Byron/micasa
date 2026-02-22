@@ -20,6 +20,18 @@ fn ping_error_contains_actionable_remediation() {
 }
 
 #[test]
+fn list_models_server_down_returns_actionable_error() {
+    let client = Client::new("http://127.0.0.1:1/v1", "qwen3", Duration::from_millis(50))
+        .expect("client should initialize");
+
+    let error = client
+        .list_models()
+        .expect_err("list_models should fail for unreachable endpoint");
+    let message = error.to_string();
+    assert!(message.contains("ollama serve"));
+}
+
+#[test]
 fn list_models_and_ping_work_against_mock_server() -> Result<()> {
     let server =
         Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
