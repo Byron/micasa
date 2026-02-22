@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 452 tests
+- Rust tests currently (`crates/`): 454 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -37,7 +37,7 @@
 | `internal/app/dashboard_rows_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Dashboard nav row parity now covers overdue/upcoming/warranty relative-duration text, entry target kinds, project/status rows, recent-activity rows, and empty snapshots; style-specific and extra-column parity remains open. |
 | `internal/app/dashboard_test.go` | 33 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/demo_data_test.go` | 3 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Runtime demo-seed parity is covered with tests for non-empty snapshots across all data tabs, non-empty dashboard nav sections after seeding, and varied-seed runs that still produce populated rows. |
-| `internal/app/detail_test.go` | 57 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/detail_test.go` | 57 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers nested drill push/pop flows, close-all collapse/no-op semantics, breadcrumb labels, selection/link/sort behaviors inside detail views, and explicit parent-context restoration (snapshot/table state) across push/pop and nested close-all helpers; Go handler wiring/form-kind internals remain partially architecture-specific. |
 | `internal/app/filter_test.go` | 39 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/form_save_test.go` | 18 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/form_select_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go tests target `huh`-specific select helpers (`withOrdinals`, focused-field introspection). Rust uses typed form-choice handling without `huh`; equivalent end-user behavior (numeric choice selection) is covered by form shortcut tests. |
@@ -166,6 +166,7 @@
 - Added column-finder parity tests and behavior from Go `internal/app/column_finder_test.go` in `crates/micasa-tui/src/lib.rs`, including slash open/blocking semantics, query edit controls (typing/backspace/UTF-8 backspace/ctrl+u clear), cursor clamp after re-filter, navigation clamp/esc close behavior, and overlay rendering assertions.
 - Added chat parity tests from Go `internal/app/chat_test.go` in `crates/micasa-tui/src/lib.rs` for partial-output cancel annotation, late SQL pipeline event dropping after cancellation, and mag-mode toggles over already-rendered chat responses; also fixed `ctrl+c` cancellation behavior to append `(interrupted)` when partial output exists.
 - Added additional view/header parity tests from Go `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs` for multi-sort header stability (money `$` and drill arrow suffix preservation) and link-indicator gating based on positive link targets only (including all-zero and empty-row cases).
+- Added additional detail-stack parity tests from Go `internal/app/detail_test.go` in `crates/micasa-tui/src/lib.rs` for push/pop parent context restoration (snapshot/table state + overlay reset) and nested `close_all_detail_snapshots` restoration of the root table state.
 
 ## Known Gaps
 

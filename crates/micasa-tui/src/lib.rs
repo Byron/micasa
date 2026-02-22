@@ -8691,6 +8691,121 @@ mod tests {
     }
 
     #[test]
+    fn push_and_pop_detail_snapshot_restore_parent_context() {
+        let state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        view_data.table_state.selected_row = 1;
+        view_data.table_state.selected_col = 1;
+        view_data.table_state.sorts = vec![super::SortSpec {
+            column: 1,
+            direction: SortDirection::Desc,
+        }];
+        view_data.table_state.pin = Some(super::PinnedCell {
+            column: 1,
+            value: super::TableCell::Text("Beta".to_owned()),
+        });
+        view_data.column_finder.visible = true;
+        view_data.column_finder.query = "ti".to_owned();
+        view_data.note_preview.visible = true;
+        view_data.note_preview.title = "notes".to_owned();
+        view_data.note_preview.text = "detail text".to_owned();
+        view_data.date_picker.visible = true;
+        view_data.date_picker.column = 2;
+
+        let parent_snapshot = view_data.active_tab_snapshot.clone();
+        let parent_table_state = view_data.table_state.clone();
+
+        super::push_detail_snapshot(
+            &mut view_data,
+            "maintenance (Furnace)",
+            TabSnapshot::Maintenance(vec![TestRuntime::sample_maintenance(
+                99,
+                Some(2),
+                "Filter swap",
+            )]),
+        );
+
+        assert_eq!(view_data.detail_stack.len(), 1);
+        assert_eq!(view_data.detail_stack[0].title, "maintenance (Furnace)");
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Maintenance));
+        assert!(view_data.table_state.sorts.is_empty());
+        assert!(view_data.table_state.pin.is_none());
+        assert!(!view_data.column_finder.visible);
+        assert!(!view_data.note_preview.visible);
+        assert!(!view_data.date_picker.visible);
+
+        view_data.column_finder.visible = true;
+        view_data.note_preview.visible = true;
+        view_data.date_picker.visible = true;
+        let popped = super::pop_detail_snapshot(&mut view_data);
+        assert!(popped);
+        assert!(view_data.detail_stack.is_empty());
+        assert_eq!(view_data.active_tab_snapshot, parent_snapshot);
+        assert_eq!(view_data.table_state, parent_table_state);
+        assert!(!view_data.column_finder.visible);
+        assert!(!view_data.note_preview.visible);
+        assert!(!view_data.date_picker.visible);
+    }
+
+    #[test]
+    fn close_all_detail_snapshots_restore_root_table_state_after_nested_pushes() {
+        let state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        view_data.table_state.selected_row = 1;
+        view_data.table_state.selected_col = 1;
+        view_data.table_state.sorts = vec![super::SortSpec {
+            column: 1,
+            direction: SortDirection::Asc,
+        }];
+        view_data.table_state.pin = Some(super::PinnedCell {
+            column: 1,
+            value: super::TableCell::Text("Beta".to_owned()),
+        });
+        let root_snapshot = view_data.active_tab_snapshot.clone();
+        let root_table_state = view_data.table_state.clone();
+
+        super::push_detail_snapshot(
+            &mut view_data,
+            "maintenance (Furnace)",
+            TabSnapshot::Maintenance(vec![TestRuntime::sample_maintenance(
+                99,
+                Some(2),
+                "Filter swap",
+            )]),
+        );
+        view_data.table_state.selected_col = 7;
+
+        super::push_detail_snapshot(
+            &mut view_data,
+            "service log (Filter swap)",
+            TabSnapshot::ServiceLog(vec![TestRuntime::sample_service_log(
+                45,
+                99,
+                Some(8),
+                "done",
+            )]),
+        );
+        assert_eq!(view_data.detail_stack.len(), 2);
+
+        super::close_all_detail_snapshots(&mut view_data);
+        assert!(view_data.detail_stack.is_empty());
+        assert_eq!(view_data.active_tab_snapshot, root_snapshot);
+        assert_eq!(view_data.table_state, root_table_state);
+    }
+
+    #[test]
     fn pop_detail_snapshot_returns_false_when_stack_is_empty() {
         let mut view_data = view_data_for_test();
         assert!(view_data.detail_stack.is_empty());
