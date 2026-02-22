@@ -24,6 +24,7 @@
         pkgs = import nixpkgs { inherit system; };
         version = builtins.replaceStrings [ "\n" "\r" ] [ "" "" ] (builtins.readFile ./VERSION);
 
+        # Temporary Go parity build retained during Rust cutover verification.
         micasa-go = pkgs.buildGoModule {
           pname = "micasa";
           inherit version;
@@ -44,8 +45,8 @@
           inherit version;
           src = ./.;
           cargoLock.lockFile = ./Cargo.lock;
-          cargoBuildFlags = [ "--package" "micasa-cli" ];
-          cargoTestFlags = [ "--workspace" ];
+          cargoBuildFlags = [ "--locked" "--package" "micasa-cli" ];
+          cargoTestFlags = [ "--workspace" "--locked" ];
           preCheck = ''
             export HOME="$(mktemp -d)"
           '';
@@ -188,6 +189,7 @@
 
         packages = {
           inherit micasa micasa-go;
+          micasa-go-parity = micasa-go;
           default = micasa;
           docs = pkgs.writeShellApplication {
             name = "micasa-docs";

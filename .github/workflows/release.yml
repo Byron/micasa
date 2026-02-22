@@ -15,23 +15,33 @@ permissions:
   contents: read
 
 env:
-  CGO_ENABLED: "0"
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   binaries:
-    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.os }}/${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: write
     strategy:
       matrix:
         include:
-          - goos: linux
-            goarch: amd64
+          - runner: ubuntu-latest
+            os: linux
+            arch: amd64
             target: x86_64-unknown-linux-gnu
             ext: ""
+          - runner: macos-latest
+            os: macos
+            arch: amd64
+            target: x86_64-apple-darwin
+            ext: ""
+          - runner: windows-latest
+            os: windows
+            arch: amd64
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
@@ -44,39 +54,67 @@ jobs:
           toolchain: stable
           override: true
 
-      - name: Build
+      - name: Build (Unix)
+        if: matrix.os != 'windows'
+        shell: bash
         env:
           TARGET: ${{ matrix.target }}
-          VERSION: ${{ github.event.release.tag_name }}
         run: |
           cargo build --release --locked --package micasa-cli --target "$TARGET"
           cp "target/$TARGET/release/micasa${{ matrix.ext }}" "micasa${{ matrix.ext }}"
 
-      - name: Package
+      - name: Build (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
         env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          TARGET: ${{ matrix.target }}
         run: |
-          name="micasa_${GOOS}_${GOARCH}"
-          if [ "$GOOS" = "windows" ]; then
-            zip "${name}.zip" micasa.exe
-          else
-            tar czf "${name}.tar.gz" micasa
-          fi
+          cargo build --release --locked --package micasa-cli --target "$env:TARGET"
+          Copy-Item "target\$env:TARGET\release\micasa${{ matrix.ext }}" "micasa${{ matrix.ext }}"
 
-      - name: Upload release asset
+      - name: Package (Unix)
+        if: matrix.os != 'windows'
+        shell: bash
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          name="micasa_${OS}_${ARCH}"
+          tar czf "${name}.tar.gz" micasa
+
+      - name: Package (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          $name = "micasa_${env:OS}_${env:ARCH}"
+          Compress-Archive -Path "micasa.exe" -DestinationPath "$name.zip"
+
+      - name: Upload release asset (Unix)
+        if: matrix.os != 'windows'
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          name="micasa_${GOOS}_${GOARCH}"
-          if [ "$GOOS" = "windows" ]; then
-            gh release upload "$RELEASE_TAG" "${name}.zip"
-          else
-            gh release upload "$RELEASE_TAG" "${name}.tar.gz"
-          fi
+          name="micasa_${OS}_${ARCH}"
+          gh release upload "$RELEASE_TAG" "${name}.tar.gz"
+
+      - name: Upload release asset (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          OS: ${{ matrix.os }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          $name = "micasa_${env:OS}_${env:ARCH}"
+          gh release upload "$env:RELEASE_TAG" "$name.zip"
 
   checksums:
     name: Checksums

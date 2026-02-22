@@ -12,9 +12,6 @@ on:
 permissions:
   contents: read
 
-env:
-  CGO_ENABLED: "0"
-
 jobs:
   test:
     name: Build & Test (${{ matrix.os }}, Rust stable)
@@ -50,7 +47,7 @@ jobs:
         run: cargo test --workspace
 
   go-parity:
-    name: Go Parity
+    name: Go Parity (Temporary)
     runs-on: ubuntu-latest
     concurrency:
       group: ci-go-parity-${{ github.ref }}
@@ -67,38 +64,6 @@ jobs:
       - name: Test
         run: go test -shuffle on ./...
 
-  deadcode:
-    name: Dead Code
-    runs-on: ubuntu-latest
-    concurrency:
-      group: ci-deadcode-${{ github.ref }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - uses: cachix/install-nix-action@4e002c8ec80594ecd40e759629461e26c8abed15 # v31
-
-      - name: Check for dead code
-        run: nix run '.#deadcode'
-
-  pre-commit:
-    name: Pre-commit
-    runs-on: ubuntu-latest
-    concurrency:
-      group: ci-pre-commit-${{ github.ref }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
-      - uses: cachix/install-nix-action@4e002c8ec80594ecd40e759629461e26c8abed15 # v31
-
-      - name: Run pre-commit hooks
-        run: nix run '.#pre-commit'
-
   nix-build:
     name: Nix Build
     runs-on: ubuntu-latest
@@ -109,15 +74,6 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           persist-credentials: false
-
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6
-        with:
-          go-version: "1.25"
-
-      - name: Check go mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum
 
       - uses: cachix/install-nix-action@4e002c8ec80594ecd40e759629461e26c8abed15 # v31
 
@@ -178,7 +134,7 @@ jobs:
 
   semantic-release:
     name: Semantic Release
-    needs: [test, go-parity, deadcode, pre-commit, nix-build, docs, secrets]
+    needs: [test, go-parity, nix-build, docs, secrets, vuln-scan]
     runs-on: ubuntu-latest
     concurrency:
       group: semantic-release-${{ github.ref }}
