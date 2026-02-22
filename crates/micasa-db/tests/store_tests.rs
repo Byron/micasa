@@ -3535,6 +3535,270 @@ fn restore_document_blocked_by_deleted_project() -> Result<()> {
 }
 
 #[test]
+fn restore_document_blocked_by_deleted_appliance() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Doomed appliance".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Appliance Note".to_owned(),
+        file_name: "appliance.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Appliance,
+        entity_id: appliance_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"note".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_document(document_id)?;
+    store.soft_delete_appliance(appliance_id)?;
+
+    let restore_error = store
+        .restore_document(document_id)
+        .expect_err("restoring document should fail while appliance is deleted");
+    assert!(restore_error.to_string().contains("appliance is deleted"));
+
+    store.restore_appliance(appliance_id)?;
+    store.restore_document(document_id)?;
+    Ok(())
+}
+
+#[test]
+fn restore_document_blocked_by_deleted_vendor() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Doomed vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Vendor Note".to_owned(),
+        file_name: "vendor.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Vendor,
+        entity_id: vendor_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"note".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_document(document_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+
+    let restore_error = store
+        .restore_document(document_id)
+        .expect_err("restoring document should fail while vendor is deleted");
+    assert!(restore_error.to_string().contains("vendor is deleted"));
+
+    store.restore_vendor(vendor_id)?;
+    store.restore_document(document_id)?;
+    Ok(())
+}
+
+#[test]
+fn restore_document_blocked_by_deleted_quote() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Quote parent".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Quote vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let quote_id = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 1_234,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Quote Note".to_owned(),
+        file_name: "quote.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Quote,
+        entity_id: quote_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"note".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_document(document_id)?;
+    store.soft_delete_quote(quote_id)?;
+
+    let restore_error = store
+        .restore_document(document_id)
+        .expect_err("restoring document should fail while quote is deleted");
+    assert!(restore_error.to_string().contains("quote is deleted"));
+
+    store.restore_quote(quote_id)?;
+    store.restore_document(document_id)?;
+    Ok(())
+}
+
+#[test]
+fn restore_document_blocked_by_deleted_maintenance() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Doomed maintenance".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 12,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Maintenance Note".to_owned(),
+        file_name: "maintenance.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Maintenance,
+        entity_id: maintenance_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"note".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_document(document_id)?;
+    store.soft_delete_maintenance_item(maintenance_id)?;
+
+    let restore_error = store
+        .restore_document(document_id)
+        .expect_err("restoring document should fail while maintenance is deleted");
+    assert!(
+        restore_error
+            .to_string()
+            .contains("maintenance item is deleted")
+    );
+
+    store.restore_maintenance_item(maintenance_id)?;
+    store.restore_document(document_id)?;
+    Ok(())
+}
+
+#[test]
+fn restore_document_blocked_by_deleted_service_log() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Service parent".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let service_log_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::August, 2)?,
+        vendor_id: None,
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Service Log Note".to_owned(),
+        file_name: "service-log.txt".to_owned(),
+        entity_kind: DocumentEntityKind::ServiceLog,
+        entity_id: service_log_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"note".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_document(document_id)?;
+    store.soft_delete_service_log_entry(service_log_id)?;
+
+    let restore_error = store
+        .restore_document(document_id)
+        .expect_err("restoring document should fail while service log is deleted");
+    assert!(restore_error.to_string().contains("service log is deleted"));
+
+    store.restore_service_log_entry(service_log_id)?;
+    store.restore_document(document_id)?;
+    Ok(())
+}
+
+#[test]
+fn restore_document_blocked_by_deleted_incident() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Doomed incident".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Soon,
+        date_noticed: Date::from_calendar_date(2026, Month::August, 5)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Incident Note".to_owned(),
+        file_name: "incident.txt".to_owned(),
+        entity_kind: DocumentEntityKind::Incident,
+        entity_id: incident_id.get(),
+        mime_type: "text/plain".to_owned(),
+        data: b"note".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_document(document_id)?;
+    store.soft_delete_incident(incident_id)?;
+
+    let restore_error = store
+        .restore_document(document_id)
+        .expect_err("restoring document should fail while incident is deleted");
+    assert!(restore_error.to_string().contains("incident is deleted"));
+
+    store.restore_incident(incident_id)?;
+    store.restore_document(document_id)?;
+    Ok(())
+}
+
+#[test]
 fn update_document_metadata_preserves_blob_and_link() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
