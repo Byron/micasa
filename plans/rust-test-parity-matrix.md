@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 299 tests
+- Rust tests currently (`crates/`): 300 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -74,7 +74,7 @@
 | `internal/data/validation_test.go` | 36 | `crates/micasa-db/src/validation.rs` | ported | Full money/date/interval parser+formatter suite ported with overflow and month-end clamping regressions. |
 | `internal/data/vendor_upsert_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
 | `internal/fake/fake_test.go` | 16 | `crates/micasa-testkit/src/lib.rs` | ported | Deterministic typed faker implemented and full fake suite parity tests added. |
-| `internal/llm/client_test.go` | 18 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Ping/list/streaming/server-error/pull model and actionable outage paths are covered; some client edge/cancellation variants remain. |
+| `internal/llm/client_test.go` | 18 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Ping/list/streaming/server-error/pull model and cancellation/disconnect semantics are covered; some client edge variants remain. |
 | `internal/llm/prompt_test.go` | 29 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Prompt extraction and SQL/summary/fallback prompt coverage is strong, with additional long-tail prompt-shape parity still pending. |
 | `internal/llm/sqlfmt_test.go` | 20 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Full SQL formatter/tokenizer parity suite (including subqueries, date functions, aggregate join, wrapping, tokenization) is covered. |
 
@@ -121,6 +121,7 @@
 - Added DB query parity tests from Go `internal/data/query_test.go` in `crates/micasa-db/tests/store_tests.rs` for invalid table-name rejection and explicit read-only query rejection of `INSERT`, `DELETE`, and multi-statement SQL with actionable errors.
 - Added LLM SQL formatter parity tests from Go `internal/llm/sqlfmt_test.go` in `crates/micasa-llm/src/lib.rs` for subquery handling, nested subquery column layout, date-function formatting, already-formatted SQL stability, and aggregate-join formatting.
 - Added LLM client parity test from Go `internal/llm/client_test.go` in `crates/micasa-llm/tests/client_tests.rs` for actionable server-down error handling on `list_models`.
+- Added LLM client cancellation parity test from Go `internal/llm/client_test.go` in `crates/micasa-llm/tests/client_tests.rs` by verifying dropped stream readers disconnect the server-side stream promptly.
 
 ## Known Gaps
 

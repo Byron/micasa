@@ -3,6 +3,9 @@
 
 use anyhow::{Result, anyhow};
 use micasa_llm::{Client, Message, Role};
+use std::io::{Read, Write};
+use std::net::TcpListener;
+use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use tiny_http::{Header, Response, Server};
@@ -55,6 +58,74 @@ fn list_models_and_ping_work_against_mock_server() -> Result<()> {
     let models = client.list_models()?;
     assert_eq!(models, vec!["qwen3".to_owned()]);
     client.ping()?;
+
+    handle.join().expect("server thread should join");
+    Ok(())
+}
+
+#[test]
+fn chat_stream_drop_disconnects_server_promptly() -> Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .map_err(|error| anyhow!("bind cancellation test server: {error}"))?;
+    let addr = listener
+        .local_addr()
+        .map_err(|error| anyhow!("read local addr: {error}"))?;
+    let base_url = format!("http://{addr}/v1");
+
+    let (done_tx, done_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        let (mut socket, _) = listener.accept().expect("accept connection");
+        socket
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .expect("set read timeout");
+
+        let mut request = [0u8; 4096];
+        let _ = socket.read(&mut request).expect("read request bytes");
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: {\"choices\":[{\"delta\":{\"content\":\"start\"},\"finish_reason\":null}]}\n",
+            )
+            .expect("write first stream chunk");
+        socket.flush().expect("flush first stream chunk");
+
+        let mut disconnected = false;
+        for _ in 0..40 {
+            let mut probe = [0u8; 1];
+            match socket.read(&mut probe) {
+                Ok(0) => {
+                    disconnected = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => {
+                    disconnected = true;
+                    break;
+                }
+            }
+        }
+        done_tx
+            .send(disconnected)
+            .expect("report disconnect status");
+    });
+
+    let client = Client::new(&base_url, "qwen3", Duration::from_secs(1))?;
+    let mut stream = client.chat_stream(&[Message {
+        role: Role::User,
+        content: "Say hi".to_owned(),
+    }])?;
+    let first = stream.next().expect("first chunk should exist")?;
+    assert_eq!(first.content, "start");
+    drop(stream);
+
+    let disconnected = done_rx
+        .recv_timeout(Duration::from_secs(3))
+        .expect("server should report disconnect");
+    assert!(disconnected, "server should observe client disconnect");
 
     handle.join().expect("server thread should join");
     Ok(())
