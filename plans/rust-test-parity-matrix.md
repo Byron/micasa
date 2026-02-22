@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 253 tests
+- Rust tests currently (`crates/`): 259 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -106,6 +106,8 @@
 - Added view parity tests from `internal/app/view_test.go` for status width stability, header sort/link indicators, and table title sort/pin/filter/hidden flag rendering in `crates/micasa-tui/src/lib.rs`.
 - Added SQL formatter/tokenizer parity surface and tests from `internal/llm/sqlfmt_test.go` in `crates/micasa-llm/src/lib.rs`.
 - Updated runtime NL→SQL pipeline to keep executing raw extracted SQL while emitting formatted SQL to UI/events in `crates/micasa-cli/src/runtime.rs`.
+- Added LLM client parity tests for stream server-error propagation, pull-model streaming scanner behavior, and generic JSON error sanitization in `crates/micasa-llm/tests/client_tests.rs`.
+- Added runtime parity tests for model selection and persistence paths: available-model switch, Ollama auto-pull fallback, and non-Ollama missing-model actionable failure in `crates/micasa-cli/src/runtime.rs`.
 
 ## Known Gaps
 

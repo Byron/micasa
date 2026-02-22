@@ -144,6 +144,39 @@ fn chat_stream_handles_partial_tokens_and_done_chunks() -> Result<()> {
 }
 
 #[test]
+fn chat_stream_surfaces_server_error_status() -> Result<()> {
+    let server =
+        Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+    let addr = format!("http://{}/v1", server.server_addr());
+
+    let handle = thread::spawn(move || {
+        let request = server.recv().expect("request expected");
+        assert_eq!(request.url(), "/v1/chat/completions");
+        let response = Response::from_string("model crashed")
+            .with_status_code(500)
+            .with_header(
+                Header::from_bytes("Content-Type", "text/plain")
+                    .expect("valid content type header"),
+            );
+        request.respond(response).expect("response should succeed");
+    });
+
+    let client = Client::new(&addr, "qwen3", Duration::from_secs(1))?;
+    let error = match client.chat_stream(&[Message {
+        role: Role::User,
+        content: "hello".to_owned(),
+    }]) {
+        Ok(_) => panic!("server error should fail"),
+        Err(error) => error,
+    };
+    let message = error.to_string();
+    assert!(message.contains("server error (500): model crashed"));
+
+    handle.join().expect("server thread should join");
+    Ok(())
+}
+
+#[test]
 fn ping_fails_actionably_when_model_is_missing() -> Result<()> {
     let server =
         Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
@@ -361,5 +394,91 @@ fn model_and_base_url_accessors_and_setter_work() -> Result<()> {
     assert_eq!(client.model(), "qwen3");
     client.set_model("qwen3:32b");
     assert_eq!(client.model(), "qwen3:32b");
+    Ok(())
+}
+
+#[test]
+fn pull_model_posts_to_ollama_api_and_streams_chunks() -> Result<()> {
+    let server =
+        Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+    let addr = format!("http://{}/v1", server.server_addr());
+
+    let handle = thread::spawn(move || {
+        let mut request = server.recv().expect("request expected");
+        assert_eq!(request.url(), "/api/pull");
+        assert_eq!(request.method().as_str(), "POST");
+
+        let mut body = String::new();
+        request
+            .as_reader()
+            .read_to_string(&mut body)
+            .expect("request body should be readable");
+        assert!(body.contains("\"name\":\"qwen3:32b\""));
+
+        let response_body = concat!(
+            "\n",
+            "{\"status\":\"pulling manifest\"}\n",
+            "not-json\n",
+            "{\"status\":\"success\",\"digest\":\"sha256:abc\"}\n",
+        );
+        let response = Response::from_string(response_body)
+            .with_status_code(200)
+            .with_header(
+                Header::from_bytes("Content-Type", "application/x-ndjson")
+                    .expect("valid content type header"),
+            );
+        request.respond(response).expect("response should succeed");
+    });
+
+    let client = Client::new(&addr, "qwen3", Duration::from_secs(1))?;
+    let mut scanner = client.pull_model("qwen3:32b")?;
+
+    let first = scanner
+        .next_chunk()?
+        .expect("first parsed chunk should exist");
+    assert_eq!(first.status.as_deref(), Some("pulling manifest"));
+
+    let second = scanner
+        .next_chunk()?
+        .expect("second parsed chunk should exist");
+    assert_eq!(second.status.as_deref(), Some("success"));
+    assert_eq!(second.digest.as_deref(), Some("sha256:abc"));
+
+    assert!(scanner.next_chunk()?.is_none());
+
+    handle.join().expect("server thread should join");
+    Ok(())
+}
+
+#[test]
+fn list_models_unparsable_json_error_hides_raw_body() -> Result<()> {
+    let server =
+        Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+    let addr = format!("http://{}/v1", server.server_addr());
+
+    let handle = thread::spawn(move || {
+        let request = server.recv().expect("request expected");
+        assert_eq!(request.url(), "/v1/models");
+        let response = Response::from_string(
+            r#"{"status":"failed","details":{"code":42,"trace":["a","b","c"]}}"#,
+        )
+        .with_status_code(500)
+        .with_header(
+            Header::from_bytes("Content-Type", "application/json")
+                .expect("valid content type header"),
+        );
+        request.respond(response).expect("response should succeed");
+    });
+
+    let client = Client::new(&addr, "qwen3", Duration::from_secs(1))?;
+    let error = client
+        .list_models()
+        .expect_err("unexpected json shape should return generic error");
+    let message = error.to_string();
+    assert!(message.contains("server returned 500"));
+    assert!(!message.contains("\"status\""));
+    assert!(!message.contains("\"details\""));
+
+    handle.join().expect("server thread should join");
     Ok(())
 }

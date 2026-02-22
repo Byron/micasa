@@ -1371,6 +1371,132 @@ mod tests {
     }
 
     #[test]
+    fn select_chat_model_sets_and_persists_when_available() -> Result<()> {
+        let server =
+            Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+        let addr = format!("http://{}/v1", server.server_addr());
+
+        let handle = thread::spawn(move || {
+            let request = server.recv().expect("request expected");
+            assert_eq!(request.url(), "/v1/models");
+            let response = Response::from_string(r#"{"data":[{"id":"qwen3"},{"id":"qwen3:32b"}]}"#)
+                .with_status_code(200)
+                .with_header(
+                    Header::from_bytes("Content-Type", "application/json")
+                        .expect("valid content type header"),
+                );
+            request.respond(response).expect("response should succeed");
+        });
+
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let client = LlmClient::new(&addr, "qwen3", Duration::from_secs(1))?;
+        let mut runtime =
+            DbRuntime::with_llm_client_context_and_db_path(&store, Some(client), "", None);
+        runtime.select_chat_model("qwen3:32b")?;
+
+        assert_eq!(store.get_last_model()?, Some("qwen3:32b".to_owned()));
+        assert_eq!(runtime.active_chat_model()?, Some("qwen3:32b".to_owned()));
+
+        handle.join().expect("server thread should join");
+        Ok(())
+    }
+
+    #[test]
+    fn select_chat_model_ollama_auto_pull_succeeds_and_persists() -> Result<()> {
+        let server =
+            Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+        let addr = format!("http://{}/v1-11434", server.server_addr());
+
+        let handle = thread::spawn(move || {
+            let request_one = server.recv().expect("request expected");
+            assert_eq!(request_one.url(), "/v1-11434/models");
+            let response_one = Response::from_string(r#"{"data":[{"id":"qwen3"}]}"#)
+                .with_status_code(200)
+                .with_header(
+                    Header::from_bytes("Content-Type", "application/json")
+                        .expect("valid content type header"),
+                );
+            request_one
+                .respond(response_one)
+                .expect("response should succeed");
+
+            let mut request_two = server.recv().expect("request expected");
+            assert_eq!(request_two.url(), "/v1-11434/api/pull");
+            assert_eq!(request_two.method().as_str(), "POST");
+
+            let mut body = String::new();
+            request_two
+                .as_reader()
+                .read_to_string(&mut body)
+                .expect("request body should be readable");
+            assert!(body.contains("\"name\":\"qwen3:32b\""));
+
+            let response_two = Response::from_string(
+                "{\"status\":\"pulling manifest\"}\n{\"status\":\"success\"}\n",
+            )
+            .with_status_code(200)
+            .with_header(
+                Header::from_bytes("Content-Type", "application/x-ndjson")
+                    .expect("valid content type header"),
+            );
+            request_two
+                .respond(response_two)
+                .expect("response should succeed");
+        });
+
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let client = LlmClient::new(&addr, "qwen3", Duration::from_secs(1))?;
+        let mut runtime =
+            DbRuntime::with_llm_client_context_and_db_path(&store, Some(client), "", None);
+
+        runtime.select_chat_model("qwen3:32b")?;
+        assert_eq!(store.get_last_model()?, Some("qwen3:32b".to_owned()));
+
+        handle.join().expect("server thread should join");
+        Ok(())
+    }
+
+    #[test]
+    fn select_chat_model_reports_missing_model_for_non_ollama_endpoints() -> Result<()> {
+        let server =
+            Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+        let addr = format!("http://{}/v1", server.server_addr());
+
+        let handle = thread::spawn(move || {
+            let request = server.recv().expect("request expected");
+            assert_eq!(request.url(), "/v1/models");
+            let response = Response::from_string(r#"{"data":[{"id":"qwen3"}]}"#)
+                .with_status_code(200)
+                .with_header(
+                    Header::from_bytes("Content-Type", "application/json")
+                        .expect("valid content type header"),
+                );
+            request.respond(response).expect("response should succeed");
+        });
+
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let client = LlmClient::new(&addr, "qwen3", Duration::from_secs(1))?;
+        let mut runtime =
+            DbRuntime::with_llm_client_context_and_db_path(&store, Some(client), "", None);
+
+        let error = runtime
+            .select_chat_model("qwen3:32b")
+            .expect_err("missing model should fail for non-ollama endpoints");
+        let message = error.to_string();
+        assert!(message.contains("not found on server"));
+        assert!(message.contains("/models"));
+
+        handle.join().expect("server thread should join");
+        Ok(())
+    }
+
+    #[test]
     fn chat_pipeline_fails_actionably_when_llm_disabled() -> Result<()> {
         let store = Store::open_memory()?;
         store.bootstrap()?;
