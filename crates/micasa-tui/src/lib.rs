@@ -10627,6 +10627,151 @@ mod tests {
     }
 
     #[test]
+    fn header_label_multi_sort_preserves_money_suffix() {
+        let projection = super::TableProjection {
+            title: "quotes",
+            columns: vec!["id", "total"],
+            rows: vec![super::TableRowProjection {
+                cells: vec![
+                    super::TableCell::Integer(1),
+                    super::TableCell::Money(Some(523_423)),
+                ],
+                deleted: false,
+                tag: None,
+            }],
+        };
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Quotes),
+            sorts: vec![
+                super::SortSpec {
+                    column: 0,
+                    direction: SortDirection::Asc,
+                },
+                super::SortSpec {
+                    column: 1,
+                    direction: SortDirection::Desc,
+                },
+            ],
+            ..super::TableUiState::default()
+        };
+
+        let label = header_label_for_column(&projection, &table_state, 1);
+        assert!(label.contains('$'));
+        assert!(label.contains("▼2"));
+    }
+
+    #[test]
+    fn header_label_multi_sort_preserves_drill_indicator() {
+        let projection = super::TableProjection {
+            title: "projects",
+            columns: vec!["id", "title", "status", "budget", "start", "quotes"],
+            rows: vec![super::TableRowProjection {
+                cells: vec![
+                    super::TableCell::Integer(1),
+                    super::TableCell::Text("Kitchen".to_owned()),
+                    super::TableCell::ProjectStatus(ProjectStatus::Underway),
+                    super::TableCell::Money(Some(120_000)),
+                    super::TableCell::Date(Some(
+                        super::Date::from_calendar_date(2026, super::Month::January, 1)
+                            .expect("valid date"),
+                    )),
+                    super::TableCell::Integer(2),
+                ],
+                deleted: false,
+                tag: Some(super::RowTag::ProjectStatus(ProjectStatus::Underway)),
+            }],
+        };
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Projects),
+            sorts: vec![
+                super::SortSpec {
+                    column: 1,
+                    direction: SortDirection::Asc,
+                },
+                super::SortSpec {
+                    column: 5,
+                    direction: SortDirection::Desc,
+                },
+            ],
+            ..super::TableUiState::default()
+        };
+
+        let label = header_label_for_column(&projection, &table_state, 5);
+        assert!(label.contains(super::DRILL_ARROW));
+        assert!(label.contains("▼2"));
+    }
+
+    #[test]
+    fn header_label_link_indicator_requires_positive_link_target() {
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Quotes),
+            ..super::TableUiState::default()
+        };
+
+        let no_links_projection = super::TableProjection {
+            title: "quotes",
+            columns: vec!["id", "project", "vendor"],
+            rows: vec![
+                super::TableRowProjection {
+                    cells: vec![
+                        super::TableCell::Integer(1),
+                        super::TableCell::Integer(0),
+                        super::TableCell::Integer(8),
+                    ],
+                    deleted: false,
+                    tag: None,
+                },
+                super::TableRowProjection {
+                    cells: vec![
+                        super::TableCell::Integer(2),
+                        super::TableCell::Integer(0),
+                        super::TableCell::Integer(9),
+                    ],
+                    deleted: false,
+                    tag: None,
+                },
+            ],
+        };
+        let no_links = header_label_for_column(&no_links_projection, &table_state, 1);
+        assert!(!no_links.contains(super::LINK_ARROW));
+
+        let with_link_projection = super::TableProjection {
+            title: "quotes",
+            columns: vec!["id", "project", "vendor"],
+            rows: vec![
+                super::TableRowProjection {
+                    cells: vec![
+                        super::TableCell::Integer(1),
+                        super::TableCell::Integer(0),
+                        super::TableCell::Integer(8),
+                    ],
+                    deleted: false,
+                    tag: None,
+                },
+                super::TableRowProjection {
+                    cells: vec![
+                        super::TableCell::Integer(2),
+                        super::TableCell::Integer(5),
+                        super::TableCell::Integer(9),
+                    ],
+                    deleted: false,
+                    tag: None,
+                },
+            ],
+        };
+        let with_link = header_label_for_column(&with_link_projection, &table_state, 1);
+        assert!(with_link.contains(super::LINK_ARROW));
+
+        let empty_projection = super::TableProjection {
+            title: "quotes",
+            columns: vec!["id", "project", "vendor"],
+            rows: vec![],
+        };
+        let empty = header_label_for_column(&empty_projection, &table_state, 1);
+        assert!(!empty.contains(super::LINK_ARROW));
+    }
+
+    #[test]
     fn status_text_width_stays_stable_when_filter_state_changes() {
         let mut state = AppState {
             active_tab: TabKind::Quotes,

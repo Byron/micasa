@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 449 tests
+- Rust tests currently (`crates/`): 452 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -57,7 +57,7 @@
 | `internal/app/testmain_test.go` | 1 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go `TestMain` seed/env harness is package-level test bootstrap plumbing; Rust tests use explicit fixture builders/seeds directly and do not require a `TestMain` equivalent. |
 | `internal/app/undo_test.go` | 15 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/vendor_test.go` | 13 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/view_test.go` | 72 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/view_test.go` | 72 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers status-width stability, table-title metadata, active-tab filter markers, single- and multi-sort header indicators, money/drill suffix preservation under multi-sort, and link-arrow gating on positive FK targets only (including all-zero/empty cases); width-allocation and ANSI-style Go renderer internals remain architecture-specific. |
 | `internal/config/config_test.go` | 19 | `crates/micasa-cli/src/config.rs` | partial | Config v2 semantics intentionally differ; migration/error behavior plus DB-path precedence (`[storage].db_path` vs `MICASA_DB_PATH` vs default) are covered, with legacy v1/env surface intentionally excluded. |
 | `internal/data/bench_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | n/a | Go file is benchmark-only (`Benchmark*`) query-throughput coverage. Rust behavior parity is gated by functional/regression tests rather than benchmark ports. |
 | `internal/data/dashboard_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Dashboard helper/query parity is covered for active-project filtering, scheduled maintenance filtering, open-incident ordering, warranty windows, recent service-log limits, and spend calculations/regressions. |
@@ -165,6 +165,7 @@
 - Added mode-transition parity tests from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs` for Enter-on-plain-cell guidance, help-overlay mode-key absorption and round-trip toggle, nav Esc status clear behavior, nav `d` row movement without delete dispatch, and edit-mode `i` no-op semantics.
 - Added column-finder parity tests and behavior from Go `internal/app/column_finder_test.go` in `crates/micasa-tui/src/lib.rs`, including slash open/blocking semantics, query edit controls (typing/backspace/UTF-8 backspace/ctrl+u clear), cursor clamp after re-filter, navigation clamp/esc close behavior, and overlay rendering assertions.
 - Added chat parity tests from Go `internal/app/chat_test.go` in `crates/micasa-tui/src/lib.rs` for partial-output cancel annotation, late SQL pipeline event dropping after cancellation, and mag-mode toggles over already-rendered chat responses; also fixed `ctrl+c` cancellation behavior to append `(interrupted)` when partial output exists.
+- Added additional view/header parity tests from Go `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs` for multi-sort header stability (money `$` and drill arrow suffix preservation) and link-indicator gating based on positive link targets only (including all-zero and empty-row cases).
 
 ## Known Gaps
 
