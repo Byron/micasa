@@ -11216,6 +11216,52 @@ mod tests {
     }
 
     #[test]
+    fn keybinding_script_filter_and_column_flow_matches_docs() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+        let (tx, rx) = internal_channel();
+
+        run_key_script(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            &rx,
+            &[
+                KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+                KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT),
+                KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+                KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+                KeyEvent::new(KeyCode::Char('C'), KeyModifiers::SHIFT),
+            ],
+        );
+
+        assert!(view_data.table_state.pin.is_none());
+        assert!(!view_data.table_state.filter_active);
+        assert!(!view_data.table_state.filter_inverted);
+        assert!(view_data.table_state.hidden_columns.is_empty());
+        assert!(!view_data.column_finder.visible);
+        assert_eq!(state.status_line.as_deref(), Some("all columns shown"));
+
+        let projection = super::active_projection(&view_data).expect("active projection");
+        assert_eq!(
+            projection.columns[view_data.table_state.selected_col],
+            "actual"
+        );
+    }
+
+    #[test]
     fn edit_mode_delete_and_undo_redo_dispatch_runtime_calls() {
         let mut state = AppState {
             active_tab: TabKind::Projects,

@@ -2,12 +2,15 @@
 // Licensed under the Apache License, Version 2.0
 
 use anyhow::Result;
-use micasa_app::{DocumentEntityKind, IncidentSeverity, IncidentStatus, ProjectStatus};
+use micasa_app::{
+    DocumentEntityKind, IncidentSeverity, IncidentStatus, ProjectStatus, SettingKey, SettingValue,
+};
 use micasa_db::{
     HouseProfileInput, LifecycleEntityRef, NewAppliance, NewDocument, NewIncident,
     NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, SeedSummary, Store,
-    UpdateAppliance, UpdateDocument, UpdateMaintenanceItem, UpdateProject, UpdateQuote,
-    UpdateServiceLogEntry, UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
+    UpdateAppliance, UpdateDocument, UpdateIncident, UpdateMaintenanceItem, UpdateProject,
+    UpdateQuote, UpdateServiceLogEntry, UpdateVendor, default_db_path, document_cache_dir,
+    evict_stale_cache, validate_db_path,
 };
 use std::collections::BTreeSet;
 use std::fs;
@@ -27,6 +30,38 @@ fn days_ago(days: u64) -> SystemTime {
     SystemTime::now()
         .checked_sub(Duration::from_secs(days * 24 * 60 * 60))
         .expect("system clock should support subtraction")
+}
+
+fn house_profile_input(nickname: &str, city: &str) -> HouseProfileInput {
+    HouseProfileInput {
+        nickname: nickname.to_owned(),
+        address_line_1: "123 Test St".to_owned(),
+        address_line_2: String::new(),
+        city: city.to_owned(),
+        state: "OR".to_owned(),
+        postal_code: "97201".to_owned(),
+        year_built: Some(1999),
+        square_feet: Some(1800),
+        lot_square_feet: Some(5000),
+        bedrooms: Some(3),
+        bathrooms: Some(2.0),
+        foundation_type: "Slab".to_owned(),
+        wiring_type: "Copper".to_owned(),
+        roof_type: "Asphalt".to_owned(),
+        exterior_type: "Siding".to_owned(),
+        heating_type: "Gas".to_owned(),
+        cooling_type: "Central".to_owned(),
+        water_source: "Municipal".to_owned(),
+        sewer_type: "Municipal".to_owned(),
+        parking_type: "Driveway".to_owned(),
+        basement_type: "None".to_owned(),
+        insurance_carrier: "Carrier".to_owned(),
+        insurance_policy: "POL-123".to_owned(),
+        insurance_renewal: Some(Date::from_calendar_date(2026, Month::July, 1).expect("date")),
+        property_tax_cents: Some(300_000),
+        hoa_name: String::new(),
+        hoa_fee_cents: None,
+    }
 }
 
 #[test]
@@ -120,6 +155,23 @@ fn store_open_rejects_uri_paths() {
             "Store::open({candidate:?}) should reject URI-style input"
         );
     }
+}
+
+#[test]
+fn default_db_path_uses_env_override_or_micasa_suffix() -> Result<()> {
+    let configured = std::env::var("MICASA_DB_PATH").ok();
+    let path = default_db_path()?;
+
+    if let Some(raw) = configured {
+        assert_eq!(path, std::path::PathBuf::from(raw));
+    } else {
+        assert_eq!(
+            path.file_name().and_then(std::ffi::OsStr::to_str),
+            Some("micasa.db")
+        );
+    }
+
+    Ok(())
 }
 
 #[test]
@@ -223,6 +275,58 @@ fn bootstrap_accepts_go_schema_fixture_db() -> Result<()> {
         categories.iter().any(|entry| entry.name == "Safety"),
         "fixture should include seeded maintenance categories"
     );
+    Ok(())
+}
+
+#[test]
+fn sqlite_pragmas_are_configured_on_open_and_reopen() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let db_path = temp_dir.path().join("pragma.db");
+
+    {
+        let store = Store::open(&db_path)?;
+        store.bootstrap()?;
+
+        let foreign_keys: i64 =
+            store
+                .raw_connection()
+                .query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+        assert_eq!(foreign_keys, 1);
+
+        let journal_mode: String =
+            store
+                .raw_connection()
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+        assert!(journal_mode.eq_ignore_ascii_case("wal"));
+
+        let synchronous: i64 =
+            store
+                .raw_connection()
+                .query_row("PRAGMA synchronous", [], |row| row.get(0))?;
+        assert_eq!(synchronous, 1);
+
+        let busy_timeout: i64 =
+            store
+                .raw_connection()
+                .query_row("PRAGMA busy_timeout", [], |row| row.get(0))?;
+        assert_eq!(busy_timeout, 5_000);
+    }
+
+    {
+        let store = Store::open(&db_path)?;
+        let foreign_keys: i64 =
+            store
+                .raw_connection()
+                .query_row("PRAGMA foreign_keys", [], |row| row.get(0))?;
+        assert_eq!(foreign_keys, 1);
+
+        let journal_mode: String =
+            store
+                .raw_connection()
+                .query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+        assert!(journal_mode.eq_ignore_ascii_case("wal"));
+    }
+
     Ok(())
 }
 
@@ -711,6 +815,125 @@ fn dashboard_query_helpers_filter_and_summarize() -> Result<()> {
     assert_eq!(ytd, 6_000);
     assert_eq!(store.total_project_spend_cents()?, 60_000);
 
+    Ok(())
+}
+
+#[test]
+fn dashboard_counts_tracks_due_projects_maintenance_and_open_incidents() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    store.create_project(&NewProject {
+        title: "Planned".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    store.create_project(&NewProject {
+        title: "Underway".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Underway,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    store.create_project(&NewProject {
+        title: "Completed".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Completed,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    store.create_maintenance_item(&NewMaintenanceItem {
+        name: "No service date".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Clearly due".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: Some(Date::from_calendar_date(2020, Month::January, 1)?),
+        interval_months: 1,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Not due".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: Some(Date::from_calendar_date(2099, Month::January, 1)?),
+        interval_months: 12,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    store.create_incident(&NewIncident {
+        title: "Open".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Soon,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 2)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+    store.create_incident(&NewIncident {
+        title: "In progress".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::InProgress,
+        severity: IncidentSeverity::Urgent,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 2)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+    store.create_incident(&NewIncident {
+        title: "Resolved".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Resolved,
+        severity: IncidentSeverity::Whenever,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 2)?,
+        date_resolved: Some(Date::from_calendar_date(2026, Month::January, 3)?),
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+
+    let counts = store.dashboard_counts()?;
+    assert_eq!(counts.projects_due, 2);
+    assert_eq!(counts.maintenance_due, 2);
+    assert_eq!(counts.incidents_open, 2);
     Ok(())
 }
 
@@ -1273,6 +1496,92 @@ fn deleting_service_log_with_documents_is_allowed_and_preserves_document_rows() 
     assert_eq!(documents[0].id, document_id);
     assert_eq!(documents[0].entity_id, service_log_id.get());
     assert_eq!(documents[0].entity_kind, DocumentEntityKind::ServiceLog);
+    Ok(())
+}
+
+#[test]
+fn settings_round_trip_and_defaults_via_generic_api() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    assert_eq!(store.get_setting(SettingKey::UiShowDashboard)?, None);
+    assert_eq!(store.get_setting(SettingKey::LlmModel)?, None);
+
+    let defaults = store.list_settings()?;
+    assert!(
+        defaults
+            .iter()
+            .any(|setting| setting.key == SettingKey::UiShowDashboard
+                && setting.value == SettingValue::Bool(true))
+    );
+    assert!(
+        defaults
+            .iter()
+            .any(|setting| setting.key == SettingKey::LlmModel
+                && setting.value == SettingValue::Text(String::new()))
+    );
+
+    store.put_setting(SettingKey::UiShowDashboard, SettingValue::Bool(false))?;
+    store.put_setting(
+        SettingKey::LlmModel,
+        SettingValue::Text("qwen3:32b".to_owned()),
+    )?;
+
+    assert_eq!(
+        store.get_setting(SettingKey::UiShowDashboard)?,
+        Some(SettingValue::Bool(false))
+    );
+    assert_eq!(
+        store.get_setting(SettingKey::LlmModel)?,
+        Some(SettingValue::Text("qwen3:32b".to_owned()))
+    );
+
+    let settings = store.list_settings()?;
+    assert!(
+        settings
+            .iter()
+            .any(|setting| setting.key == SettingKey::UiShowDashboard
+                && setting.value == SettingValue::Bool(false))
+    );
+    assert!(
+        settings
+            .iter()
+            .any(|setting| setting.key == SettingKey::LlmModel
+                && setting.value == SettingValue::Text("qwen3:32b".to_owned()))
+    );
+    Ok(())
+}
+
+#[test]
+fn put_setting_rejects_wrong_value_kind() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let bool_as_text = store
+        .put_setting(
+            SettingKey::UiShowDashboard,
+            SettingValue::Text("off".to_owned()),
+        )
+        .expect_err("bool setting should reject text value");
+    assert!(bool_as_text.to_string().contains("expected Bool value"));
+
+    let text_as_bool = store
+        .put_setting(SettingKey::LlmModel, SettingValue::Bool(true))
+        .expect_err("text setting should reject bool value");
+    assert!(text_as_bool.to_string().contains("expected Text value"));
+    Ok(())
+}
+
+#[test]
+fn show_dashboard_override_reports_presence_correctly() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    assert_eq!(store.get_show_dashboard_override()?, None);
+    store.put_show_dashboard(false)?;
+    assert_eq!(store.get_show_dashboard_override()?, Some(false));
+    store.put_show_dashboard(true)?;
+    assert_eq!(store.get_show_dashboard_override()?, Some(true));
     Ok(())
 }
 
@@ -2087,6 +2396,123 @@ fn incident_crud_and_restore_parent_guards() -> Result<()> {
 }
 
 #[test]
+fn incident_update_persists_fields_and_optional_parent_links() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Water Heater".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Fixers".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Leak".to_owned(),
+        description: "Initial".to_owned(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Soon,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 3)?,
+        date_resolved: None,
+        location: "Garage".to_owned(),
+        cost_cents: None,
+        appliance_id: Some(appliance_id),
+        vendor_id: Some(vendor_id),
+        notes: String::new(),
+    })?;
+
+    store.update_incident(
+        incident_id,
+        &UpdateIncident {
+            title: "Leak fixed".to_owned(),
+            description: "Resolved and tested".to_owned(),
+            status: IncidentStatus::Resolved,
+            severity: IncidentSeverity::Whenever,
+            date_noticed: Date::from_calendar_date(2026, Month::January, 3)?,
+            date_resolved: Some(Date::from_calendar_date(2026, Month::January, 6)?),
+            location: "Garage".to_owned(),
+            cost_cents: Some(12_500),
+            appliance_id: None,
+            vendor_id: None,
+            notes: "completed".to_owned(),
+        },
+    )?;
+
+    let updated = store
+        .list_incidents(false)?
+        .into_iter()
+        .find(|incident| incident.id == incident_id)
+        .expect("updated incident should be present");
+    assert_eq!(updated.title, "Leak fixed");
+    assert_eq!(updated.description, "Resolved and tested");
+    assert_eq!(updated.status, IncidentStatus::Resolved);
+    assert_eq!(updated.severity, IncidentSeverity::Whenever);
+    assert_eq!(
+        updated.date_resolved,
+        Some(Date::from_calendar_date(2026, Month::January, 6)?)
+    );
+    assert_eq!(updated.cost_cents, Some(12_500));
+    assert_eq!(updated.appliance_id, None);
+    assert_eq!(updated.vendor_id, None);
+    assert_eq!(updated.notes, "completed");
+    Ok(())
+}
+
+#[test]
+fn incident_update_rejects_deleted_rows_with_actionable_error() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Trip".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Whenever,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 1)?,
+        date_resolved: None,
+        location: String::new(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+    store.soft_delete_incident(incident_id)?;
+
+    let error = store
+        .update_incident(
+            incident_id,
+            &UpdateIncident {
+                title: "Updated".to_owned(),
+                description: String::new(),
+                status: IncidentStatus::Open,
+                severity: IncidentSeverity::Whenever,
+                date_noticed: Date::from_calendar_date(2026, Month::January, 1)?,
+                date_resolved: None,
+                location: String::new(),
+                cost_cents: None,
+                appliance_id: None,
+                vendor_id: None,
+                notes: String::new(),
+            },
+        )
+        .expect_err("updating a deleted incident should fail");
+    assert!(error.to_string().contains("not found or deleted"));
+    Ok(())
+}
+
+#[test]
 fn incident_restore_blocked_by_deleted_appliance() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -2541,6 +2967,52 @@ fn maintenance_item_update_persists_fields() -> Result<()> {
     assert_eq!(item.manual_text, "Steps");
     assert_eq!(item.notes, "quarterly");
     assert_eq!(item.cost_cents, Some(3_500));
+    Ok(())
+}
+
+#[test]
+fn create_house_profile_enforces_single_record() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let first = house_profile_input("Primary Residence", "Portland");
+    let first_id = store.create_house_profile(&first)?;
+    let fetched = store
+        .get_house_profile()?
+        .expect("house profile should exist after create");
+    assert_eq!(fetched.id, first_id);
+    assert_eq!(fetched.nickname, "Primary Residence");
+
+    let second = house_profile_input("Second Home", "Seattle");
+    let error = store
+        .create_house_profile(&second)
+        .expect_err("creating a second house profile should fail");
+    assert!(error.to_string().contains("already exists"));
+    Ok(())
+}
+
+#[test]
+fn update_house_profile_requires_existing_row_then_persists_changes() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let missing_error = store
+        .update_house_profile(&house_profile_input("No Profile", "Nowhere"))
+        .expect_err("update should fail before any profile exists");
+    assert!(
+        missing_error
+            .to_string()
+            .contains("create one before updating")
+    );
+
+    store.create_house_profile(&house_profile_input("Primary Residence", "Portland"))?;
+    store.update_house_profile(&house_profile_input("Primary Residence", "Seattle"))?;
+
+    let updated = store
+        .get_house_profile()?
+        .expect("house profile should exist after update");
+    assert_eq!(updated.nickname, "Primary Residence");
+    assert_eq!(updated.city, "Seattle");
     Ok(())
 }
 

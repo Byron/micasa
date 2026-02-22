@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 457 tests
+- Rust tests currently (`crates/`): 468 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -68,7 +68,7 @@
 | `internal/data/settings_test.go` | 10 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Typed settings/chat-history parity is covered for defaults, round-trip updates, dedupe behavior, non-consecutive duplicates, and dashboard toggle semantics. |
 | `internal/data/sqlite/ddlmod_test.go` | 9 | `crates/micasa-db/src/lib.rs` | n/a | Go GORM sqlite dialector internals removed in Rust; behavior covered via rusqlite integration tests. |
 | `internal/data/sqlite/sqlite_test.go` | 11 | `crates/micasa-db/src/lib.rs` | n/a | Go GORM sqlite dialector internals removed in Rust; behavior covered via rusqlite integration tests. |
-| `internal/data/store_test.go` | 90 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
+| `internal/data/store_test.go` | 90 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists, including direct coverage for house-profile create/update paths, incident updates, dashboard counts, generic typed settings APIs, and sqlite pragma configuration; substantial long-tail test ports remain. |
 | `internal/data/testmain_test.go` | 1 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | n/a | Go `TestMain` seed/env harness is package-level test bootstrap plumbing; Rust DB tests set deterministic seeds within fixtures and do not require a `TestMain` equivalent. |
 | `internal/data/validate_path_test.go` | 4 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Path-validation parity is covered with table-driven valid/invalid cases (URI/file/query/empty/edge forms), URL-like rejection checks, and `Store::open` URI rejection tests. |
 | `internal/data/validation_test.go` | 36 | `crates/micasa-db/src/validation.rs` | ported | Full money/date/interval parser+formatter suite ported with overflow and month-end clamping regressions. |
@@ -168,6 +168,8 @@
 - Added additional view/header parity tests from Go `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs` for multi-sort header stability (money `$` and drill arrow suffix preservation) and link-indicator gating based on positive link targets only (including all-zero and empty-row cases).
 - Added additional detail-stack parity tests from Go `internal/app/detail_test.go` in `crates/micasa-tui/src/lib.rs` for push/pop parent context restoration (snapshot/table state + overlay reset) and nested `close_all_detail_snapshots` restoration of the root table state.
 - Added additional view/header parity tests from Go `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs` for multi-sort short-title retention, leading-space single-sort indicators, and stricter positive-only link-target helper behavior across integer and optional-integer cell variants.
+- Added additional `internal/data/store_test.go` parity and API-surface confidence tests in `crates/micasa-db/tests/store_tests.rs` for direct house-profile create/update behavior (including precondition errors), incident update persistence/guards, dashboard aggregate counts, generic typed settings round-trip/kind validation/override behavior, `default_db_path` override/fallback behavior, and sqlite PRAGMA persistence across reopen.
+- Added an additional docs-derived scripted interaction parity test in `crates/micasa-tui/src/lib.rs` for filter/pin/invert/clear plus column-finder jump and column hide/show keybinding flow.
 
 ## Known Gaps
 
