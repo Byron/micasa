@@ -7440,6 +7440,185 @@ mod tests {
     }
 
     #[test]
+    fn selected_row_metadata_uses_detail_tab_rows() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..6 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        let selected = super::selected_row_metadata(&view_data).map(|(row_id, _)| row_id);
+        assert_eq!(selected, Some(2));
+    }
+
+    #[test]
+    fn selected_cell_uses_detail_tab_projection() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..6 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        let selected = super::selected_cell(&view_data).map(|(_, value)| value.display());
+        assert_eq!(selected.as_deref(), Some("HVAC filter"));
+    }
+
+    #[test]
+    fn sort_command_works_while_detail_stack_is_open() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..6 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert!(view_data.table_state.sorts.is_empty());
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(view_data.table_state.sorts.len(), 1);
+        assert_eq!(view_data.table_state.sorts[0].column, 0);
+        assert_eq!(view_data.table_state.sorts[0].direction, SortDirection::Asc);
+    }
+
+    #[test]
+    fn close_all_detail_snapshots_collapses_nested_stack() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..6 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        for _ in 0..7 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.detail_stack.len(), 2);
+
+        super::close_all_detail_snapshots(&mut view_data);
+        assert!(view_data.detail_stack.is_empty());
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Appliances));
+    }
+
+    #[test]
+    fn close_all_detail_snapshots_is_noop_when_stack_is_empty() {
+        let mut view_data = view_data_for_test();
+        view_data.table_state.tab = Some(TabKind::Projects);
+        view_data.table_state.selected_row = 1;
+        view_data.table_state.selected_col = 2;
+        assert!(view_data.detail_stack.is_empty());
+
+        super::close_all_detail_snapshots(&mut view_data);
+
+        assert!(view_data.detail_stack.is_empty());
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Projects));
+        assert_eq!(view_data.table_state.selected_row, 1);
+        assert_eq!(view_data.table_state.selected_col, 2);
+    }
+
+    #[test]
     fn project_drilldowns_filter_quotes_and_documents() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
