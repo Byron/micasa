@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 424 tests
+- Rust tests currently (`crates/`): 428 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -32,7 +32,7 @@
 | `internal/app/calendar_test.go` | 22 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/chat_test.go` | 12 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/column_finder_test.go` | 27 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/compact_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Interval/status-label compaction and compact-money/header annotation helpers remain unported as first-class TUI helpers; Rust currently covers adjacent money/interval formatting in validation/runtime layers but not the full compact renderer helper surface. |
+| `internal/app/compact_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers compact interval rendering, typed status/severity short labels, compact money cell display, and `$` header annotation in the table projection/render pipeline; Go-only status-style map assertions and exact `cell.Null` transform semantics are architecture-specific and remain n/a-equivalent gaps. |
 | `internal/app/dashboard_load_test.go` | 9 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Runtime parity now covers overdue/upcoming classification, active-project filtering, and warranty-window inclusion/exclusion; remaining Go-specific coverage (including insurance-renewal surface) is still open. |
 | `internal/app/dashboard_rows_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Dashboard nav row parity now covers overdue/upcoming/warranty relative-duration text, entry target kinds, project/status rows, recent-activity rows, and empty snapshots; style-specific and extra-column parity remains open. |
 | `internal/app/dashboard_test.go` | 33 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -48,7 +48,7 @@
 | `internal/app/inline_input_test.go` | 9 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/lazy_reload_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go stale-flag reload internals (`Tab.Stale`, lazy clear-on-visit) were replaced by Rust’s direct snapshot refresh flow on state transitions/navigation, so there is no one-to-one stale-flag mechanism to port. |
 | `internal/app/lighter_forms_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/mag_test.go` | 14 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers ctrl+o toggle behavior, rounded order-of-magnitude formatters, prose money/bare-number mag transforms, and typed table-cell mag rules (numeric-only, text/date untouched); remaining Go helpers around tab-wide pin-translation and full cell-grid transform plumbing are not 1:1 in the typed Rust table model. |
+| `internal/app/mag_test.go` | 14 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers ctrl+o toggling, rounded order-of-magnitude formatters, prose money/bare-number mag transforms, typed table-cell mag gating, and table-money mag rendering without unit (header carries `$`); remaining Go pin-translation helper semantics are not 1:1 in Rust’s typed pin/table model. |
 | `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/notes_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Note-preview parity is covered for enter-to-open, empty-note no-op with status, any-key dismiss/key swallowing, overlay text rendering/close hint, and contextual `enter` hint semantics on notes columns. |
 | `internal/app/overlay_status_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Overlay status suppression parity is covered for dashboard/help/note-preview/column-finder/date-picker overlays plus no-overlay fallback, including hidden vs visible primary keybinding hints. |
@@ -160,6 +160,7 @@
 - Reclassified `internal/app/lazy_reload_test.go` to `n/a` because Go stale-flag lazy-reload internals were removed in Rust’s snapshot-refresh architecture.
 - Added dashboard parity tests in `crates/micasa-cli/src/runtime.rs` and `crates/micasa-tui/src/lib.rs` for maintenance overdue/upcoming classification, active-project filtering, warranty-window inclusion, and dashboard nav row/label formatting with typed target entry checks.
 - Added mag-mode parity tests and behavior fixes in `crates/micasa-tui/src/lib.rs` for rounded magnitude formatting (`log10` rounding semantics), prose token transforms (money and bare numbers in one pass), and typed table-cell gating so text/date columns are no longer transformed under mag mode.
+- Added compact-surface parity in `crates/micasa-tui/src/lib.rs`: typed status/severity compact labels, compact interval rendering (`1y 6m`), compact money cell formatting with header-level `$` annotation, and projection-level regression coverage that exercises these behaviors through the table pipeline.
 
 ## Known Gaps
 

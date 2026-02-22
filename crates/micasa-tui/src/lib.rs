@@ -283,6 +283,10 @@ enum TableCell {
     Decimal(Option<f64>),
     Date(Option<Date>),
     Money(Option<i64>),
+    IntervalMonths(i32),
+    ProjectStatus(ProjectStatus),
+    IncidentStatus(micasa_app::IncidentStatus),
+    IncidentSeverity(IncidentSeverity),
 }
 
 impl TableCell {
@@ -296,8 +300,14 @@ impl TableCell {
             Self::Decimal(None) => String::new(),
             Self::Date(Some(value)) => value.to_string(),
             Self::Date(None) => String::new(),
-            Self::Money(Some(cents)) => format_money(*cents),
+            Self::Money(Some(cents)) => format_compact_money(*cents),
             Self::Money(None) => String::new(),
+            Self::IntervalMonths(months) => format_interval_months(*months),
+            Self::ProjectStatus(status) => status_label_for_project_status(*status).to_owned(),
+            Self::IncidentStatus(status) => status_label_for_incident_status(*status).to_owned(),
+            Self::IncidentSeverity(severity) => {
+                status_label_for_incident_severity(*severity).to_owned()
+            }
         }
     }
 
@@ -315,8 +325,14 @@ impl TableCell {
             Self::Decimal(None) => String::new(),
             Self::Date(Some(value)) => value.to_string(),
             Self::Date(None) => String::new(),
-            Self::Money(Some(cents)) => format_magnitude_money(*cents),
+            Self::Money(Some(cents)) => format_magnitude_money_without_unit(*cents),
             Self::Money(None) => String::new(),
+            Self::IntervalMonths(months) => format_interval_months(*months),
+            Self::ProjectStatus(status) => status_label_for_project_status(*status).to_owned(),
+            Self::IncidentStatus(status) => status_label_for_incident_status(*status).to_owned(),
+            Self::IncidentSeverity(severity) => {
+                status_label_for_incident_severity(*severity).to_owned()
+            }
         }
     }
 
@@ -342,6 +358,18 @@ impl TableCell {
             },
             (Self::Date(left), Self::Date(right)) => left.cmp(right),
             (Self::Money(left), Self::Money(right)) => left.cmp(right),
+            (Self::IntervalMonths(left), Self::IntervalMonths(right)) => left.cmp(right),
+            (Self::ProjectStatus(left), Self::ProjectStatus(right)) => {
+                status_label_for_project_status(*left).cmp(status_label_for_project_status(*right))
+            }
+            (Self::IncidentStatus(left), Self::IncidentStatus(right)) => {
+                status_label_for_incident_status(*left)
+                    .cmp(status_label_for_incident_status(*right))
+            }
+            (Self::IncidentSeverity(left), Self::IncidentSeverity(right)) => {
+                status_label_for_incident_severity(*left)
+                    .cmp(status_label_for_incident_severity(*right))
+            }
             (Self::Text(left), Self::Text(right)) => {
                 left.to_ascii_lowercase().cmp(&right.to_ascii_lowercase())
             }
@@ -3405,7 +3433,7 @@ fn dashboard_nav_entries(snapshot: &DashboardSnapshot) -> Vec<(DashboardNavEntry
                 format!(
                     "{} | {} | {}d",
                     incident.title,
-                    incident.severity.as_str(),
+                    status_label_for_incident_severity(incident.severity),
                     incident.days_open.max(0)
                 ),
             ));
@@ -3466,7 +3494,11 @@ fn dashboard_nav_entries(snapshot: &DashboardSnapshot) -> Vec<(DashboardNavEntry
         for project in &snapshot.active_projects {
             entries.push((
                 DashboardNavEntry::ActiveProject(project.project_id),
-                format!("{} | {}", project.title, project.status.as_str()),
+                format!(
+                    "{} | {}",
+                    project.title,
+                    status_label_for_project_status(project.status)
+                ),
             ));
         }
     }
@@ -3853,6 +3885,10 @@ fn header_label_for_column(
     column_index: usize,
 ) -> String {
     let mut label = projection.columns[column_index].to_owned();
+    if column_has_money_cells(projection, column_index) {
+        label.push(' ');
+        label.push('$');
+    }
     if let Some(tab) = table_state.tab {
         match column_action_for(tab, column_index) {
             Some(ColumnActionKind::Link) => {
@@ -3897,6 +3933,14 @@ fn header_label_for_column(
     }
 
     label
+}
+
+fn column_has_money_cells(projection: &TableProjection, column_index: usize) -> bool {
+    projection
+        .rows
+        .iter()
+        .filter_map(|row| row.cells.get(column_index))
+        .any(|cell| matches!(cell, TableCell::Money(_)))
 }
 
 fn table_title(projection: &TableProjection, table_state: &TableUiState) -> String {
@@ -4177,7 +4221,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                     cells: vec![
                         TableCell::Integer(row.id.get()),
                         TableCell::Text(row.title.clone()),
-                        TableCell::Text(row.status.as_str().to_owned()),
+                        TableCell::ProjectStatus(row.status),
                         TableCell::Money(row.budget_cents),
                         TableCell::Money(row.actual_cents),
                         TableCell::Text(String::new()),
@@ -4227,7 +4271,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Integer(row.category_id.get()),
                         TableCell::OptionalInteger(row.appliance_id.map(|id| id.get())),
                         TableCell::Date(row.last_serviced_at),
-                        TableCell::Integer(i64::from(row.interval_months)),
+                        TableCell::IntervalMonths(row.interval_months),
                         TableCell::Money(row.cost_cents),
                         TableCell::Text(String::new()),
                     ],
@@ -4266,8 +4310,8 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                     cells: vec![
                         TableCell::Integer(row.id.get()),
                         TableCell::Text(row.title.clone()),
-                        TableCell::Text(row.status.as_str().to_owned()),
-                        TableCell::Text(row.severity.as_str().to_owned()),
+                        TableCell::IncidentStatus(row.status),
+                        TableCell::IncidentSeverity(row.severity),
                         TableCell::Date(Some(row.date_noticed)),
                         TableCell::Date(row.date_resolved),
                         TableCell::Money(row.cost_cents),
@@ -4368,6 +4412,72 @@ fn format_money(cents: i64) -> String {
     format!("{sign}${dollars}.{cents_component:02}")
 }
 
+fn format_compact_money(cents: i64) -> String {
+    let sign = if cents < 0 { "-" } else { "" };
+    let absolute = cents.unsigned_abs();
+    let dollars = (absolute as f64) / 100.0;
+    if dollars < 1000.0 {
+        return format!("{sign}{dollars:.2}");
+    }
+
+    let (value, suffix) = if dollars < 1_000_000.0 {
+        (dollars / 1000.0, "k")
+    } else if dollars < 1_000_000_000.0 {
+        (dollars / 1_000_000.0, "M")
+    } else {
+        (dollars / 1_000_000_000.0, "B")
+    };
+
+    let rounded = (value * 10.0).round() / 10.0;
+    if rounded.fract().abs() < f64::EPSILON {
+        format!("{sign}{rounded:.0}{suffix}")
+    } else {
+        format!("{sign}{rounded:.1}{suffix}")
+    }
+}
+
+fn format_interval_months(months: i32) -> String {
+    if months <= 0 {
+        return String::new();
+    }
+
+    let years = months / 12;
+    let remainder = months % 12;
+    match (years, remainder) {
+        (0, m) => format!("{m}m"),
+        (y, 0) => format!("{y}y"),
+        (y, m) => format!("{y}y {m}m"),
+    }
+}
+
+fn status_label_for_project_status(status: ProjectStatus) -> &'static str {
+    match status {
+        ProjectStatus::Ideating => "idea",
+        ProjectStatus::Planned => "plan",
+        ProjectStatus::Quoted => "bid",
+        ProjectStatus::Underway => "wip",
+        ProjectStatus::Delayed => "hold",
+        ProjectStatus::Completed => "done",
+        ProjectStatus::Abandoned => "drop",
+    }
+}
+
+fn status_label_for_incident_status(status: micasa_app::IncidentStatus) -> &'static str {
+    match status {
+        micasa_app::IncidentStatus::Open => "open",
+        micasa_app::IncidentStatus::InProgress => "act",
+        micasa_app::IncidentStatus::Resolved => "resolved",
+    }
+}
+
+fn status_label_for_incident_severity(severity: IncidentSeverity) -> &'static str {
+    match severity {
+        IncidentSeverity::Urgent => "urg",
+        IncidentSeverity::Soon => "soon",
+        IncidentSeverity::Whenever => "low",
+    }
+}
+
 fn format_magnitude_i64(value: i64) -> String {
     if value == 0 {
         return "0".to_owned();
@@ -4394,6 +4504,16 @@ fn format_magnitude_money(cents: i64) -> String {
     let dollars = (cents.unsigned_abs() as f64) / 100.0;
     let magnitude = rounded_log10(dollars);
     format!("{sign}$ ↑{magnitude}")
+}
+
+fn format_magnitude_money_without_unit(cents: i64) -> String {
+    if cents == 0 {
+        return "↑-∞".to_owned();
+    }
+    let sign = if cents < 0 { "-" } else { "" };
+    let dollars = (cents.unsigned_abs() as f64) / 100.0;
+    let magnitude = rounded_log10(dollars);
+    format!("{sign}↑{magnitude}")
 }
 
 fn format_magnitude_usize(value: usize, mag_mode: bool) -> String {
@@ -4496,17 +4616,11 @@ fn parse_mag_money_token(chars: &[char], start: usize) -> Option<(String, usize)
         .collect::<String>()
         .replace(',', "");
     let value = numeric.parse::<f64>().ok()?;
-    let sign = if is_negative || value.is_sign_negative() {
-        "-"
-    } else {
-        ""
-    };
-    let magnitude = if value == 0.0 {
-        "-∞".to_owned()
-    } else {
-        rounded_log10(value).to_string()
-    };
-    Some((format!("{sign}$ ↑{magnitude}"), numeric_end - start))
+    let mut cents = (value * 100.0).round() as i64;
+    if is_negative {
+        cents = -cents;
+    }
+    Some((format_magnitude_money(cents), numeric_end - start))
 }
 
 fn parse_mag_number_token(chars: &[char], start: usize) -> Option<(String, usize)> {
@@ -5083,12 +5197,14 @@ mod tests {
         DashboardMaintenance, DashboardProject, DashboardServiceEntry, DashboardSnapshot,
         DashboardWarranty, LifecycleAction, TabSnapshot, TableCommand, TableEvent, TableStatus,
         ViewData, apply_mag_mode_to_text, apply_table_command, coerce_visible_column,
-        contextual_enter_hint, dashboard_nav_entries, first_visible_column, format_magnitude_money,
-        format_magnitude_usize, handle_date_picker_key, handle_key_event, header_label_for_column,
-        help_overlay_text, highlight_column_label, last_visible_column, refresh_view_data,
-        render_breadcrumb_text, render_chat_overlay_text, render_dashboard_overlay_text,
-        render_dashboard_text, render_note_preview_overlay_text, shift_date_by_months,
-        shift_date_by_years, status_text, table_command_for_key, table_title,
+        contextual_enter_hint, dashboard_nav_entries, first_visible_column, format_compact_money,
+        format_interval_months, format_magnitude_money, format_magnitude_usize,
+        handle_date_picker_key, handle_key_event, header_label_for_column, help_overlay_text,
+        highlight_column_label, last_visible_column, refresh_view_data, render_breadcrumb_text,
+        render_chat_overlay_text, render_dashboard_overlay_text, render_dashboard_text,
+        render_note_preview_overlay_text, shift_date_by_months, shift_date_by_years,
+        status_label_for_incident_severity, status_label_for_incident_status,
+        status_label_for_project_status, status_text, table_command_for_key, table_title,
         visible_column_indices,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -5602,6 +5718,183 @@ mod tests {
     }
 
     #[test]
+    fn compact_money_formatter_matches_go_shapes() {
+        assert_eq!(format_compact_money(50_000), "500.00");
+        assert_eq!(format_compact_money(523_423), "5.2k");
+        assert_eq!(format_compact_money(4_500_000), "45k");
+        assert_eq!(format_compact_money(130_000_000), "1.3M");
+        assert_eq!(format_compact_money(-500), "-5.00");
+    }
+
+    #[test]
+    fn interval_formatter_compacts_months_to_year_month_shape() {
+        assert_eq!(format_interval_months(0), "");
+        assert_eq!(format_interval_months(-3), "");
+        assert_eq!(format_interval_months(1), "1m");
+        assert_eq!(format_interval_months(11), "11m");
+        assert_eq!(format_interval_months(12), "1y");
+        assert_eq!(format_interval_months(24), "2y");
+        assert_eq!(format_interval_months(18), "1y 6m");
+        assert_eq!(format_interval_months(27), "2y 3m");
+    }
+
+    #[test]
+    fn status_label_helpers_map_expected_short_forms() {
+        assert_eq!(
+            status_label_for_project_status(ProjectStatus::Ideating),
+            "idea"
+        );
+        assert_eq!(
+            status_label_for_project_status(ProjectStatus::Planned),
+            "plan"
+        );
+        assert_eq!(
+            status_label_for_project_status(ProjectStatus::Quoted),
+            "bid"
+        );
+        assert_eq!(
+            status_label_for_project_status(ProjectStatus::Underway),
+            "wip"
+        );
+        assert_eq!(
+            status_label_for_project_status(ProjectStatus::Delayed),
+            "hold"
+        );
+        assert_eq!(
+            status_label_for_project_status(ProjectStatus::Completed),
+            "done"
+        );
+        assert_eq!(
+            status_label_for_project_status(ProjectStatus::Abandoned),
+            "drop"
+        );
+
+        assert_eq!(
+            status_label_for_incident_status(micasa_app::IncidentStatus::Open),
+            "open"
+        );
+        assert_eq!(
+            status_label_for_incident_status(micasa_app::IncidentStatus::InProgress),
+            "act"
+        );
+        assert_eq!(
+            status_label_for_incident_status(micasa_app::IncidentStatus::Resolved),
+            "resolved"
+        );
+
+        assert_eq!(
+            status_label_for_incident_severity(IncidentSeverity::Urgent),
+            "urg"
+        );
+        assert_eq!(
+            status_label_for_incident_severity(IncidentSeverity::Soon),
+            "soon"
+        );
+        assert_eq!(
+            status_label_for_incident_severity(IncidentSeverity::Whenever),
+            "low"
+        );
+    }
+
+    #[test]
+    fn projection_pipeline_compacts_status_interval_and_money_surfaces() {
+        let project = Project {
+            id: micasa_app::ProjectId::new(9),
+            title: "Kitchen".to_owned(),
+            project_type_id: ProjectTypeId::new(1),
+            status: ProjectStatus::Planned,
+            description: String::new(),
+            start_date: None,
+            end_date: None,
+            budget_cents: Some(523_423),
+            actual_cents: Some(4_500_000),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+            deleted_at: None,
+        };
+        let maintenance = micasa_app::MaintenanceItem {
+            id: micasa_app::MaintenanceItemId::new(17),
+            name: "HVAC filter".to_owned(),
+            category_id: micasa_app::MaintenanceCategoryId::new(1),
+            appliance_id: None,
+            last_serviced_at: None,
+            interval_months: 27,
+            manual_url: String::new(),
+            manual_text: String::new(),
+            notes: String::new(),
+            cost_cents: Some(10_000),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+            deleted_at: None,
+        };
+        let incident = micasa_app::Incident {
+            id: micasa_app::IncidentId::new(21),
+            appliance_id: None,
+            vendor_id: None,
+            title: "Leak".to_owned(),
+            description: String::new(),
+            location: String::new(),
+            status: micasa_app::IncidentStatus::Open,
+            severity: IncidentSeverity::Urgent,
+            date_noticed: Date::from_calendar_date(2026, Month::February, 12).expect("date"),
+            date_resolved: None,
+            cost_cents: Some(12_345),
+            notes: String::new(),
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+            deleted_at: None,
+        };
+
+        let project_snapshot = TabSnapshot::Projects(vec![project]);
+        let maintenance_snapshot = TabSnapshot::Maintenance(vec![maintenance]);
+        let incident_snapshot = TabSnapshot::Incidents(vec![incident]);
+        let project_table_state = super::TableUiState {
+            tab: Some(TabKind::Projects),
+            ..super::TableUiState::default()
+        };
+        let maintenance_table_state = super::TableUiState {
+            tab: Some(TabKind::Maintenance),
+            ..super::TableUiState::default()
+        };
+        let incident_table_state = super::TableUiState {
+            tab: Some(TabKind::Incidents),
+            ..super::TableUiState::default()
+        };
+
+        let project_projection =
+            super::projection_for_snapshot(&project_snapshot, &project_table_state);
+        let maintenance_projection =
+            super::projection_for_snapshot(&maintenance_snapshot, &maintenance_table_state);
+        let incident_projection =
+            super::projection_for_snapshot(&incident_snapshot, &incident_table_state);
+
+        let project_row = &project_projection.rows[0];
+        assert_eq!(project_row.cells[2].display(), "plan");
+        assert_eq!(project_row.cells[3].display(), "5.2k");
+        assert_eq!(project_row.cells[4].display(), "45k");
+        assert_eq!(project_row.cells[3].display_with_mag_mode(true), "↑4");
+        assert_eq!(
+            header_label_for_column(&project_projection, &project_table_state, 3),
+            "budget $"
+        );
+        assert_eq!(
+            header_label_for_column(&project_projection, &project_table_state, 4),
+            "actual $"
+        );
+
+        let maintenance_row = &maintenance_projection.rows[0];
+        assert_eq!(maintenance_row.cells[5].display(), "2y 3m");
+        assert_eq!(
+            header_label_for_column(&maintenance_projection, &maintenance_table_state, 6),
+            "cost $"
+        );
+
+        let incident_row = &incident_projection.rows[0];
+        assert_eq!(incident_row.cells[2].display(), "open");
+        assert_eq!(incident_row.cells[3].display(), "urg");
+    }
+
+    #[test]
     fn apply_mag_mode_to_text_formats_money_and_bare_numbers() {
         assert_eq!(
             apply_mag_mode_to_text("You spent $5,234.23 on kitchen.", true),
@@ -5657,8 +5950,8 @@ mod tests {
         assert_eq!(integer_cell.display_with_mag_mode(true), "↑2");
         assert_eq!(optional_integer_cell.display_with_mag_mode(true), "↑3");
         assert_eq!(decimal_cell.display_with_mag_mode(true), "↑0");
-        assert_eq!(zero_money_cell.display_with_mag_mode(true), "$ ↑-∞");
-        assert_eq!(money_cell.display_with_mag_mode(true), "$ ↑4");
+        assert_eq!(zero_money_cell.display_with_mag_mode(true), "↑-∞");
+        assert_eq!(money_cell.display_with_mag_mode(true), "↑4");
         assert_eq!(
             super::TableCell::OptionalInteger(None).display_with_mag_mode(true),
             ""
@@ -9396,7 +9689,7 @@ mod tests {
             .map(|(_, label)| label.as_str())
             .collect::<Vec<_>>();
 
-        assert!(labels.contains(&"Deck | underway"));
+        assert!(labels.contains(&"Deck | wip"));
         assert!(labels.contains(&"2026-01-09 | item 11 | $95.00"));
     }
 
@@ -9636,7 +9929,7 @@ mod tests {
             false,
         );
         assert!(overlay.contains("incidents (1)"));
-        assert!(overlay.contains("Leak | urgent | 2d"));
+        assert!(overlay.contains("Leak | urg | 2d"));
     }
 
     #[test]
