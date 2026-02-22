@@ -28,7 +28,7 @@
 | Go Test File | Go Tests | Rust Target(s) | Status | Notes |
 |---|---:|---|---|---|
 | `cmd/micasa/main_test.go` | 8 | `crates/micasa-cli/src/main.rs`, `crates/micasa-cli/src/config.rs` | n/a | Go CLI-only surface (`--demo`, `--years`, ldflags-driven `--version`, positional DB path resolver) was intentionally replaced by documented Rust config-v2 CLI; equivalent Rust path precedence/error semantics are covered in config/main tests. |
-| `internal/app/bench_test.go` | 16 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/bench_test.go` | 16 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go file is benchmark-only (`Benchmark*`) throughput harnessing. Rust functional parity is enforced by tests; perf benchmarking is tracked separately and not a Step 8 behavior-port gate. |
 | `internal/app/calendar_test.go` | 22 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/chat_test.go` | 12 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/column_finder_test.go` | 27 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -59,7 +59,7 @@
 | `internal/app/vendor_test.go` | 13 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/view_test.go` | 72 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/config/config_test.go` | 19 | `crates/micasa-cli/src/config.rs` | partial | Config v2 semantics intentionally differ; migration/error behavior plus DB-path precedence (`[storage].db_path` vs `MICASA_DB_PATH` vs default) are covered, with legacy v1/env surface intentionally excluded. |
-| `internal/data/bench_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
+| `internal/data/bench_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | n/a | Go file is benchmark-only (`Benchmark*`) query-throughput coverage. Rust behavior parity is gated by functional/regression tests rather than benchmark ports. |
 | `internal/data/dashboard_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Dashboard helper/query parity is covered for active-project filtering, scheduled maintenance filtering, open-incident ordering, warranty windows, recent service-log limits, and spend calculations/regressions. |
 | `internal/data/query_test.go` | 17 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Full read-only query safety, identifier validation, and data-dump/column-hint parity suite is covered. |
 | `internal/data/seed_demo_test.go` | 4 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Deterministic/idempotent demo seeding parity is covered via typed `seed_demo_data{,_with_seed}` and full Rust regression tests. |
@@ -149,6 +149,7 @@
 - Expanded config-v2 parity tests in `crates/micasa-cli/src/config.rs` for DB path precedence and validation: `[storage].db_path` override, `MICASA_DB_PATH` fallback, platform default fallback, and URI-style path rejection, with test env mutation serialized to avoid cross-test races.
 - Reclassified Go `cmd/micasa/main_test.go` parity status to `n/a` based on docs-backed CLI contract changes in Rust (`configuration-v2.md`): old Go-only `--demo`/`--years`/ldflags-version behavior is intentionally removed, while Rust CLI/config path behavior remains covered by tests.
 - Added direct Go-equivalent prompt parity tests in `crates/micasa-llm/src/lib.rs` for DDL/date/context rendering and bare SQL extraction, and reclassified `internal/llm/client_test.go` and `internal/llm/prompt_test.go` to `ported`.
+- Reclassified `internal/app/bench_test.go` and `internal/data/bench_test.go` to `n/a` because they are Go benchmark-only throughput suites, not functional behavior-parity tests.
 
 ## Known Gaps
 
