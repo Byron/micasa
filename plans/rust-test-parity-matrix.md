@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 261 tests
+- Rust tests currently (`crates/`): 265 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -109,6 +109,7 @@
 - Added LLM client parity tests for stream server-error propagation, pull-model streaming scanner behavior, and generic JSON error sanitization in `crates/micasa-llm/tests/client_tests.rs`.
 - Added runtime parity tests for model selection and persistence paths: available-model switch, Ollama auto-pull fallback, and non-Ollama missing-model actionable failure in `crates/micasa-cli/src/runtime.rs`.
 - Added TUI sort parity tests from Go `internal/app/sort_test.go` for null-last ordering regardless of direction and deterministic ID tiebreaking on equal sort values in `crates/micasa-tui/src/lib.rs`, with a corresponding null-order fix in projection sorting.
+- Added additional TUI sort parity tests from Go `internal/app/sort_test.go` in `crates/micasa-tui/src/lib.rs` for case-insensitive text sorting, money ascending ordering, date descending ordering, and multi-key sort ordering.
 
 ## Known Gaps
 

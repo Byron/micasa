@@ -6284,6 +6284,135 @@ mod tests {
     }
 
     #[test]
+    fn sort_text_is_case_insensitive_for_projects() {
+        let p1 = TestRuntime::sample_project(1, "charlie");
+        let p2 = TestRuntime::sample_project(2, "Alice");
+        let p3 = TestRuntime::sample_project(3, "bob");
+        let snapshot = TabSnapshot::Projects(vec![p1, p2, p3]);
+
+        let projection = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                sorts: vec![super::SortSpec {
+                    column: 1,
+                    direction: SortDirection::Asc,
+                }],
+                ..super::TableUiState::default()
+            },
+        );
+        let titles = projection
+            .rows
+            .iter()
+            .filter_map(|row| match row.cells.get(1) {
+                Some(super::TableCell::Text(value)) => Some(value.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(titles, vec!["Alice", "bob", "charlie"]);
+    }
+
+    #[test]
+    fn sort_money_ascending_orders_projects_by_budget() {
+        let mut p1 = TestRuntime::sample_project(1, "one");
+        let mut p2 = TestRuntime::sample_project(2, "two");
+        let mut p3 = TestRuntime::sample_project(3, "three");
+        p1.budget_cents = Some(20_000);
+        p2.budget_cents = Some(5_000);
+        p3.budget_cents = Some(100_000);
+        let snapshot = TabSnapshot::Projects(vec![p1, p2, p3]);
+
+        let projection = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                sorts: vec![super::SortSpec {
+                    column: 3,
+                    direction: SortDirection::Asc,
+                }],
+                ..super::TableUiState::default()
+            },
+        );
+        let ids = projection
+            .rows
+            .iter()
+            .filter_map(|row| match row.cells.first() {
+                Some(super::TableCell::Integer(id)) => Some(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec![2, 1, 3]);
+    }
+
+    #[test]
+    fn sort_date_descending_orders_incidents_by_noticed_date() {
+        let mut i1 = TestRuntime::sample_incident(1, "first");
+        let mut i2 = TestRuntime::sample_incident(2, "second");
+        let mut i3 = TestRuntime::sample_incident(3, "third");
+        i1.date_noticed = Date::from_calendar_date(2026, Month::January, 3).expect("valid date");
+        i2.date_noticed = Date::from_calendar_date(2026, Month::February, 10).expect("valid date");
+        i3.date_noticed = Date::from_calendar_date(2025, Month::December, 28).expect("valid date");
+        let snapshot = TabSnapshot::Incidents(vec![i1, i2, i3]);
+
+        let projection = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                sorts: vec![super::SortSpec {
+                    column: 4,
+                    direction: SortDirection::Desc,
+                }],
+                ..super::TableUiState::default()
+            },
+        );
+        let ids = projection
+            .rows
+            .iter()
+            .filter_map(|row| match row.cells.first() {
+                Some(super::TableCell::Integer(id)) => Some(*id),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec![2, 1, 3]);
+    }
+
+    #[test]
+    fn multi_key_sort_orders_quotes_by_project_then_vendor() {
+        let q1 = TestRuntime::sample_quote(1, 2, 20);
+        let q2 = TestRuntime::sample_quote(2, 1, 30);
+        let q3 = TestRuntime::sample_quote(3, 1, 10);
+        let q4 = TestRuntime::sample_quote(4, 2, 10);
+        let snapshot = TabSnapshot::Quotes(vec![q1, q2, q3, q4]);
+
+        let projection = super::projection_for_snapshot(
+            &snapshot,
+            &super::TableUiState {
+                sorts: vec![
+                    super::SortSpec {
+                        column: 1,
+                        direction: SortDirection::Asc,
+                    },
+                    super::SortSpec {
+                        column: 2,
+                        direction: SortDirection::Asc,
+                    },
+                ],
+                ..super::TableUiState::default()
+            },
+        );
+
+        let keys = projection
+            .rows
+            .iter()
+            .filter_map(|row| match (row.cells.get(1), row.cells.get(2)) {
+                (
+                    Some(super::TableCell::Integer(project)),
+                    Some(super::TableCell::Integer(vendor)),
+                ) => Some((*project, *vendor)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(keys, vec![(1, 10), (1, 30), (2, 10), (2, 20)]);
+    }
+
+    #[test]
     fn hiding_columns_updates_cursor_and_skips_hidden_columns() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
