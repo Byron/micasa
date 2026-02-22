@@ -950,21 +950,37 @@ fn handle_key_event<R: AppRuntime>(
     if !matches!(state.mode, AppMode::Form(_)) {
         match (key.code, key.modifiers) {
             (KeyCode::Char('f'), KeyModifiers::NONE) => {
+                if !view_data.detail_stack.is_empty() {
+                    emit_status(state, view_data, internal_tx, "close detail first");
+                    return false;
+                }
                 close_all_detail_snapshots(view_data);
                 dispatch_and_refresh(state, runtime, view_data, AppCommand::NextTab, internal_tx);
                 return false;
             }
             (KeyCode::Char('b'), KeyModifiers::NONE) => {
+                if !view_data.detail_stack.is_empty() {
+                    emit_status(state, view_data, internal_tx, "close detail first");
+                    return false;
+                }
                 close_all_detail_snapshots(view_data);
                 dispatch_and_refresh(state, runtime, view_data, AppCommand::PrevTab, internal_tx);
                 return false;
             }
             (KeyCode::Char('F'), _) => {
+                if !view_data.detail_stack.is_empty() {
+                    emit_status(state, view_data, internal_tx, "close detail first");
+                    return false;
+                }
                 close_all_detail_snapshots(view_data);
                 dispatch_and_refresh(state, runtime, view_data, AppCommand::LastTab, internal_tx);
                 return false;
             }
             (KeyCode::Char('B'), _) => {
+                if !view_data.detail_stack.is_empty() {
+                    emit_status(state, view_data, internal_tx, "close detail first");
+                    return false;
+                }
                 close_all_detail_snapshots(view_data);
                 dispatch_and_refresh(state, runtime, view_data, AppCommand::FirstTab, internal_tx);
                 return false;
@@ -995,7 +1011,6 @@ fn handle_key_event<R: AppRuntime>(
     match state.mode {
         AppMode::Nav => match (key.code, key.modifiers) {
             (KeyCode::Char('i'), KeyModifiers::NONE) => {
-                close_all_detail_snapshots(view_data);
                 dispatch_and_refresh(
                     state,
                     runtime,
@@ -1005,6 +1020,10 @@ fn handle_key_event<R: AppRuntime>(
                 );
             }
             (KeyCode::Tab, KeyModifiers::NONE) => {
+                if !view_data.detail_stack.is_empty() {
+                    emit_status(state, view_data, internal_tx, "close detail first");
+                    return false;
+                }
                 close_all_detail_snapshots(view_data);
                 let target = if state.active_tab == TabKind::House {
                     TabKind::Projects
@@ -7129,6 +7148,143 @@ mod tests {
         );
         assert!(view_data.detail_stack.is_empty());
         assert_eq!(view_data.table_state.tab, Some(TabKind::Appliances));
+    }
+
+    #[test]
+    fn esc_in_edit_mode_keeps_detail_stack_open() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..6 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.detail_stack.len(), 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.mode, AppMode::Edit);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(state.mode, AppMode::Nav);
+        assert_eq!(view_data.detail_stack.len(), 1);
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Maintenance));
+    }
+
+    #[test]
+    fn tab_switch_is_blocked_while_detail_stack_open() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..6 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.detail_stack.len(), 1);
+        let before_tab = state.active_tab;
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.active_tab, before_tab);
+        assert_eq!(view_data.detail_stack.len(), 1);
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Maintenance));
+        assert_eq!(
+            state.status_line.as_deref(),
+            Some("close detail first"),
+            "blocking message should be actionable"
+        );
+    }
+
+    #[test]
+    fn column_navigation_moves_within_detail_stack() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..6 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Maintenance));
+
+        let initial_col = view_data.table_state.selected_col;
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        assert_ne!(view_data.table_state.selected_col, initial_col);
     }
 
     #[test]
