@@ -5001,9 +5001,9 @@ mod tests {
         apply_table_command, coerce_visible_column, contextual_enter_hint, dashboard_nav_entries,
         first_visible_column, handle_date_picker_key, handle_key_event, header_label_for_column,
         help_overlay_text, highlight_column_label, last_visible_column, refresh_view_data,
-        render_chat_overlay_text, render_dashboard_overlay_text, render_dashboard_text,
-        shift_date_by_months, shift_date_by_years, status_text, table_command_for_key, table_title,
-        visible_column_indices,
+        render_breadcrumb_text, render_chat_overlay_text, render_dashboard_overlay_text,
+        render_dashboard_text, shift_date_by_months, shift_date_by_years, status_text,
+        table_command_for_key, table_title, visible_column_indices,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
@@ -7386,6 +7386,60 @@ mod tests {
     }
 
     #[test]
+    fn breadcrumbs_multi_level_include_nested_drill_titles() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..6 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        let first_breadcrumb = render_breadcrumb_text(&state, &view_data);
+        assert!(first_breadcrumb.contains("appliances"));
+        assert!(first_breadcrumb.contains("maintenance (Furnace)"));
+
+        for _ in 0..7 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        let nested_breadcrumb = render_breadcrumb_text(&state, &view_data);
+        assert!(nested_breadcrumb.contains("maintenance (Furnace)"));
+        assert!(nested_breadcrumb.contains("service log (HVAC filter)"));
+    }
+
+    #[test]
     fn project_drilldowns_filter_quotes_and_documents() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
@@ -7585,6 +7639,155 @@ mod tests {
             }
             _ => panic!("expected document drill snapshot"),
         }
+    }
+
+    #[test]
+    fn maintenance_log_drilldown_filters_rows() {
+        let mut state = AppState {
+            active_tab: TabKind::Maintenance,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..7 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        assert_eq!(view_data.table_state.selected_col, 7);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::ServiceLog));
+
+        match view_data.active_tab_snapshot.as_ref() {
+            Some(TabSnapshot::ServiceLog(rows)) => {
+                assert_eq!(rows.len(), 1);
+                assert!(rows.iter().all(|row| row.maintenance_item_id.get() == 2));
+            }
+            _ => panic!("expected service-log drill snapshot"),
+        }
+    }
+
+    #[test]
+    fn appliance_document_drilldown_filters_rows() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..7 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        assert_eq!(view_data.table_state.selected_col, 7);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Documents));
+
+        match view_data.active_tab_snapshot.as_ref() {
+            Some(TabSnapshot::Documents(rows)) => {
+                assert_eq!(rows.len(), 1);
+                assert!(rows.iter().all(|row| {
+                    row.entity_kind == micasa_app::DocumentEntityKind::Appliance
+                        && row.entity_id == 4
+                }));
+            }
+            _ => panic!("expected document drill snapshot"),
+        }
+    }
+
+    #[test]
+    fn service_log_vendor_link_follows_to_vendor_tab() {
+        let mut state = AppState {
+            active_tab: TabKind::ServiceLog,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..3 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        assert_eq!(view_data.table_state.selected_col, 3);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert_eq!(state.active_tab, TabKind::Vendors);
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Vendors));
+        let selected = super::selected_row_metadata(&view_data).map(|(row_id, _)| row_id);
+        assert_eq!(selected, Some(7));
+    }
+
+    #[test]
+    fn service_log_self_row_has_no_vendor_link_target() {
+        let mut state = AppState {
+            active_tab: TabKind::ServiceLog,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        view_data.active_tab_snapshot = Some(TabSnapshot::ServiceLog(vec![
+            TestRuntime::sample_service_log(90, 2, None, "self performed"),
+        ]));
+        view_data.table_state.tab = Some(TabKind::ServiceLog);
+        view_data.table_state.selected_row = 0;
+        view_data.table_state.selected_col = 3;
+        super::clamp_table_cursor(&mut view_data);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert_eq!(state.active_tab, TabKind::ServiceLog);
+        assert_eq!(state.status_line.as_deref(), Some("nothing to follow"));
     }
 
     #[test]
