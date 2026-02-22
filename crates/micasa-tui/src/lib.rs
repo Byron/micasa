@@ -5002,8 +5002,9 @@ mod tests {
         first_visible_column, handle_date_picker_key, handle_key_event, header_label_for_column,
         help_overlay_text, highlight_column_label, last_visible_column, refresh_view_data,
         render_breadcrumb_text, render_chat_overlay_text, render_dashboard_overlay_text,
-        render_dashboard_text, shift_date_by_months, shift_date_by_years, status_text,
-        table_command_for_key, table_title, visible_column_indices,
+        render_dashboard_text, render_note_preview_overlay_text, shift_date_by_months,
+        shift_date_by_years, status_text, table_command_for_key, table_title,
+        visible_column_indices,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
@@ -7060,6 +7061,18 @@ mod tests {
 
         assert!(!view_data.note_preview.visible);
         assert_eq!(view_data.table_state.selected_row, 0);
+    }
+
+    #[test]
+    fn note_preview_overlay_text_renders_title_body_and_close_hint() {
+        let rendered = render_note_preview_overlay_text(&super::NotePreviewUiState {
+            visible: true,
+            title: "service notes".to_owned(),
+            text: "Inspect vent before summer.".to_owned(),
+        });
+        assert!(rendered.contains("service notes"));
+        assert!(rendered.contains("Inspect vent before summer."));
+        assert!(rendered.contains("press any key to close"));
     }
 
     #[test]
