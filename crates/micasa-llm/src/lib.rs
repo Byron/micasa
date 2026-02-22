@@ -325,6 +325,9 @@ pub fn build_sql_prompt(
         out.push('\n');
     }
     out.push_str("```\n");
+    out.push_str(ENTITY_RELATIONSHIPS);
+    out.push('\n');
+    out.push_str(SQL_SCHEMA_NOTES);
     out.push_str("\nRules:\n");
     out.push_str("1. Never emit INSERT/UPDATE/DELETE/DDL.\n");
     out.push_str("2. Exclude soft-deleted rows (`deleted_at IS NULL`) unless asked.\n");
@@ -332,10 +335,12 @@ pub fn build_sql_prompt(
     if let Some(hints) = column_hints
         && !hints.is_empty()
     {
-        out.push_str("\n## Known values\n\n");
+        out.push_str("\n## Known values in the database\n\n");
         out.push_str(hints);
         out.push('\n');
     }
+    out.push('\n');
+    out.push_str(SQL_FEW_SHOT_EXAMPLES);
     if let Some(context) = extra_context
         && !context.is_empty()
     {
@@ -355,7 +360,7 @@ pub fn build_summary_prompt(
 ) -> String {
     let mut out = String::new();
     out.push_str("You are a helpful assistant that summarizes SQL results.\n");
-    out.push_str(&format!("Current date: {}\n\n", now.date()));
+    out.push_str(&format!("Current date: {}\n\n", format_human_date(now)));
     out.push_str("## User question\n\n");
     out.push_str(question);
     out.push_str("\n\n## SQL executed\n\n```sql\n");
@@ -381,16 +386,25 @@ pub fn build_fallback_prompt(
     extra_context: Option<&str>,
 ) -> String {
     let mut out = String::new();
-    out.push_str("You are micasa-assistant. Answer only from provided data.\n");
-    out.push_str(&format!("Current date: {}\n\n", now.date()));
+    out.push_str(
+        "You are micasa-assistant, a factual Q&A bot for a home management app. Answer only from provided data.\n",
+    );
+    out.push_str(&format!("Current date: {}\n\n", format_human_date(now)));
     out.push_str("## Database schema\n\n");
     for table in tables {
         out.push_str(&format_table(table));
         out.push('\n');
     }
-    out.push_str("\n## Current data\n\n");
-    out.push_str(data_summary);
+    out.push_str(ENTITY_RELATIONSHIPS);
     out.push('\n');
+    out.push_str(FALLBACK_SCHEMA_NOTES);
+    if !data_summary.trim().is_empty() {
+        out.push_str("\n## Current data\n\n");
+        out.push_str(data_summary);
+        out.push('\n');
+    }
+    out.push('\n');
+    out.push_str(FALLBACK_GUIDELINES);
     if let Some(context) = extra_context
         && !context.is_empty()
     {
@@ -468,6 +482,76 @@ fn format_table(table: &TableInfo) -> String {
     }
     out
 }
+
+fn format_human_date(now: OffsetDateTime) -> String {
+    now.date()
+        .format(&time::macros::format_description!(
+            "[weekday repr:long], [month repr:long] [day], [year]"
+        ))
+        .unwrap_or_else(|_| now.date().to_string())
+}
+
+const ENTITY_RELATIONSHIPS: &str = r#"
+## Entity Relationships
+
+Foreign key relationships between tables:
+- projects.project_type_id -> project_types.id
+- quotes.project_id -> projects.id
+- quotes.vendor_id -> vendors.id
+- maintenance_items.category_id -> maintenance_categories.id
+- maintenance_items.appliance_id -> appliances.id
+- service_log_entries.maintenance_item_id -> maintenance_items.id
+- service_log_entries.vendor_id -> vendors.id
+- incidents.appliance_id -> appliances.id
+- incidents.vendor_id -> vendors.id
+
+NO direct FK between projects and appliances.
+"#;
+
+const SQL_SCHEMA_NOTES: &str = r#"
+## Schema notes
+
+- case-insensitive matching: use LOWER() on both sides for text comparisons.
+- Incident statuses: open, in_progress.
+- Incident severities: urgent, soon, whenever.
+"#;
+
+const SQL_FEW_SHOT_EXAMPLES: &str = r#"
+## Examples
+
+User: How many projects are underway?
+SQL: SELECT COUNT(*) AS count FROM projects WHERE status = 'underway' AND deleted_at IS NULL
+
+User: Show me total spending by project status
+SQL: SELECT status, SUM(actual_cents) / 100.0 AS total_dollars FROM projects WHERE deleted_at IS NULL GROUP BY status
+
+User: Which vendors have given me the most quotes?
+SQL: SELECT v.name, COUNT(q.id) AS quote_count FROM vendors v JOIN quotes q ON v.id = q.vendor_id WHERE v.deleted_at IS NULL AND q.deleted_at IS NULL GROUP BY v.id, v.name ORDER BY quote_count DESC
+
+User: What's the average quote amount for each project type?
+SQL: SELECT pt.name AS project_type, AVG(q.total_cents) / 100.0 AS avg_quote_dollars FROM project_types pt JOIN projects p ON pt.id = p.project_type_id JOIN quotes q ON p.id = q.project_id WHERE p.deleted_at IS NULL AND q.deleted_at IS NULL GROUP BY pt.id, pt.name ORDER BY avg_quote_dollars DESC
+
+User: What open incidents do I have?
+SQL: SELECT title, severity, date_noticed, location FROM incidents WHERE status IN ('open', 'in_progress') AND deleted_at IS NULL
+
+User: How much have I spent on incidents this year?
+SQL: SELECT SUM(cost_cents) / 100.0 AS total_dollars FROM incidents WHERE deleted_at IS NULL AND date_noticed >= date('now', 'start of year')
+"#;
+
+const FALLBACK_SCHEMA_NOTES: &str = r#"
+## Fallback notes
+
+- Incident statuses: open, in_progress.
+- Incident severities: urgent, soon, whenever.
+"#;
+
+const FALLBACK_GUIDELINES: &str = r#"
+## How to answer
+
+- Be concise. One short paragraph or a bullet list.
+- If asked to change data, tell the user to use edit mode.
+- Do not invent data that is not present in the provided summary.
+"#;
 
 fn connection_error(base_url: &str, error: reqwest::Error) -> anyhow::Error {
     anyhow!(
@@ -629,6 +713,77 @@ mod tests {
     }
 
     #[test]
+    fn build_sql_prompt_includes_entity_relationships_and_case_insensitive_guidance() {
+        let prompt = build_sql_prompt(
+            &[TableInfo {
+                name: "projects".to_owned(),
+                columns: vec![ColumnInfo {
+                    name: "id".to_owned(),
+                    column_type: "INTEGER".to_owned(),
+                    not_null: true,
+                    primary_key: true,
+                }],
+            }],
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+            None,
+        );
+        assert!(prompt.contains("## Entity Relationships"));
+        assert!(prompt.contains("projects.project_type_id"));
+        assert!(prompt.contains("maintenance_items.appliance_id"));
+        assert!(prompt.contains("incidents.appliance_id"));
+        assert!(prompt.contains("incidents.vendor_id"));
+        assert!(prompt.contains("NO direct FK between projects and appliances"));
+        assert!(prompt.contains("case-insensitive matching"));
+        assert!(prompt.contains("LOWER()"));
+    }
+
+    #[test]
+    fn build_sql_prompt_includes_groupby_and_incident_examples() {
+        let prompt = build_sql_prompt(
+            &[TableInfo {
+                name: "projects".to_owned(),
+                columns: vec![ColumnInfo {
+                    name: "status".to_owned(),
+                    column_type: "TEXT".to_owned(),
+                    not_null: false,
+                    primary_key: false,
+                }],
+            }],
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+            None,
+        );
+        assert!(prompt.contains("GROUP BY"));
+        assert!(prompt.contains("total spending by project status"));
+        assert!(prompt.contains("vendors have given me the most quotes"));
+        assert!(prompt.contains("average quote amount"));
+        assert!(prompt.contains("What open incidents do I have?"));
+        assert!(prompt.contains("status IN ('open', 'in_progress')"));
+        assert!(prompt.contains("SUM(cost_cents) / 100.0"));
+    }
+
+    #[test]
+    fn build_sql_prompt_includes_incident_schema_notes() {
+        let prompt = build_sql_prompt(
+            &[TableInfo {
+                name: "incidents".to_owned(),
+                columns: vec![ColumnInfo {
+                    name: "status".to_owned(),
+                    column_type: "TEXT".to_owned(),
+                    not_null: false,
+                    primary_key: false,
+                }],
+            }],
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+            None,
+        );
+        assert!(prompt.contains("Incident statuses: open, in_progress."));
+        assert!(prompt.contains("Incident severities: urgent, soon, whenever."));
+    }
+
+    #[test]
     fn build_sql_prompt_includes_expected_rules() {
         let prompt = build_sql_prompt(
             &[TableInfo {
@@ -702,6 +857,8 @@ mod tests {
         assert!(prompt.contains("SELECT COUNT(*) AS count FROM projects"));
         assert!(prompt.contains("count\n2"));
         assert!(prompt.contains("Only include non-deleted rows."));
+        assert!(prompt.contains("January"));
+        assert!(prompt.contains("1970"));
     }
 
     #[test]
@@ -731,6 +888,71 @@ mod tests {
         assert!(prompt.contains("### projects"));
         assert!(prompt.contains("projects\n- title: Deck"));
         assert!(prompt.contains("House has original 1940 wiring."));
+    }
+
+    #[test]
+    fn build_fallback_prompt_includes_relationships_and_incident_notes() {
+        let prompt = build_fallback_prompt(
+            &[TableInfo {
+                name: "incidents".to_owned(),
+                columns: vec![ColumnInfo {
+                    name: "status".to_owned(),
+                    column_type: "TEXT".to_owned(),
+                    not_null: false,
+                    primary_key: false,
+                }],
+            }],
+            "",
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+        );
+        assert!(prompt.contains("## Entity Relationships"));
+        assert!(prompt.contains("projects.project_type_id"));
+        assert!(prompt.contains("NO direct FK between projects and appliances"));
+        assert!(prompt.contains("Incident statuses: open, in_progress."));
+        assert!(prompt.contains("Incident severities: urgent, soon, whenever."));
+    }
+
+    #[test]
+    fn build_fallback_prompt_omits_current_data_heading_when_summary_is_empty() {
+        let prompt = build_fallback_prompt(
+            &[TableInfo {
+                name: "projects".to_owned(),
+                columns: vec![ColumnInfo {
+                    name: "id".to_owned(),
+                    column_type: "INTEGER".to_owned(),
+                    not_null: true,
+                    primary_key: true,
+                }],
+            }],
+            "",
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+        );
+        assert!(prompt.contains("home management app"));
+        assert!(prompt.contains("January"));
+        assert!(prompt.contains("1970"));
+        assert!(!prompt.contains("## Current data"));
+    }
+
+    #[test]
+    fn build_fallback_prompt_includes_current_data_heading_when_summary_present() {
+        let prompt = build_fallback_prompt(
+            &[TableInfo {
+                name: "projects".to_owned(),
+                columns: vec![ColumnInfo {
+                    name: "id".to_owned(),
+                    column_type: "INTEGER".to_owned(),
+                    not_null: true,
+                    primary_key: true,
+                }],
+            }],
+            "### projects (1 rows)\n- title: Deck",
+            OffsetDateTime::UNIX_EPOCH,
+            None,
+        );
+        assert!(prompt.contains("## Current data"));
+        assert!(prompt.contains("title: Deck"));
     }
 
     #[test]

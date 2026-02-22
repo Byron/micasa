@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 159 tests
+- Rust tests currently (`crates/`): 217 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -71,9 +71,9 @@
 | `internal/data/store_test.go` | 90 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
 | `internal/data/testmain_test.go` | 1 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
 | `internal/data/validate_path_test.go` | 4 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
-| `internal/data/validation_test.go` | 36 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
+| `internal/data/validation_test.go` | 36 | `crates/micasa-db/src/validation.rs` | ported | Full money/date/interval parser+formatter suite ported with overflow and month-end clamping regressions. |
 | `internal/data/vendor_upsert_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
-| `internal/fake/fake_test.go` | 16 | (none yet) | planned | Rust testkit lacks seeded fake-data generator parity so far. |
+| `internal/fake/fake_test.go` | 16 | `crates/micasa-testkit/src/lib.rs` | ported | Deterministic typed faker implemented and full fake suite parity tests added. |
 | `internal/llm/client_test.go` | 18 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Streaming, prompt, and error-path parity improved; sqlfmt-equivalent surface still thin. |
 | `internal/llm/prompt_test.go` | 29 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Streaming, prompt, and error-path parity improved; sqlfmt-equivalent surface still thin. |
 | `internal/llm/sqlfmt_test.go` | 20 | `crates/micasa-llm/src/lib.rs`, `crates/micasa-llm/tests/client_tests.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Streaming, prompt, and error-path parity improved; sqlfmt-equivalent surface still thin. |
@@ -95,9 +95,10 @@
 - Expanded LLM prompt construction/extraction tests in `crates/micasa-llm/src/lib.rs`.
 - Expanded document/data regression tests in `crates/micasa-db/tests/store_tests.rs`.
 - Added Rust unit parity tests for `is_safe_identifier`/`contains_word` in `crates/micasa-db/src/lib.rs`.
+- Added additional query-surface parity tests from Go `internal/data/query_test.go` in `crates/micasa-db/tests/store_tests.rs`.
+- Added deterministic fake-data generator and full parity tests from Go `internal/fake/fake_test.go` in `crates/micasa-testkit/src/lib.rs`.
+- Added typed validation/value-format module and full Go parity tests from `internal/data/validation_test.go` in `crates/micasa-db/src/validation.rs`.
 
 ## Known Gaps
 
 - Go `internal/app` renderer-heavy suites significantly outnumber current Rust TUI tests.
-- Go `internal/data/validation_test.go` parser/format helpers do not yet have a direct Rust utility-test equivalent.
-- Go `internal/fake/fake_test.go` has no Rust parity crate implementation yet.

@@ -1,6 +1,8 @@
 // Copyright 2026 Phillip Cloud
 // Licensed under the Apache License, Version 2.0
 
+pub mod validation;
+
 use anyhow::{Context, Result, anyhow, bail};
 use micasa_app::{
     AppSetting, Appliance, ApplianceId, ChatInput, ChatInputId, DashboardCounts, Document,
