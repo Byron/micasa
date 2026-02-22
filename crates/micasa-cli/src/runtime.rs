@@ -10,7 +10,7 @@ use micasa_db::{
 use micasa_llm::{
     Client as LlmClient, ColumnInfo, Message as LlmMessage, Role as LlmRole, TableInfo,
     build_fallback_prompt, build_sql_prompt, build_summary_prompt, extract_sql,
-    format_results_table,
+    format_results_table, format_sql,
 };
 use micasa_tui::{
     ChatHistoryMessage, ChatHistoryRole, ChatPipelineEvent, ChatPipelineResult, DashboardIncident,
@@ -780,14 +780,15 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
         let raw_sql = Self::stream_chat_complete(client, &sql_messages).context(
             "SQL generation failed; verify the selected model is available and LLM server is reachable",
         )?;
-        let sql = extract_sql(&raw_sql);
-        if sql.is_empty() {
+        let sql_raw = extract_sql(&raw_sql);
+        if sql_raw.is_empty() {
             return self
                 .run_fallback_pipeline(client, trimmed_question, history, &tables, now)
                 .context("LLM returned empty SQL and fallback query failed");
         }
+        let sql = format_sql(&sql_raw, 96);
 
-        let (columns, rows) = match self.store.read_only_query(&sql) {
+        let (columns, rows) = match self.store.read_only_query(&sql_raw) {
             Ok(output) => output,
             Err(_) => {
                 return self
@@ -969,12 +970,13 @@ impl ChatWorker {
             if self.is_canceled() {
                 return Ok(());
             }
-            let sql = extract_sql(&raw_sql);
-            if sql.is_empty() {
+            let sql_raw = extract_sql(&raw_sql);
+            if sql_raw.is_empty() {
                 return self
                     .run_fallback(&store, &tables, now)
                     .context("LLM returned empty SQL and fallback query failed");
             }
+            let sql = format_sql(&sql_raw, 96);
 
             if !self.send(ChatPipelineEvent::SqlReady {
                 request_id: self.request_id,
@@ -983,7 +985,7 @@ impl ChatWorker {
                 return Ok(());
             }
 
-            let (columns, rows) = match store.read_only_query(&sql) {
+            let (columns, rows) = match store.read_only_query(&sql_raw) {
                 Ok(output) => output,
                 Err(_) => {
                     return self

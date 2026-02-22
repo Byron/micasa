@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 238 tests
+- Rust tests currently (`crates/`): 253 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -104,6 +104,8 @@
 - Added filter parity tests from `internal/app/filter_test.go` for preview vs active filtering, dashboard-blocked pin/filter actions, and hide-column clearing pinned/filter state in `crates/micasa-tui/src/lib.rs`.
 - Added dashboard parity tests from `internal/app/dashboard_test.go` for overlay navigation clamping, header-enter no-op, table-key blocking, tab-switch close behavior, and section ordering in `crates/micasa-tui/src/lib.rs`.
 - Added view parity tests from `internal/app/view_test.go` for status width stability, header sort/link indicators, and table title sort/pin/filter/hidden flag rendering in `crates/micasa-tui/src/lib.rs`.
+- Added SQL formatter/tokenizer parity surface and tests from `internal/llm/sqlfmt_test.go` in `crates/micasa-llm/src/lib.rs`.
+- Updated runtime NL→SQL pipeline to keep executing raw extracted SQL while emitting formatted SQL to UI/events in `crates/micasa-cli/src/runtime.rs`.
 
 ## Known Gaps
 
