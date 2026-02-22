@@ -6365,6 +6365,106 @@ mod tests {
     }
 
     #[test]
+    fn invert_toggle_round_trip_without_pin() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        assert!(!view_data.table_state.filter_inverted);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.table_state.filter_inverted);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT),
+        );
+        assert!(!view_data.table_state.filter_inverted);
+    }
+
+    #[test]
+    fn filter_marker_transitions_follow_keybindings() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        let tab_title = |state: &AppState, view_data: &ViewData| {
+            super::tab_title(state.active_tab, state, &view_data.table_state)
+        };
+
+        assert!(!tab_title(&state, &view_data).contains(super::FILTER_MARK_PREVIEW));
+        assert!(!tab_title(&state, &view_data).contains(super::FILTER_MARK_ACTIVE));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+        assert!(tab_title(&state, &view_data).contains(super::FILTER_MARK_PREVIEW));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+        );
+        assert!(tab_title(&state, &view_data).contains(super::FILTER_MARK_ACTIVE));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT),
+        );
+        assert!(tab_title(&state, &view_data).contains(super::FILTER_MARK_ACTIVE_INVERTED));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+        );
+        assert!(tab_title(&state, &view_data).contains(super::FILTER_MARK_PREVIEW_INVERTED));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+        );
+        let title = tab_title(&state, &view_data);
+        assert!(!title.contains(super::FILTER_MARK_ACTIVE));
+        assert!(!title.contains(super::FILTER_MARK_ACTIVE_INVERTED));
+        assert!(!title.contains(super::FILTER_MARK_PREVIEW));
+        assert!(!title.contains(super::FILTER_MARK_PREVIEW_INVERTED));
+    }
+
+    #[test]
     fn inverted_null_pin_filter_keeps_only_non_null_rows() {
         let snapshot = TabSnapshot::ServiceLog(vec![
             TestRuntime::sample_service_log(1, 2, None, "no vendor"),
