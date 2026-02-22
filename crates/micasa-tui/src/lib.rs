@@ -7619,6 +7619,35 @@ mod tests {
     }
 
     #[test]
+    fn pop_detail_snapshot_returns_false_when_stack_is_empty() {
+        let mut view_data = view_data_for_test();
+        assert!(view_data.detail_stack.is_empty());
+
+        let popped = super::pop_detail_snapshot(&mut view_data);
+        assert!(!popped);
+    }
+
+    #[test]
+    fn drill_title_for_uses_selected_label_when_present() {
+        let title = super::drill_title_for(
+            TabKind::Projects,
+            "Kitchen Remodel".to_owned(),
+            super::DrillRequest::QuotesForProject(micasa_app::ProjectId::new(7)),
+        );
+        assert_eq!(title, "quotes (Kitchen Remodel)");
+    }
+
+    #[test]
+    fn drill_title_for_falls_back_to_plain_title_when_label_empty() {
+        let title = super::drill_title_for(
+            TabKind::Vendors,
+            "   ".to_owned(),
+            super::DrillRequest::ServiceLogForVendor(micasa_app::VendorId::new(7)),
+        );
+        assert_eq!(title, "jobs");
+    }
+
+    #[test]
     fn maintenance_projection_columns_include_log_and_not_manual() {
         let projection = super::projection_for_snapshot(
             &TabSnapshot::Maintenance(vec![TestRuntime::sample_maintenance(
