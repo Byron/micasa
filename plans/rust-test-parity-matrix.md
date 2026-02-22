@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 428 tests
+- Rust tests currently (`crates/`): 433 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -29,7 +29,7 @@
 |---|---:|---|---|---|
 | `cmd/micasa/main_test.go` | 8 | `crates/micasa-cli/src/main.rs`, `crates/micasa-cli/src/config.rs` | n/a | Go CLI-only surface (`--demo`, `--years`, ldflags-driven `--version`, positional DB path resolver) was intentionally replaced by documented Rust config-v2 CLI; equivalent Rust path precedence/error semantics are covered in config/main tests. |
 | `internal/app/bench_test.go` | 16 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go file is benchmark-only (`Benchmark*`) throughput harnessing. Rust functional parity is enforced by tests; perf benchmarking is tracked separately and not a Step 8 behavior-port gate. |
-| `internal/app/calendar_test.go` | 22 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/calendar_test.go` | 22 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers date-picker open/esc/enter flows, h/j/k/l and arrow-key navigation, month/year clamping from end-of-month and leap-day edges, empty-date default-to-today behavior, and overlay hint/target text rendering; Go `calendarGrid`-specific fixed-layout/alignment helpers are architecture-specific and not 1:1 with Rust’s overlay text picker. |
 | `internal/app/chat_test.go` | 12 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/column_finder_test.go` | 27 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/compact_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers compact interval rendering, typed status/severity short labels, compact money cell display, and `$` header annotation in the table projection/render pipeline; Go-only status-style map assertions and exact `cell.Null` transform semantics are architecture-specific and remain n/a-equivalent gaps. |
@@ -161,6 +161,7 @@
 - Added dashboard parity tests in `crates/micasa-cli/src/runtime.rs` and `crates/micasa-tui/src/lib.rs` for maintenance overdue/upcoming classification, active-project filtering, warranty-window inclusion, and dashboard nav row/label formatting with typed target entry checks.
 - Added mag-mode parity tests and behavior fixes in `crates/micasa-tui/src/lib.rs` for rounded magnitude formatting (`log10` rounding semantics), prose token transforms (money and bare numbers in one pass), and typed table-cell gating so text/date columns are no longer transformed under mag mode.
 - Added compact-surface parity in `crates/micasa-tui/src/lib.rs`: typed status/severity compact labels, compact interval rendering (`1y 6m`), compact money cell formatting with header-level `$` annotation, and projection-level regression coverage that exercises these behaviors through the table pipeline.
+- Added additional calendar/date-picker parity in `crates/micasa-tui/src/lib.rs` for arrow-key equivalence to `hjkl`, day-step month-boundary crossing, leap-day year-step clamping via keyboard, empty-date picker defaulting to today, and overlay target/hint rendering assertions.
 
 ## Known Gaps
 

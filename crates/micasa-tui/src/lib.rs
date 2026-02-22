@@ -5202,8 +5202,8 @@ mod tests {
         handle_date_picker_key, handle_key_event, header_label_for_column, help_overlay_text,
         highlight_column_label, last_visible_column, refresh_view_data, render_breadcrumb_text,
         render_chat_overlay_text, render_dashboard_overlay_text, render_dashboard_text,
-        render_note_preview_overlay_text, shift_date_by_months, shift_date_by_years,
-        status_label_for_incident_severity, status_label_for_incident_status,
+        render_date_picker_overlay_text, render_note_preview_overlay_text, shift_date_by_months,
+        shift_date_by_years, status_label_for_incident_severity, status_label_for_incident_status,
         status_label_for_project_status, status_text, table_command_for_key, table_title,
         visible_column_indices,
     };
@@ -6287,6 +6287,50 @@ mod tests {
     }
 
     #[test]
+    fn date_picker_arrow_keys_match_hjkl_navigation() {
+        let mut state = AppState::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        view_data.date_picker.visible = true;
+        view_data.date_picker.selected =
+            Some(Date::from_calendar_date(2026, Month::January, 31).expect("valid date"));
+
+        handle_date_picker_key(
+            &mut state,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+        );
+        handle_date_picker_key(
+            &mut state,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        );
+        assert_eq!(
+            view_data.date_picker.selected,
+            Some(Date::from_calendar_date(2026, Month::February, 8).expect("valid date"))
+        );
+
+        handle_date_picker_key(
+            &mut state,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
+        );
+        handle_date_picker_key(
+            &mut state,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+        );
+        assert_eq!(
+            view_data.date_picker.selected,
+            Some(Date::from_calendar_date(2026, Month::January, 31).expect("valid date"))
+        );
+    }
+
+    #[test]
     fn shift_date_by_months_clamps_from_jan_31_non_leap_year() {
         let date = Date::from_calendar_date(2025, Month::January, 31).expect("valid date");
         let shifted = shift_date_by_months(date, 1).expect("month shift should succeed");
@@ -6336,6 +6380,112 @@ mod tests {
             view_data.date_picker.selected,
             Some(Date::from_calendar_date(2025, Month::February, 28).expect("valid date"))
         );
+    }
+
+    #[test]
+    fn shift_date_by_days_crosses_month_boundary() {
+        let mut state = AppState::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        view_data.date_picker.visible = true;
+        view_data.date_picker.selected =
+            Some(Date::from_calendar_date(2026, Month::January, 31).expect("valid date"));
+
+        handle_date_picker_key(
+            &mut state,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(
+            view_data.date_picker.selected,
+            Some(Date::from_calendar_date(2026, Month::February, 1).expect("valid date"))
+        );
+    }
+
+    #[test]
+    fn date_picker_year_navigation_key_clamps_feb_29() {
+        let mut state = AppState::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        view_data.date_picker.visible = true;
+        view_data.date_picker.selected =
+            Some(Date::from_calendar_date(2024, Month::February, 29).expect("valid date"));
+
+        handle_date_picker_key(
+            &mut state,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(
+            view_data.date_picker.selected,
+            Some(Date::from_calendar_date(2025, Month::February, 28).expect("valid date"))
+        );
+    }
+
+    #[test]
+    fn open_date_picker_on_empty_date_cell_defaults_to_today() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..4 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+        );
+
+        assert!(view_data.date_picker.visible);
+        assert_eq!(view_data.date_picker.field_label, "recv");
+        assert_eq!(view_data.date_picker.original, None);
+        assert_eq!(
+            view_data.date_picker.selected,
+            Some(OffsetDateTime::now_utc().date())
+        );
+    }
+
+    #[test]
+    fn date_picker_overlay_text_renders_target_and_hints() {
+        let picker = super::DatePickerUiState {
+            visible: true,
+            tab: Some(TabKind::ServiceLog),
+            row_id: Some(19),
+            column: 2,
+            field_label: "date".to_owned(),
+            original: Some(Date::from_calendar_date(2026, Month::January, 5).expect("valid date")),
+            selected: Some(
+                Date::from_calendar_date(2026, Month::February, 12).expect("valid date"),
+            ),
+        };
+
+        let rendered = render_date_picker_overlay_text(&picker);
+        assert!(rendered.contains("target: service#19 c2"));
+        assert!(rendered.contains("field: date"));
+        assert!(rendered.contains("orig: 2026-01-05"));
+        assert!(rendered.contains("pick: 2026-02-12"));
+        assert!(rendered.contains("h/l day | j/k week | H/L month | [/] year"));
+        assert!(rendered.contains("enter pick | esc cancel"));
     }
 
     #[test]
