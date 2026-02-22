@@ -14,7 +14,8 @@ welcome. I'm sorry.
 micasa includes a built-in chat interface that lets you ask questions about
 your home data. A local LLM translates your question into
 SQL, runs it against your database, and summarizes the results. Everything
-runs locally -- your data never leaves your machine.
+runs through your configured endpoint. By default this is localhost
+(`http://localhost:11434/v1`).
 
 ## Prerequisites
 
@@ -93,8 +94,8 @@ taking shape before results appear.
 ## Cancellation
 
 Press `ctrl+c` while the model is generating to cancel the current request.
-An "Interrupted" notice appears in the conversation. Your next question
-replaces the notice.
+If partial output already streamed, micasa appends `(interrupted)` to that
+assistant message.
 
 ## Prompt history
 
@@ -120,7 +121,8 @@ models available for download. Use `up`/`down` to navigate and `enter` to
 select.
 
 If you pick a model that isn't downloaded yet, micasa pulls it automatically.
-A progress bar shows download progress. Press `ctrl+c` to cancel a pull.
+For Ollama endpoints, this is handled with an inline pull request before the
+model switch completes.
 
 ## Mag mode
 

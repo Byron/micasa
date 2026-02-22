@@ -1,36 +1,26 @@
 +++
 title = "Installation"
 weight = 1
-description = "How to install micasa on your system."
+description = "How to install the Rust micasa binary."
 linkTitle = "Installation"
 +++
 
-micasa is a single static binary with no runtime dependencies. Pick whichever
-method suits you.
-
-## Go install
-
-Requires Go 1.25+:
-
-```sh
-go install github.com/cpcloud/micasa/cmd/micasa@latest
-```
-
-This installs the binary into your `$GOBIN` (usually `~/go/bin`).
+micasa is distributed as a single terminal binary.
 
 ## Pre-built binaries
 
 Download from the
-[latest release](https://github.com/cpcloud/micasa/releases/latest). Binaries
-are available for:
+[latest release](https://github.com/cpcloud/micasa/releases/latest).
 
-| OS      | Architectures    |
-|---------|------------------|
-| Linux   | amd64, arm64     |
-| macOS   | amd64, arm64     |
-| Windows | amd64, arm64     |
+Current release artifacts are published for:
 
-Each release includes a `checksums.txt` file for verification.
+| OS      | Architecture |
+|---------|--------------|
+| Linux   | amd64        |
+| macOS   | amd64        |
+| Windows | amd64        |
+
+Each release also includes `checksums.txt`.
 
 ## Nix
 
@@ -40,28 +30,35 @@ If you use [Nix](https://nixos.org) with flakes:
 # Run directly
 nix run github:cpcloud/micasa
 
-# Or add to a flake
+# Or add to your own flake
 {
   inputs.micasa.url = "github:cpcloud/micasa";
 }
 ```
 
+## Build from source (Rust)
+
+```sh
+git clone https://github.com/cpcloud/micasa.git
+cd micasa
+cargo build --release --package micasa-cli
+./target/release/micasa --help
+```
+
 ## Container
 
-A container image is published to GitHub Container Registry on each release:
+A container image is published to GitHub Container Registry:
 
 ```sh
 docker pull ghcr.io/cpcloud/micasa:latest
-docker run -it --rm ghcr.io/cpcloud/micasa:latest --demo
+docker run -it --rm ghcr.io/cpcloud/micasa:latest --help
 ```
 
-> **Note:** micasa is a terminal UI, so you need `-it` (interactive + TTY) for
-> the container to work properly.
+`-it` is required because micasa is a terminal UI.
 
-## Verify it works
+## Verify installation
 
 ```sh
 micasa --help
+micasa --check
 ```
-
-You should see the usage output with available flags.

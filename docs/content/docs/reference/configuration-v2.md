@@ -37,6 +37,14 @@ By default:
 
 Override with `MICASA_CONFIG_PATH`.
 
+## Database path precedence
+
+When micasa chooses a DB path:
+
+1. `[storage].db_path` in config
+2. `MICASA_DB_PATH` environment variable
+3. Platform default data directory path
+
 ## CLI helpers
 
 ```sh
@@ -64,3 +72,5 @@ Legacy unversioned Go config is intentionally not auto-loaded.
 
 If migration is incomplete, startup prints an actionable error with the exact
 missing step.
+
+Legacy Go config keys are intentionally not auto-consumed.

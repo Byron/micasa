@@ -1,146 +1,59 @@
 +++
 title = "Architecture"
 weight = 2
-description = "How micasa is built: Bubble Tea, TabHandler, overlays."
+description = "Rust workspace architecture, runtime flow, and migration notes."
 linkTitle = "Architecture"
 +++
 
-micasa is transitioning to a Rust workspace. The Go architecture below remains
-the reference implementation during parity work.
+micasa runs as a Rust workspace with a synchronous TUI runtime.
 
-## Rust workspace (current target)
+## Workspace layout
 
 ```
 crates/
-  micasa-cli/        Rust CLI entry point (`micasa`)
+  micasa-cli/        CLI entrypoint (`micasa`)
   micasa-app/        Typed domain model + app state machine
-  micasa-db/         rusqlite store, schema bootstrap, cache handling
-  micasa-tui/        ratatui rendering + synchronous key handling
-  micasa-llm/        OpenAI-compatible synchronous client + prompt helpers
-  micasa-testkit/    shared test fixtures/helpers
+  micasa-db/         rusqlite store, schema bootstrap, lifecycle guards
+  micasa-tui/        ratatui rendering + key/event mapping
+  micasa-llm/        OpenAI-compatible sync client + prompt helpers
+  micasa-testkit/    fixtures and deterministic test helpers
 ```
 
-The Rust application keeps the same single-file backup model (`micasa.db`) and
-follows the same mode model (`nav`, `edit`, `form`) with a synchronous event
-loop (no async runtime).
+## Runtime flow
 
-## Go reference architecture
+1. `micasa-cli` loads config v2.
+2. `micasa-db` opens/bootstraps SQLite and validates schema compatibility.
+3. `micasa-cli` builds a runtime adapter (`DbRuntime`).
+4. `micasa-tui` runs a blocking event loop (no async runtime).
+5. App updates are handled through typed commands/events from `micasa-app`.
 
-micasa is a [Bubble Tea](https://github.com/charmbracelet/bubbletea)
-application following The Elm Architecture (TEA): Model, Update, View.
+## Storage and integrity model
 
-## Package layout
+- SQLite (`micasa.db`) remains the source of truth.
+- `cp micasa.db backup.db` is still a complete backup.
+- Soft-delete/restore and FK guards are enforced in typed store APIs.
+- Document data is stored as BLOBs in SQLite; filesystem cache is disposable.
 
-```
-cmd/micasa/          CLI entry point (kong argument parsing)
-internal/
-  app/               Bubble Tea application layer
-    model.go         Model struct, Init, Update, key dispatch
-    types.go         Mode, Tab, cell, columnSpec, etc.
-    handlers.go      TabHandler interface + entity implementations
-    tables.go        Column specs, row builders, table construction
-    forms.go         Form builders, validators, submit logic
-    styles.go        Wong colorblind-safe palette, all lipgloss styles
-    view.go          Main View() assembly, overlays
-    table.go         Table rendering (headers, rows, viewport)
-    collapse.go      Hidden column badges
-    house.go         House profile rendering
-    dashboard.go     Dashboard data loading + view
-    sort.go          Multi-column sort logic
-    undo.go          Undo/redo stack
-    form_select.go   Select field ordinal jumping
-    calendar.go      Inline date picker overlay
-    column_finder.go Fuzzy column jump overlay
-  data/              Data access layer
-    models.go        GORM models (HouseProfile, Project, Document, etc.)
-    store.go         Store struct, CRUD methods, queries
-    doccache.go      Document BLOB extraction + XDG cache
-    dashboard.go     Dashboard-specific queries
-    path.go          DB path resolution (XDG)
-    validation.go    Parsing helpers (dates, money, ints)
-```
+## TUI model
 
-## Key design decisions
+- Primary modes: `nav`, `edit`, `form`.
+- Overlays: dashboard, help, chat, date picker, column finder, note preview.
+- Key handling and status feedback are synchronous and typed (no stringly
+  internal dispatch).
 
-### TabHandler interface
+## LLM pipeline
 
-Entity-specific operations (load, delete, add form, edit form, inline edit,
-submit, snapshot, etc.) are encapsulated in the `TabHandler` interface.
-Each entity type (projects, quotes, maintenance, appliances, vendors,
-documents) implements this interface as a stateless struct.
+LLM is optional. When enabled, the runtime uses a synchronous two-stage flow:
 
-This eliminates scattered `switch tab.Kind` dispatch. Adding a new entity type
-means implementing one interface -- no shotgun surgery across the codebase.
+1. NL question -> SQL generation
+2. SQL execution -> answer summarization
 
-Detail views (service log, appliance maintenance) also implement `TabHandler`,
-so they get all the same capabilities (add, edit, delete, sort, undo) for
-free.
+If SQL generation/execution fails, fallback summarization from data snapshot is
+used. Streaming output is handled via blocking SSE reads and thread message
+passing.
 
-### Modal key handling
+## Legacy Go reference
 
-micasa uses three modes: Nav, Edit, and Form. The key dispatch chain in
-`Update()` is:
-
-1. Window resize handling
-2. `ctrl+q` always quits
-3. `ctrl+c` cancels in-flight LLM operations
-4. Chat chunk messages (streaming responses)
-5. Help overlay intercepts `esc`/`?` when open
-6. Chat overlay: absorbs all keys when open
-7. Note preview overlay: any key dismisses
-8. Calendar date picker: absorbs all keys when open
-9. Column finder overlay: absorbs all keys when open
-10. Inline input: absorbs keys when editing a cell
-11. Form mode delegates to `huh` form library
-12. Dashboard intercepts nav keys when visible
-13. Common keys (shared by Nav and Edit)
-14. Mode-specific keys
-
-The `bubbles/table` widget has its own vim keybindings. In Edit mode, `d` and
-`u` are stripped from the table's KeyMap so they can be used for delete/undo
-without conflicting with half-page navigation.
-
-### Effective tab
-
-The `effectiveTab()` method returns the detail tab when a detail view is open,
-or the main active tab otherwise. All interaction code uses this method, so
-detail views work identically to top-level tabs.
-
-### Cell-based rendering
-
-Table cells carry type information (`cellKind`): text, money, date, status,
-readonly, drill. The renderer uses this to apply per-kind styling (green
-for money, colored for status, accent for drill). Sort comparators are
-also kind-aware.
-
-### Colorblind-safe palette
-
-All colors use the Wong palette with `lipgloss.AdaptiveColor{Light, Dark}`
-variants, so the UI works on both dark and light terminal backgrounds. Color
-roles are defined in `styles.go`.
-
-## Data flow
-
-```
-User keystroke
-  -> tea.KeyMsg
-  -> Model.Update()
-  -> key dispatch (mode-aware)
-  -> data mutation (Store CRUD)
-  -> reloadAfterMutation() (refreshes effective tab, marks others stale)
-  -> Model.View()
-  -> rendered string to terminal
-```
-
-All data mutations go through the Store, which uses GORM for SQLite access.
-After any mutation, `reloadAfterMutation()` refreshes the effective tab and
-marks all other tabs as stale. Stale tabs are lazily reloaded when navigated
-to. The dashboard is refreshed when it becomes visible.
-
-## Overlays
-
-Dashboard, help, calendar, column finder, and note preview are rendered as
-overlays using
-[bubbletea-overlay](https://github.com/rmhubbert/bubbletea-overlay). They
-composite on top of the live table view with dimmed backgrounds. Overlays can
-stack (e.g. help on top of dashboard).
+The Go implementation under `internal/` remains in-repo only as a parity
+reference during migration closure. New runtime behavior should be documented
+and implemented in the Rust crates above.

@@ -1,225 +1,108 @@
 +++
 title = "Configuration"
 weight = 2
-description = "CLI flags, environment variables, config file, and LLM setup."
+description = "CLI flags, config file paths, environment variables, and LLM setup (Rust)."
 linkTitle = "Configuration"
 +++
 
-micasa has minimal configuration -- it's designed to work out of the box.
+micasa uses a versioned Rust config (`version = 2`) and a small CLI surface.
 
-> Rust port note: the active schema is now `version = 2` with `[storage]`,
-> `[ui]`, and `[llm]` sections. See
-> [Configuration v2]({{< ref "/docs/reference/configuration-v2" >}}).
+For the full schema and migration walkthrough, see
+[Configuration v2]({{< ref "/docs/reference/configuration-v2" >}}).
 
 ## CLI flags
 
 ```
-Usage: micasa [<db-path>] [flags]
-
-A terminal UI for tracking everything about your home.
-
-Arguments:
-  [<db-path>]    SQLite database path. Pass with --demo to persist demo data.
+micasa [flags]
 
 Flags:
-  -h, --help          Show help.
-      --version       Show version and exit.
-      --demo          Launch with sample data in an in-memory database.
-      --print-path    Print the resolved database path and exit.
+  --config <path>          Use a specific config path
+  --print-config-path      Print resolved config path
+  --print-example-config   Print a v2 config template
+  --check                  Validate config + DB + startup dependencies
+  -h, --help               Show help
 ```
 
-### `<db-path>`
-
-Optional positional argument. When provided, micasa uses this path for the
-SQLite database instead of the default location.
-
-When combined with `--demo`, the demo data is written to this file (instead
-of in-memory), so you can restart with the same demo state:
+### Typical workflows
 
 ```sh
-micasa --demo /tmp/my-demo.db   # creates and populates
-micasa /tmp/my-demo.db          # reopens with the demo data
-```
+# Show where micasa will read/write config
+micasa --print-config-path
 
-### `--demo`
+# Generate a config template
+micasa --print-example-config
 
-Launches with fictitious sample data: a house profile, several projects,
-maintenance items, appliances, service log entries, and quotes. Without a
-`<db-path>`, the database lives in memory and disappears when you quit.
-
-### `--print-path`
-
-Prints the resolved database path to stdout and exits. Useful for scripting
-and backup:
-
-```sh
-micasa --print-path                               # platform default
-MICASA_DB_PATH=/tmp/foo.db micasa --print-path    # /tmp/foo.db
-micasa --print-path /custom/path.db               # /custom/path.db
-micasa --demo --print-path                        # :memory:
-micasa --demo --print-path /tmp/d.db              # /tmp/d.db
-cp "$(micasa --print-path)" backup.db             # backup the database
+# Validate configuration and startup dependencies without launching the TUI
+micasa --check
 ```
 
 ## Environment variables
 
+### `MICASA_CONFIG_PATH`
+
+Overrides the config file location.
+
+```sh
+MICASA_CONFIG_PATH=/tmp/micasa.toml micasa --check
+```
+
 ### `MICASA_DB_PATH`
 
-Sets the default database path when no positional argument is given. Equivalent
-to passing the path as an argument:
+Overrides the default data-directory database path when `[storage].db_path` is
+not set in config.
 
 ```sh
-export MICASA_DB_PATH=/path/to/my/house.db
-micasa   # uses /path/to/my/house.db
+MICASA_DB_PATH=/tmp/micasa.db micasa --check
 ```
 
-### `OLLAMA_HOST`
+## Config path and DB path resolution
 
-Sets the LLM API base URL, overriding the config file value. If the URL
-doesn't end with `/v1`, it's appended automatically:
+### Config file path
 
-```sh
-export OLLAMA_HOST=http://192.168.1.50:11434
-micasa   # connects to http://192.168.1.50:11434/v1
-```
+By default:
 
-### `MICASA_LLM_MODEL`
+- Linux: `$XDG_CONFIG_HOME/micasa/config.toml` (fallback `~/.config/micasa/config.toml`)
+- macOS: `~/Library/Application Support/micasa/config.toml`
+- Windows: `%APPDATA%\micasa\config.toml`
 
-Sets the LLM model name, overriding the config file value:
+Order of precedence:
 
-```sh
-export MICASA_LLM_MODEL=llama3.3
-micasa   # uses llama3.3 instead of the default qwen3
-```
+1. `--config <path>`
+2. `MICASA_CONFIG_PATH`
+3. Platform default config path
 
-### `MICASA_LLM_TIMEOUT`
+### Database path
 
-Sets the LLM timeout for quick operations (ping, model listing), overriding
-the config file value. Uses Go duration syntax:
+Order of precedence:
 
-```sh
-export MICASA_LLM_TIMEOUT=15s
-micasa   # waits up to 15s for LLM server responses
-```
+1. `[storage].db_path` in config
+2. `MICASA_DB_PATH`
+3. Platform default data path
 
-### Platform data directory
+Default data paths:
 
-micasa uses platform-aware data directories (via
-[adrg/xdg](https://github.com/adrg/xdg)). When no path is specified (via
-argument or `MICASA_DB_PATH`), the database is stored at:
+- Linux: `$XDG_DATA_HOME/micasa/micasa.db` (fallback `~/.local/share/micasa/micasa.db`)
+- macOS: `~/Library/Application Support/micasa/micasa.db`
+- Windows: `%LOCALAPPDATA%\micasa\micasa.db`
 
-| Platform | Default path |
-|----------|-------------|
-| Linux    | `$XDG_DATA_HOME/micasa/micasa.db` (default `~/.local/share/micasa/micasa.db`) |
-| macOS    | `~/Library/Application Support/micasa/micasa.db` |
-| Windows  | `%LOCALAPPDATA%\micasa\micasa.db` |
+## LLM configuration
 
-On Linux, `XDG_DATA_HOME` is respected per the [XDG Base Directory
-Specification](https://specifications.freedesktop.org/basedir-spec/latest/).
+LLM settings live under `[llm]` in `config.toml`.
 
-## Database path resolution order
+- `enabled`
+- `base_url`
+- `model`
+- `extra_context`
+- `timeout`
 
-The database path is resolved in this order:
-
-1. Positional CLI argument, if provided
-2. `MICASA_DB_PATH` environment variable, if set
-3. Platform data directory (see table above)
-
-In `--demo` mode without a path argument, an in-memory database (`:memory:`)
-is used.
-
-## Config file
-
-micasa reads a TOML config file from your platform's config directory:
-
-| Platform | Default path |
-|----------|-------------|
-| Linux    | `$XDG_CONFIG_HOME/micasa/config.toml` (default `~/.config/micasa/config.toml`) |
-| macOS    | `~/Library/Application Support/micasa/config.toml` |
-| Windows  | `%APPDATA%\micasa\config.toml` |
-
-The config file is optional. If it doesn't exist, all settings use their
-defaults. Unset fields fall back to defaults -- you only need to specify the
-values you want to change.
-
-### Example config
-
-```toml
-# micasa configuration
-
-[llm]
-# Base URL for an OpenAI-compatible API endpoint.
-# Ollama (default): http://localhost:11434/v1
-# llama.cpp:        http://localhost:8080/v1
-# LM Studio:        http://localhost:1234/v1
-base_url = "http://localhost:11434/v1"
-
-# Model name passed in chat requests.
-model = "qwen3"
-
-# Optional: custom context appended to all system prompts.
-# Use this to inject domain-specific details about your house, currency, etc.
-# extra_context = "My house is a 1920s craftsman in Portland, OR. All budgets are in CAD."
-
-# Timeout for quick LLM server operations (ping, model listing).
-# Go duration syntax: "5s", "10s", "500ms", etc. Default: "5s".
-# Increase if your LLM server is slow to respond.
-# timeout = "5s"
-```
-
-### `[llm]` section
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `base_url` | string | `http://localhost:11434/v1` | Root URL of an OpenAI-compatible API. micasa appends `/chat/completions`, `/models`, etc. |
-| `model` | string | `qwen3` | Model identifier sent in chat requests. Must be available on the server. |
-| `extra_context` | string | (empty) | Free-form text appended to all LLM system prompts. Useful for telling the model about your house, preferred currency, or regional conventions. |
-| `timeout` | string | `"5s"` | Max wait time for quick LLM operations (ping, model listing). Go duration syntax, e.g. `"10s"`, `"500ms"`. Increase for slow servers. |
-
-### Supported LLM backends
-
-micasa talks to any server that implements the OpenAI chat completions API
-with streaming (SSE). [Ollama](https://ollama.com) is the primary tested
-backend:
-
-| Backend | Default URL | Notes |
-|---------|-------------|-------|
-| [Ollama](https://ollama.com) | `http://localhost:11434/v1` | Default and tested. Models are pulled automatically if not present. |
-| [llama.cpp server](https://github.com/ggml-org/llama.cpp) | `http://localhost:8080/v1` | Should work (untested). Pass `--host` and `--port` when starting the server. |
-| [LM Studio](https://lmstudio.ai) | `http://localhost:1234/v1` | Should work (untested). Enable the local server in LM Studio settings. |
-
-### Override precedence
-
-Environment variables override config file values. The full precedence order
-(highest to lowest):
-
-1. `OLLAMA_HOST` / `MICASA_LLM_MODEL` / `MICASA_LLM_TIMEOUT` environment variables
-2. Config file values
-3. Built-in defaults
-
-### `extra_context` examples
-
-The `extra_context` field is injected into every system prompt sent to the
-LLM, giving it persistent knowledge about your situation:
-
-```toml
-[llm]
-extra_context = """
-My house is a 1920s craftsman bungalow in Portland, OR.
-All costs are in USD. Property tax is assessed annually in November.
-The HVAC system is a heat pump (Mitsubishi hyper-heat) -- no gas furnace.
-"""
-```
-
-This helps the model give more relevant answers without you repeating context
-in every question.
+micasa uses an OpenAI-compatible chat API with SSE streaming. Ollama is the
+primary tested backend; LM Studio and llama.cpp server are compatible when
+their OpenAI-style endpoints are enabled.
 
 ## Persistent preferences
 
-Some preferences are stored in the SQLite database and persist across
-restarts. These are controlled through the UI rather than config files:
+Some preferences are stored in SQLite (not in `config.toml`) and persist across
+restarts:
 
-| Preference | Default | How to change |
-|------------|---------|---------------|
-| Dashboard on startup | Shown | Press `D` to toggle; your choice is remembered |
-| LLM model | From config | Changed automatically when you switch models in the chat interface |
+- Dashboard startup visibility
+- Last selected LLM model

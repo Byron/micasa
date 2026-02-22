@@ -42,9 +42,9 @@ the dishwasher still under warranty?"
 ## Quick start
 
 ```sh
-go install github.com/cpcloud/micasa/cmd/micasa@latest
-micasa --demo   # poke around with sample data
-micasa          # start fresh with your own house
+micasa --help
+micasa --check
+micasa
 ```
 
 ![micasa dashboard](/images/dashboard.webp)
