@@ -1547,6 +1547,127 @@ fn incident_crud_and_restore_parent_guards() -> Result<()> {
 }
 
 #[test]
+fn incident_restore_blocked_by_deleted_appliance() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Doomed Washer".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Washer leak".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Urgent,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 10)?,
+        date_resolved: None,
+        location: "Laundry".to_owned(),
+        cost_cents: None,
+        appliance_id: Some(appliance_id),
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_incident(incident_id)?;
+    store.soft_delete_appliance(appliance_id)?;
+
+    let restore_error = store
+        .restore_incident(incident_id)
+        .expect_err("incident restore should fail when appliance is deleted");
+    assert!(restore_error.to_string().contains("appliance is deleted"));
+
+    store.restore_appliance(appliance_id)?;
+    store.restore_incident(incident_id)?;
+    Ok(())
+}
+
+#[test]
+fn delete_vendor_blocked_by_active_incident() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Busy Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Clogged drain".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Soon,
+        date_noticed: Date::from_calendar_date(2026, Month::February, 12)?,
+        date_resolved: None,
+        location: "Kitchen".to_owned(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: Some(vendor_id),
+        notes: String::new(),
+    })?;
+
+    let delete_error = store
+        .soft_delete_vendor(vendor_id)
+        .expect_err("vendor with active incidents should be protected");
+    assert!(delete_error.to_string().contains("active incident"));
+
+    store.soft_delete_incident(incident_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+    Ok(())
+}
+
+#[test]
+fn delete_appliance_blocked_by_active_incident() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Busy Fridge".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Fridge leaking".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Urgent,
+        date_noticed: Date::from_calendar_date(2026, Month::March, 3)?,
+        date_resolved: None,
+        location: "Kitchen".to_owned(),
+        cost_cents: None,
+        appliance_id: Some(appliance_id),
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+
+    let delete_error = store
+        .soft_delete_appliance(appliance_id)
+        .expect_err("appliance with active incidents should be protected");
+    assert!(delete_error.to_string().contains("active incident"));
+
+    store.soft_delete_incident(incident_id)?;
+    store.soft_delete_appliance(appliance_id)?;
+    Ok(())
+}
+
+#[test]
 fn project_update_persists_fields() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
