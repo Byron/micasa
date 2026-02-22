@@ -1974,6 +1974,58 @@ fn unicode_round_trip_project_description() -> Result<()> {
 }
 
 #[test]
+fn soft_deleted_project_persists_across_reopen() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let db_path = temp_dir.path().join("soft-delete-persists.db");
+
+    let project_id = {
+        let store = Store::open(&db_path)?;
+        store.bootstrap()?;
+        let project_type_id = store.list_project_types()?[0].id;
+        let project_id = store.create_project(&NewProject {
+            title: "Persist Test".to_owned(),
+            project_type_id,
+            status: ProjectStatus::Planned,
+            description: String::new(),
+            start_date: None,
+            end_date: None,
+            budget_cents: None,
+            actual_cents: None,
+        })?;
+        store.soft_delete_project(project_id)?;
+        project_id
+    };
+
+    let store = Store::open(&db_path)?;
+    store.bootstrap()?;
+
+    let visible_projects = store.list_projects(false)?;
+    assert!(
+        !visible_projects
+            .iter()
+            .any(|project| project.id == project_id),
+        "soft-deleted project should not appear in normal listing after reopen"
+    );
+
+    let all_projects = store.list_projects(true)?;
+    let deleted_project = all_projects
+        .iter()
+        .find(|project| project.id == project_id)
+        .expect("soft-deleted project should appear in include-deleted listing");
+    assert!(deleted_project.deleted_at.is_some());
+
+    store.restore_project(project_id)?;
+    let restored_projects = store.list_projects(false)?;
+    assert!(
+        restored_projects
+            .iter()
+            .any(|project| project.id == project_id),
+        "restored project should appear in normal listing"
+    );
+    Ok(())
+}
+
+#[test]
 fn service_log_crud_and_restore_parent_guards() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -2057,5 +2109,114 @@ fn service_log_crud_and_restore_parent_guards() -> Result<()> {
     store.restore_service_log_entry(second_service_log_id)?;
     let logs = store.list_service_log_entries(false)?;
     assert_eq!(logs.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn service_log_update_can_assign_vendor() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "HVAC Pros".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "HVAC filter".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    let entry_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::January, 15)?,
+        vendor_id: None,
+        cost_cents: None,
+        notes: "initial".to_owned(),
+    })?;
+
+    store.update_service_log_entry(
+        entry_id,
+        &UpdateServiceLogEntry {
+            maintenance_item_id: maintenance_id,
+            serviced_at: Date::from_calendar_date(2026, Month::January, 15)?,
+            vendor_id: Some(vendor_id),
+            cost_cents: Some(9_500),
+            notes: "updated".to_owned(),
+        },
+    )?;
+
+    let updated = store.get_service_log_entry(entry_id)?;
+    assert_eq!(updated.vendor_id, Some(vendor_id));
+    assert_eq!(updated.cost_cents, Some(9_500));
+    assert_eq!(updated.notes, "updated");
+    Ok(())
+}
+
+#[test]
+fn list_service_log_for_maintenance_respects_include_deleted_flag() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Filter change".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 3,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let first_entry_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::January, 5)?,
+        vendor_id: None,
+        cost_cents: None,
+        notes: "first".to_owned(),
+    })?;
+    let second_entry_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::February, 5)?,
+        vendor_id: None,
+        cost_cents: None,
+        notes: "second".to_owned(),
+    })?;
+
+    store.soft_delete_service_log_entry(first_entry_id)?;
+
+    let visible = store.list_service_log_for_maintenance(maintenance_id, false)?;
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].id, second_entry_id);
+
+    let include_deleted = store.list_service_log_for_maintenance(maintenance_id, true)?;
+    assert_eq!(include_deleted.len(), 2);
+    assert!(
+        include_deleted
+            .iter()
+            .any(|entry| entry.id == first_entry_id)
+    );
+    assert!(
+        include_deleted
+            .iter()
+            .any(|entry| entry.id == first_entry_id && entry.deleted_at.is_some())
+    );
+
+    store.restore_service_log_entry(first_entry_id)?;
+    let restored = store.list_service_log_for_maintenance(maintenance_id, false)?;
+    assert_eq!(restored.len(), 2);
     Ok(())
 }

@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 310 tests
+- Rust tests currently (`crates/`): 313 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -127,6 +127,7 @@
 - Added LLM client parity test from Go `internal/llm/client_test.go` in `crates/micasa-llm/tests/client_tests.rs` for multi-model list response ordering in `list_models`.
 - Added LLM client parity test from Go `internal/llm/client_test.go` in `crates/micasa-llm/tests/client_tests.rs` to verify `ping` accepts tagged model IDs (e.g. `qwen3:latest`) for base model names.
 - Added DB update-flow parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for quote, appliance, and maintenance-item update persistence semantics.
+- Added DB parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for soft-delete persistence across reopen, service-log update assigning vendors, and include-deleted maintenance service-log listing behavior.
 
 ## Known Gaps
 
