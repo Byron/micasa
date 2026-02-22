@@ -307,13 +307,13 @@ impl TableCell {
         }
 
         match self {
-            Self::Text(value) => apply_mag_mode_to_text(value, true),
+            Self::Text(value) => value.clone(),
             Self::Integer(value) => format_magnitude_i64(*value),
             Self::OptionalInteger(Some(value)) => format_magnitude_i64(*value),
             Self::OptionalInteger(None) => String::new(),
             Self::Decimal(Some(value)) => format_magnitude_f64(*value),
             Self::Decimal(None) => String::new(),
-            Self::Date(Some(value)) => apply_mag_mode_to_text(&value.to_string(), true),
+            Self::Date(Some(value)) => value.to_string(),
             Self::Date(None) => String::new(),
             Self::Money(Some(cents)) => format_magnitude_money(*cents),
             Self::Money(None) => String::new(),
@@ -4373,8 +4373,8 @@ fn format_magnitude_i64(value: i64) -> String {
         return "0".to_owned();
     }
     let sign = if value < 0 { "-" } else { "" };
-    let absolute = value.unsigned_abs();
-    format!("{sign}↑{}", absolute.ilog10())
+    let magnitude = rounded_log10(value.unsigned_abs() as f64);
+    format!("{sign}↑{magnitude}")
 }
 
 fn format_magnitude_f64(value: f64) -> String {
@@ -4382,17 +4382,17 @@ fn format_magnitude_f64(value: f64) -> String {
         return "0".to_owned();
     }
     let sign = if value < 0.0 { "-" } else { "" };
-    let magnitude = value.abs().log10().floor() as i32;
+    let magnitude = rounded_log10(value.abs());
     format!("{sign}↑{magnitude}")
 }
 
 fn format_magnitude_money(cents: i64) -> String {
     if cents == 0 {
-        return "$0".to_owned();
+        return "$ ↑-∞".to_owned();
     }
     let sign = if cents < 0 { "-" } else { "" };
-    let dollars = cents.unsigned_abs() / 100;
-    let magnitude = if dollars == 0 { 0 } else { dollars.ilog10() };
+    let dollars = (cents.unsigned_abs() as f64) / 100.0;
+    let magnitude = rounded_log10(dollars);
     format!("{sign}$ ↑{magnitude}")
 }
 
@@ -4403,7 +4403,7 @@ fn format_magnitude_usize(value: usize, mag_mode: bool) -> String {
     if value == 0 {
         "0".to_owned()
     } else {
-        format!("↑{}", (value as u64).ilog10())
+        format!("↑{}", rounded_log10(value as f64))
     }
 }
 
@@ -4416,34 +4416,118 @@ fn apply_mag_mode_to_text(input: &str, mag_mode: bool) -> String {
     let chars = input.chars().collect::<Vec<_>>();
     let mut index = 0usize;
     while index < chars.len() {
-        let ch = chars[index];
-        if ch.is_ascii_digit() {
-            let mut end = index;
-            while end < chars.len() && (chars[end].is_ascii_digit() || chars[end] == ',') {
-                end += 1;
-            }
-
-            let numeric = chars[index..end]
-                .iter()
-                .filter(|digit| digit.is_ascii_digit())
-                .collect::<String>();
-            let trimmed = numeric.trim_start_matches('0');
-            let magnitude = if trimmed.is_empty() {
-                0
-            } else {
-                trimmed.len() - 1
-            };
-            out.push('↑');
-            out.push_str(&magnitude.to_string());
-            index = end;
+        if let Some((formatted, consumed)) = parse_mag_money_token(&chars, index) {
+            out.push_str(&formatted);
+            index += consumed;
+            continue;
+        }
+        if let Some((formatted, consumed)) = parse_mag_number_token(&chars, index) {
+            out.push_str(&formatted);
+            index += consumed;
             continue;
         }
 
-        out.push(ch);
+        out.push(chars[index]);
         index += 1;
     }
 
     out
+}
+
+fn rounded_log10(value: f64) -> i32 {
+    value.abs().log10().round() as i32
+}
+
+fn is_word_char(value: char) -> bool {
+    value.is_ascii_alphanumeric() || value == '_'
+}
+
+fn is_word_boundary_before(chars: &[char], index: usize) -> bool {
+    index == 0 || !is_word_char(chars[index.saturating_sub(1)])
+}
+
+fn is_word_boundary_after(chars: &[char], index: usize) -> bool {
+    chars.get(index).is_none_or(|value| !is_word_char(*value))
+}
+
+fn parse_numeric_token(chars: &[char], start: usize) -> Option<usize> {
+    if chars.get(start).is_none_or(|value| !value.is_ascii_digit()) {
+        return None;
+    }
+
+    let mut end = start;
+    while chars
+        .get(end)
+        .is_some_and(|value| value.is_ascii_digit() || *value == ',')
+    {
+        end += 1;
+    }
+
+    if chars.get(end) == Some(&'.') {
+        let mut frac_end = end + 1;
+        while chars
+            .get(frac_end)
+            .is_some_and(|value| value.is_ascii_digit())
+        {
+            frac_end += 1;
+        }
+        if frac_end > end + 1 {
+            end = frac_end;
+        }
+    }
+
+    Some(end)
+}
+
+fn parse_mag_money_token(chars: &[char], start: usize) -> Option<(String, usize)> {
+    let mut cursor = start;
+    let mut is_negative = false;
+    if chars.get(cursor) == Some(&'-') && chars.get(cursor + 1) == Some(&'$') {
+        is_negative = true;
+        cursor += 1;
+    }
+    if chars.get(cursor) != Some(&'$') {
+        return None;
+    }
+    let numeric_start = cursor + 1;
+    let numeric_end = parse_numeric_token(chars, numeric_start)?;
+    let numeric = chars[numeric_start..numeric_end]
+        .iter()
+        .collect::<String>()
+        .replace(',', "");
+    let value = numeric.parse::<f64>().ok()?;
+    let sign = if is_negative || value.is_sign_negative() {
+        "-"
+    } else {
+        ""
+    };
+    let magnitude = if value == 0.0 {
+        "-∞".to_owned()
+    } else {
+        rounded_log10(value).to_string()
+    };
+    Some((format!("{sign}$ ↑{magnitude}"), numeric_end - start))
+}
+
+fn parse_mag_number_token(chars: &[char], start: usize) -> Option<(String, usize)> {
+    if !is_word_boundary_before(chars, start) {
+        return None;
+    }
+    let end = parse_numeric_token(chars, start)?;
+    if !is_word_boundary_after(chars, end) {
+        return None;
+    }
+    let numeric = chars[start..end]
+        .iter()
+        .collect::<String>()
+        .replace(',', "");
+    let value = numeric.parse::<f64>().ok()?;
+    let formatted = if value == 0.0 {
+        "0".to_owned()
+    } else {
+        format!("↑{}", rounded_log10(value))
+    };
+    Some((formatted, end - start))
 }
 
 fn move_row(view_data: &mut ViewData, delta: isize) {
@@ -4999,11 +5083,12 @@ mod tests {
         DashboardMaintenance, DashboardProject, DashboardServiceEntry, DashboardSnapshot,
         DashboardWarranty, LifecycleAction, TabSnapshot, TableCommand, TableEvent, TableStatus,
         ViewData, apply_mag_mode_to_text, apply_table_command, coerce_visible_column,
-        contextual_enter_hint, dashboard_nav_entries, first_visible_column, handle_date_picker_key,
-        handle_key_event, header_label_for_column, help_overlay_text, highlight_column_label,
-        last_visible_column, refresh_view_data, render_breadcrumb_text, render_chat_overlay_text,
-        render_dashboard_overlay_text, render_dashboard_text, render_note_preview_overlay_text,
-        shift_date_by_months, shift_date_by_years, status_text, table_command_for_key, table_title,
+        contextual_enter_hint, dashboard_nav_entries, first_visible_column, format_magnitude_money,
+        format_magnitude_usize, handle_date_picker_key, handle_key_event, header_label_for_column,
+        help_overlay_text, highlight_column_label, last_visible_column, refresh_view_data,
+        render_breadcrumb_text, render_chat_overlay_text, render_dashboard_overlay_text,
+        render_dashboard_text, render_note_preview_overlay_text, shift_date_by_months,
+        shift_date_by_years, status_text, table_command_for_key, table_title,
         visible_column_indices,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -5500,6 +5585,92 @@ mod tests {
             KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
         );
         assert!(!view_data.mag_mode);
+    }
+
+    #[test]
+    fn magnitude_formatters_encode_order_of_magnitude() {
+        assert_eq!(format_magnitude_money(0), "$ ↑-∞");
+        assert_eq!(format_magnitude_money(50_000), "$ ↑3");
+        assert_eq!(format_magnitude_money(523_423), "$ ↑4");
+        assert_eq!(format_magnitude_money(-130_000_000), "-$ ↑6");
+
+        assert_eq!(format_magnitude_usize(0, true), "0");
+        assert_eq!(format_magnitude_usize(9, true), "↑1");
+        assert_eq!(format_magnitude_usize(42, true), "↑2");
+        assert_eq!(format_magnitude_usize(1_234, true), "↑3");
+        assert_eq!(format_magnitude_usize(1_234, false), "1234");
+    }
+
+    #[test]
+    fn apply_mag_mode_to_text_formats_money_and_bare_numbers() {
+        assert_eq!(
+            apply_mag_mode_to_text("You spent $5,234.23 on kitchen.", true),
+            "You spent $ ↑4 on kitchen."
+        );
+        assert_eq!(
+            apply_mag_mode_to_text("Budget is $10,000.00 and actual is $8,500.00.", true),
+            "Budget is $ ↑4 and actual is $ ↑4."
+        );
+        assert_eq!(
+            apply_mag_mode_to_text("Loss of -$500.00 this month.", true),
+            "Loss of -$ ↑3 this month."
+        );
+        assert_eq!(
+            apply_mag_mode_to_text("The project is underway.", true),
+            "The project is underway."
+        );
+        assert_eq!(apply_mag_mode_to_text("Just $5.00.", true), "Just $ ↑1.");
+        assert_eq!(
+            apply_mag_mode_to_text("There is 1 flooring project.", true),
+            "There is ↑0 flooring project."
+        );
+        assert_eq!(
+            apply_mag_mode_to_text("You have 42 maintenance items.", true),
+            "You have ↑2 maintenance items."
+        );
+        assert_eq!(
+            apply_mag_mode_to_text("Total is 1,000 items.", true),
+            "Total is ↑3 items."
+        );
+        assert_eq!(
+            apply_mag_mode_to_text("Found 3 projects totaling $15,000.00.", true),
+            "Found ↑0 projects totaling $ ↑4."
+        );
+    }
+
+    #[test]
+    fn table_cell_mag_mode_skips_text_and_dates() {
+        let date = Date::from_calendar_date(2026, Month::February, 12).expect("valid date");
+        let text_cell = super::TableCell::Text("5551234567".to_owned());
+        let date_cell = super::TableCell::Date(Some(date));
+        assert_eq!(text_cell.display_with_mag_mode(true), "5551234567");
+        assert_eq!(date_cell.display_with_mag_mode(true), "2026-02-12");
+    }
+
+    #[test]
+    fn table_cell_mag_mode_formats_numeric_types() {
+        let integer_cell = super::TableCell::Integer(42);
+        let optional_integer_cell = super::TableCell::OptionalInteger(Some(1_000));
+        let decimal_cell = super::TableCell::Decimal(Some(0.5));
+        let zero_money_cell = super::TableCell::Money(Some(0));
+        let money_cell = super::TableCell::Money(Some(523_423));
+        assert_eq!(integer_cell.display_with_mag_mode(true), "↑2");
+        assert_eq!(optional_integer_cell.display_with_mag_mode(true), "↑3");
+        assert_eq!(decimal_cell.display_with_mag_mode(true), "↑0");
+        assert_eq!(zero_money_cell.display_with_mag_mode(true), "$ ↑-∞");
+        assert_eq!(money_cell.display_with_mag_mode(true), "$ ↑4");
+        assert_eq!(
+            super::TableCell::OptionalInteger(None).display_with_mag_mode(true),
+            ""
+        );
+        assert_eq!(
+            super::TableCell::Decimal(None).display_with_mag_mode(true),
+            ""
+        );
+        assert_eq!(
+            super::TableCell::Money(None).display_with_mag_mode(true),
+            ""
+        );
     }
 
     #[test]
