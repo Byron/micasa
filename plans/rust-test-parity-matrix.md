@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 377 tests
+- Rust tests currently (`crates/`): 381 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -142,6 +142,7 @@
 - Added more detail-view parity from Go `internal/app/detail_test.go` in `crates/micasa-tui/src/lib.rs`: `Tab` key is also blocked while detail is open, and following a linked FK from detail collapses the full detail stack and lands on the linked tab.
 - Added additional detail/drilldown parity from Go `internal/app/detail_test.go` in `crates/micasa-tui/src/lib.rs`: multi-level breadcrumb rendering checks, maintenance→service-log and appliance→documents drill filters, and service-log performed-by link semantics (vendor follow vs self/no-link status).
 - Added further detail-stack parity from Go `internal/app/detail_test.go` in `crates/micasa-tui/src/lib.rs`: selected row/cell resolution against detail projections, sort activation while in detail, and explicit close-all helper semantics for nested stacks and empty-stack no-op behavior.
+- Added more column/drill semantics parity from Go `internal/app/detail_test.go` in `crates/micasa-tui/src/lib.rs`: maintenance/appliance/project projection drill columns (`log`, `maint`, `quotes`, `docs`) and service-log vendor link-target behavior depending on performed-by vendor presence.
 
 ## Known Gaps
 

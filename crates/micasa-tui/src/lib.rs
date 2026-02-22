@@ -7619,6 +7619,87 @@ mod tests {
     }
 
     #[test]
+    fn maintenance_projection_columns_include_log_and_not_manual() {
+        let projection = super::projection_for_snapshot(
+            &TabSnapshot::Maintenance(vec![TestRuntime::sample_maintenance(
+                2,
+                Some(4),
+                "HVAC filter",
+            )]),
+            &super::TableUiState {
+                tab: Some(TabKind::Maintenance),
+                ..super::TableUiState::default()
+            },
+        );
+
+        assert_eq!(projection.columns.last().copied(), Some("log"));
+        assert!(!projection.columns.contains(&"manual"));
+    }
+
+    #[test]
+    fn appliance_projection_columns_include_maint_and_docs() {
+        let projection = super::projection_for_snapshot(
+            &TabSnapshot::Appliances(vec![TestRuntime::sample_appliance(4, "Furnace")]),
+            &super::TableUiState {
+                tab: Some(TabKind::Appliances),
+                ..super::TableUiState::default()
+            },
+        );
+
+        assert_eq!(projection.columns.len(), 8);
+        assert_eq!(projection.columns[6], "maint");
+        assert_eq!(projection.columns[7], "docs");
+    }
+
+    #[test]
+    fn project_projection_columns_include_quotes_and_docs() {
+        let projection = super::projection_for_snapshot(
+            &TabSnapshot::Projects(vec![TestRuntime::sample_project(1, "Alpha")]),
+            &super::TableUiState {
+                tab: Some(TabKind::Projects),
+                ..super::TableUiState::default()
+            },
+        );
+
+        assert_eq!(projection.columns.len(), 7);
+        assert_eq!(projection.columns[5], "quotes");
+        assert_eq!(projection.columns[6], "docs");
+    }
+
+    #[test]
+    fn service_log_vendor_cell_link_target_depends_on_vendor_presence() {
+        let with_vendor = super::projection_for_snapshot(
+            &TabSnapshot::ServiceLog(vec![TestRuntime::sample_service_log(
+                19,
+                2,
+                Some(7),
+                "vendor visit",
+            )]),
+            &super::TableUiState {
+                tab: Some(TabKind::ServiceLog),
+                ..super::TableUiState::default()
+            },
+        );
+        let without_vendor = super::projection_for_snapshot(
+            &TabSnapshot::ServiceLog(vec![TestRuntime::sample_service_log(
+                20,
+                2,
+                None,
+                "self performed",
+            )]),
+            &super::TableUiState {
+                tab: Some(TabKind::ServiceLog),
+                ..super::TableUiState::default()
+            },
+        );
+
+        let with_vendor_cell = with_vendor.rows[0].cells[3].clone();
+        let without_vendor_cell = without_vendor.rows[0].cells[3].clone();
+        assert!(super::cell_has_link_target(&with_vendor_cell));
+        assert!(!super::cell_has_link_target(&without_vendor_cell));
+    }
+
+    #[test]
     fn project_drilldowns_filter_quotes_and_documents() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
