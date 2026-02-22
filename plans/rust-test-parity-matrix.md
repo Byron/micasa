@@ -46,7 +46,7 @@
 | `internal/app/handlers_test.go` | 4 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Rust replaces Go tab handler objects with typed form dispatch (`form_for_tab`) and inline-edit routing. Parity tests now cover tab→form mapping and `e` edit dispatch behavior for supported vs unsupported tabs. |
 | `internal/app/inline_edit_dispatch_test.go` | 5 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/inline_input_test.go` | 9 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/lazy_reload_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/lazy_reload_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go stale-flag reload internals (`Tab.Stale`, lazy clear-on-visit) were replaced by Rust’s direct snapshot refresh flow on state transitions/navigation, so there is no one-to-one stale-flag mechanism to port. |
 | `internal/app/lighter_forms_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/mag_test.go` | 14 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -157,6 +157,7 @@
 - Reclassified `internal/app/testmain_test.go` and `internal/data/testmain_test.go` to `n/a` because both are Go `TestMain` seed/bootstrap harnesses with no direct Rust test-runner analogue.
 - Reclassified `internal/app/form_select_test.go` to `n/a` because it validates `huh` library internals; Rust’s typed form-choice flow does not use `huh`, and numeric choice behavior is already covered in end-to-end form shortcut tests.
 - Added runtime demo-seed parity tests in `crates/micasa-cli/src/runtime.rs` (all-tab non-empty snapshots, dashboard population, and varied-seed population checks) and reclassified `internal/app/demo_data_test.go` to `ported`.
+- Reclassified `internal/app/lazy_reload_test.go` to `n/a` because Go stale-flag lazy-reload internals were removed in Rust’s snapshot-refresh architecture.
 
 ## Known Gaps
 
