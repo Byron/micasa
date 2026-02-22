@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 281 tests
+- Rust tests currently (`crates/`): 282 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -115,6 +115,7 @@
 - Added DB dashboard parity tests from Go `internal/data/dashboard_test.go` in `crates/micasa-db/tests/store_tests.rs` for expiring-warranty lookback/lookahead windows, recent service-log ordering with limits, and open-incident severity ordering while excluding soft-deleted rows.
 - Added DB cache-eviction parity regressions in `crates/micasa-db/tests/store_tests.rs` for nonexistent-dir handling, subdirectory skip behavior, and overflow-protected TTL validation.
 - Added TUI filter-inversion parity from Go `internal/app/filter_test.go` and `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs`, including `!` key mapping, inverted preview/active filtering semantics, clear-pin reset behavior, and help/table-title inversion indicators.
+- Added TUI deleted-row count parity from Go `internal/app/view_test.go` by surfacing deleted counts in table title metadata and adding a regression test in `crates/micasa-tui/src/lib.rs`.
 
 ## Known Gaps
 

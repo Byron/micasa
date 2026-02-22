@@ -3901,6 +3901,10 @@ fn table_title(projection: &TableProjection, table_state: &TableUiState) -> Stri
     if table_state.hide_settled_projects && table_state.tab == Some(TabKind::Projects) {
         parts.push("settled hidden".to_owned());
     }
+    let deleted_count = projection.rows.iter().filter(|row| row.deleted).count();
+    if deleted_count > 0 {
+        parts.push(format!("del {deleted_count}"));
+    }
     let hidden_count = projection.column_count().saturating_sub(visible_count);
     if hidden_count > 0 {
         parts.push(format!("hidden {hidden_count}"));
@@ -8016,6 +8020,24 @@ mod tests {
         assert!(title.contains("invert on"));
         assert!(title.contains("settled hidden"));
         assert!(title.contains("hidden 1"));
+    }
+
+    #[test]
+    fn table_title_includes_deleted_count_when_projection_has_deleted_rows() {
+        let active = TestRuntime::sample_project(1, "Active");
+        let mut deleted = TestRuntime::sample_project(2, "Deleted");
+        deleted.deleted_at = Some(OffsetDateTime::UNIX_EPOCH);
+
+        let snapshot = TabSnapshot::Projects(vec![active, deleted]);
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Projects),
+            ..super::TableUiState::default()
+        };
+        let projection = super::projection_for_snapshot(&snapshot, &table_state);
+        let title = table_title(&projection, &table_state);
+
+        assert!(title.contains("projects r:2"));
+        assert!(title.contains("del 1"));
     }
 
     #[test]
