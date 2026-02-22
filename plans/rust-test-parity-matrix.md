@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 398 tests
+- Rust tests currently (`crates/`): 402 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -58,7 +58,7 @@
 | `internal/app/undo_test.go` | 15 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/vendor_test.go` | 13 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/view_test.go` | 72 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/config/config_test.go` | 19 | `crates/micasa-cli/src/config.rs` | partial | Config v2 semantics intentionally differ; migration/error behavior partially covered. |
+| `internal/config/config_test.go` | 19 | `crates/micasa-cli/src/config.rs` | partial | Config v2 semantics intentionally differ; migration/error behavior plus DB-path precedence (`[storage].db_path` vs `MICASA_DB_PATH` vs default) are covered, with legacy v1/env surface intentionally excluded. |
 | `internal/data/bench_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists; substantial long-tail test ports remain. |
 | `internal/data/dashboard_test.go` | 7 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Dashboard helper/query parity is covered for active-project filtering, scheduled maintenance filtering, open-incident ordering, warranty windows, recent service-log limits, and spend calculations/regressions. |
 | `internal/data/query_test.go` | 17 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Full read-only query safety, identifier validation, and data-dump/column-hint parity suite is covered. |
@@ -146,6 +146,7 @@
 - Added helper-level drilldown parity assertions from Go `internal/app/detail_test.go` in `crates/micasa-tui/src/lib.rs`: `pop_detail_snapshot` empty-stack return semantics and `drill_title_for` label-vs-fallback behavior for selected-row and blank-label cases.
 - Added typed deterministic seeding APIs in `crates/micasa-db/src/lib.rs` (`seed_demo_data{,_with_seed}`, `seed_scaled_data{,_with_seed}`, `SeedSummary`) and ported full Go parity suites from `internal/data/seed_demo_test.go` and `internal/data/seed_scaled_test.go` in `crates/micasa-db/tests/store_tests.rs`.
 - Added full path-validation parity from Go `internal/data/validate_path_test.go` in `crates/micasa-db/tests/store_tests.rs`: table-driven valid/invalid path coverage plus URL-like rejection and `Store::open` URI rejection checks.
+- Expanded config-v2 parity tests in `crates/micasa-cli/src/config.rs` for DB path precedence and validation: `[storage].db_path` override, `MICASA_DB_PATH` fallback, platform default fallback, and URI-style path rejection, with test env mutation serialized to avoid cross-test races.
 
 ## Known Gaps
 

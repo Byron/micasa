@@ -267,6 +267,7 @@ mod tests {
     use super::{Config, parse_duration};
     use anyhow::Result;
     use std::path::PathBuf;
+    use std::sync::{Mutex, OnceLock};
     use std::time::Duration;
 
     fn write_config(content: &str) -> Result<(tempfile::TempDir, PathBuf)> {
@@ -274,6 +275,14 @@ mod tests {
         let path = temp.path().join("config.toml");
         std::fs::write(&path, content)?;
         Ok((temp, path))
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        match ENV_LOCK.get_or_init(|| Mutex::new(())).lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
     }
 
     #[test]
@@ -332,6 +341,7 @@ mod tests {
 
     #[test]
     fn default_path_honors_env_override() -> Result<()> {
+        let _guard = env_lock();
         let temp = tempfile::tempdir()?;
         let override_path = temp.path().join("custom-config.toml");
         // SAFETY: test-only process-local env mutation.
@@ -349,12 +359,80 @@ mod tests {
 
     #[test]
     fn default_path_uses_config_toml_suffix_when_no_env_override() -> Result<()> {
+        let _guard = env_lock();
         // SAFETY: test-only process-local env mutation.
         unsafe {
             std::env::remove_var("MICASA_CONFIG_PATH");
         }
         let path = Config::default_path()?;
         assert!(path.ends_with("config.toml"));
+        Ok(())
+    }
+
+    #[test]
+    fn db_path_prefers_storage_config_over_env_override() -> Result<()> {
+        let _guard = env_lock();
+        let (_temp, path) =
+            write_config("version = 2\n[storage]\ndb_path = \"/explicit/from-config.db\"\n")?;
+        // SAFETY: test-only process-local env mutation.
+        unsafe {
+            std::env::set_var("MICASA_DB_PATH", "/from/env.db");
+        }
+        let config = Config::load(&path)?;
+        // SAFETY: test cleanup for process-local env mutation.
+        unsafe {
+            std::env::remove_var("MICASA_DB_PATH");
+        }
+        assert_eq!(config.db_path()?, PathBuf::from("/explicit/from-config.db"));
+        Ok(())
+    }
+
+    #[test]
+    fn db_path_uses_env_override_when_storage_db_path_missing() -> Result<()> {
+        let _guard = env_lock();
+        let (_temp, path) = write_config("version = 2\n")?;
+        // SAFETY: test-only process-local env mutation.
+        unsafe {
+            std::env::set_var("MICASA_DB_PATH", "/from/env-only.db");
+        }
+        let config = Config::load(&path)?;
+        let resolved = config.db_path()?;
+        // SAFETY: test cleanup for process-local env mutation.
+        unsafe {
+            std::env::remove_var("MICASA_DB_PATH");
+        }
+        assert_eq!(resolved, PathBuf::from("/from/env-only.db"));
+        Ok(())
+    }
+
+    #[test]
+    fn db_path_defaults_to_micasa_db_when_unset() -> Result<()> {
+        let _guard = env_lock();
+        let (_temp, path) = write_config("version = 2\n")?;
+        // SAFETY: test-only process-local env mutation.
+        unsafe {
+            std::env::remove_var("MICASA_DB_PATH");
+        }
+        let config = Config::load(&path)?;
+        let resolved = config.db_path()?;
+        assert!(
+            resolved.ends_with("micasa.db"),
+            "got {}",
+            resolved.display()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn db_path_rejects_uri_style_storage_value() -> Result<()> {
+        let (_temp, path) =
+            write_config("version = 2\n[storage]\ndb_path = \"https://evil.example/micasa.db\"\n")?;
+        let error = Config::load(&path).expect_err("URI db_path should fail validation");
+        let message = error.to_string();
+        assert!(
+            message.contains("looks like a URI") || message.contains("filesystem path"),
+            "unexpected message: {message}"
+        );
         Ok(())
     }
 
