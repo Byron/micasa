@@ -7248,6 +7248,104 @@ mod tests {
     }
 
     #[test]
+    fn tab_key_is_blocked_while_detail_stack_open() {
+        let mut state = AppState {
+            active_tab: TabKind::Appliances,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..6 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.detail_stack.len(), 1);
+        let before_tab = state.active_tab;
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+        assert_eq!(state.active_tab, before_tab);
+        assert_eq!(view_data.detail_stack.len(), 1);
+        assert_eq!(
+            state.status_line.as_deref(),
+            Some("close detail first"),
+            "blocking message should be actionable"
+        );
+    }
+
+    #[test]
+    fn following_link_from_detail_closes_detail_stack() {
+        let mut state = AppState {
+            active_tab: TabKind::Vendors,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        for _ in 0..5 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+            );
+        }
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Quotes));
+        assert_eq!(view_data.detail_stack.len(), 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_col, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert!(view_data.detail_stack.is_empty());
+        assert_eq!(state.active_tab, TabKind::Projects);
+        assert_eq!(view_data.table_state.tab, Some(TabKind::Projects));
+    }
+
+    #[test]
     fn column_navigation_moves_within_detail_stack() {
         let mut state = AppState {
             active_tab: TabKind::Appliances,

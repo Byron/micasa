@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 365 tests
+- Rust tests currently (`crates/`): 367 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -139,6 +139,7 @@
 - Added additional document parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for content survival across delete/restore, unlinked-document full lifecycle, entity-scoped list/count filtering (including include-deleted behavior), and deterministic multi-document ordering on `updated_at` ties via `id DESC`.
 - Added more `internal/data/store_test.go` parity in `crates/micasa-db/tests/store_tests.rs` and `crates/micasa-db/src/lib.rs` for stale-cache eviction edge cases (remove-old/keep-recent/zero-ttl/empty-path), maintenance restore without appliance links, vendor-only incident restore guards, maintenance-by-appliance typed count filtering, vendor-delete unblocking after quote deletion, and document note-clearing with file metadata preserved.
 - Added detail-view interaction parity from Go `internal/app/detail_test.go` in `crates/micasa-tui/src/lib.rs`: edit-mode `esc` keeps detail stack open, tab-switch commands are blocked while detail is open with actionable status, and column navigation continues to work inside detail stacks.
+- Added more detail-view parity from Go `internal/app/detail_test.go` in `crates/micasa-tui/src/lib.rs`: `Tab` key is also blocked while detail is open, and following a linked FK from detail collapses the full detail stack and lands on the linked tab.
 
 ## Known Gaps
 
