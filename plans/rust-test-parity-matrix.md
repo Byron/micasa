@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 300 tests
+- Rust tests currently (`crates/`): 303 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -122,6 +122,7 @@
 - Added LLM SQL formatter parity tests from Go `internal/llm/sqlfmt_test.go` in `crates/micasa-llm/src/lib.rs` for subquery handling, nested subquery column layout, date-function formatting, already-formatted SQL stability, and aggregate-join formatting.
 - Added LLM client parity test from Go `internal/llm/client_test.go` in `crates/micasa-llm/tests/client_tests.rs` for actionable server-down error handling on `list_models`.
 - Added LLM client cancellation parity test from Go `internal/llm/client_test.go` in `crates/micasa-llm/tests/client_tests.rs` by verifying dropped stream readers disconnect the server-side stream promptly.
+- Added DB Unicode round-trip parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for house profile fields, vendor names, and project notes/description persistence.
 
 ## Known Gaps
 

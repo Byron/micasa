@@ -1580,6 +1580,121 @@ fn house_profile_upsert_and_update() -> Result<()> {
 }
 
 #[test]
+fn unicode_round_trip_house_profile_fields() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let cases = [
+        ("Casa de Garc\u{00ED}a", "San Jos\u{00E9}"),
+        ("\u{6211}\u{7684}\u{5BB6}", "\u{6771}\u{4EAC}"),
+        ("Home \u{1F3E0}", "City \u{2605}"),
+        ("Haus M\u{00FC}ller \u{2014} \u{6771}\u{4EAC}", ""),
+        ("\u{00BD} acre lot", "\u{00A7}5 district"),
+    ];
+
+    for (nickname, city) in cases {
+        store.upsert_house_profile(&HouseProfileInput {
+            nickname: nickname.to_owned(),
+            address_line_1: String::new(),
+            address_line_2: String::new(),
+            city: city.to_owned(),
+            state: String::new(),
+            postal_code: String::new(),
+            year_built: None,
+            square_feet: None,
+            lot_square_feet: None,
+            bedrooms: None,
+            bathrooms: None,
+            foundation_type: String::new(),
+            wiring_type: String::new(),
+            roof_type: String::new(),
+            exterior_type: String::new(),
+            heating_type: String::new(),
+            cooling_type: String::new(),
+            water_source: String::new(),
+            sewer_type: String::new(),
+            parking_type: String::new(),
+            basement_type: String::new(),
+            insurance_carrier: String::new(),
+            insurance_policy: String::new(),
+            insurance_renewal: None,
+            property_tax_cents: None,
+            hoa_name: String::new(),
+            hoa_fee_cents: None,
+        })?;
+
+        let profile = store
+            .get_house_profile()?
+            .expect("house profile should exist");
+        assert_eq!(profile.nickname, nickname);
+        assert_eq!(profile.city, city);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn unicode_round_trip_vendor_names() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let names = [
+        "Garc\u{00ED}a Plumbing",
+        "M\u{00FC}ller HVAC",
+        "\u{6771}\u{829D}\u{30B5}\u{30FC}\u{30D3}\u{30B9}",
+        "O'Brien & Sons",
+    ];
+
+    for name in names {
+        store.create_vendor(&NewVendor {
+            name: name.to_owned(),
+            contact_name: String::new(),
+            email: String::new(),
+            phone: String::new(),
+            website: String::new(),
+            notes: String::new(),
+        })?;
+    }
+
+    let vendors = store.list_vendors(false)?;
+    let vendor_names = vendors
+        .into_iter()
+        .map(|vendor| vendor.name)
+        .collect::<Vec<_>>();
+    for name in names {
+        assert!(
+            vendor_names.iter().any(|candidate| candidate == name),
+            "vendor {name:?} should survive round trip"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn unicode_round_trip_project_description() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let notes = "Technician Jos\u{00E9} used \u{00BD}-inch fittings per \u{00A7}5.2";
+    let project_id = store.create_project(&NewProject {
+        title: "Unicode notes test".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: notes.to_owned(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+
+    let project = store.get_project(project_id)?;
+    assert_eq!(project.description, notes);
+    Ok(())
+}
+
+#[test]
 fn service_log_crud_and_restore_parent_guards() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
