@@ -694,6 +694,98 @@ fn deleting_project_with_documents_is_allowed_and_preserves_document_rows() -> R
 }
 
 #[test]
+fn last_model_defaults_to_none_and_round_trips() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    assert_eq!(store.get_last_model()?, None);
+
+    store.put_last_model("qwen3:8b")?;
+    assert_eq!(store.get_last_model()?.as_deref(), Some("qwen3:8b"));
+
+    store.put_last_model("llama3.3")?;
+    assert_eq!(store.get_last_model()?.as_deref(), Some("llama3.3"));
+    Ok(())
+}
+
+#[test]
+fn show_dashboard_defaults_true_and_round_trips() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    assert!(store.get_show_dashboard()?);
+
+    store.put_show_dashboard(false)?;
+    assert!(!store.get_show_dashboard()?);
+
+    store.put_show_dashboard(true)?;
+    assert!(store.get_show_dashboard()?);
+    Ok(())
+}
+
+#[test]
+fn model_setting_persists_across_reopen() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let db_path = temp_dir.path().join("settings-persist.db");
+
+    {
+        let store = Store::open(&db_path)?;
+        store.bootstrap()?;
+        store.put_last_model("qwen3:8b")?;
+    }
+
+    {
+        let store = Store::open(&db_path)?;
+        store.bootstrap()?;
+        assert_eq!(store.get_last_model()?.as_deref(), Some("qwen3:8b"));
+    }
+    Ok(())
+}
+
+#[test]
+fn chat_history_persists_across_reopen() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let db_path = temp_dir.path().join("chat-history.db");
+
+    {
+        let store = Store::open(&db_path)?;
+        store.bootstrap()?;
+        store.append_chat_input("how many projects?")?;
+        store.append_chat_input("oldest appliance?")?;
+    }
+
+    {
+        let store = Store::open(&db_path)?;
+        store.bootstrap()?;
+        let history = store
+            .load_chat_history()?
+            .into_iter()
+            .map(|entry| entry.input)
+            .collect::<Vec<_>>();
+        assert_eq!(history, vec!["how many projects?", "oldest appliance?"]);
+    }
+    Ok(())
+}
+
+#[test]
+fn chat_history_allows_non_consecutive_duplicates() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    store.append_chat_input("a")?;
+    store.append_chat_input("b")?;
+    store.append_chat_input("a")?;
+
+    let history = store
+        .load_chat_history()?
+        .into_iter()
+        .map(|entry| entry.input)
+        .collect::<Vec<_>>();
+    assert_eq!(history, vec!["a", "b", "a"]);
+    Ok(())
+}
+
+#[test]
 fn chat_history_deduplicates_and_caps_size() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
