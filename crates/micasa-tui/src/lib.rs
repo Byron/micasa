@@ -419,6 +419,7 @@ struct TableUiState {
     sorts: Vec<SortSpec>,
     pin: Option<PinnedCell>,
     filter_active: bool,
+    filter_inverted: bool,
     hidden_columns: BTreeSet<usize>,
     hide_settled_projects: bool,
 }
@@ -439,6 +440,7 @@ enum TableCommand {
     ClearSort,
     TogglePin,
     ToggleFilter,
+    ToggleFilterInversion,
     ClearPins,
     ToggleSettledProjects,
     HideCurrentColumn,
@@ -459,6 +461,8 @@ enum TableStatus {
     SetPinFirst,
     FilterOn,
     FilterOff,
+    FilterInvertedOn,
+    FilterInvertedOff,
     SettledHidden,
     SettledShown,
     SettledUnavailable,
@@ -487,6 +491,8 @@ impl TableStatus {
             Self::SetPinFirst => "set a pin first".to_owned(),
             Self::FilterOn => "filter on".to_owned(),
             Self::FilterOff => "filter off".to_owned(),
+            Self::FilterInvertedOn => "filter inverted on".to_owned(),
+            Self::FilterInvertedOff => "filter inverted off".to_owned(),
             Self::SettledHidden => "settled hidden".to_owned(),
             Self::SettledShown => "settled shown".to_owned(),
             Self::SettledUnavailable => "settled toggle only on projects".to_owned(),
@@ -3037,6 +3043,7 @@ fn table_command_for_key(key: KeyEvent) -> Option<TableCommand> {
         (KeyCode::Char('n'), KeyModifiers::CONTROL) => Some(TableCommand::ClearPins),
         (KeyCode::Char('n'), KeyModifiers::NONE) => Some(TableCommand::TogglePin),
         (KeyCode::Char('N'), _) => Some(TableCommand::ToggleFilter),
+        (KeyCode::Char('!'), _) => Some(TableCommand::ToggleFilterInversion),
         (KeyCode::Char('t'), KeyModifiers::NONE) => Some(TableCommand::ToggleSettledProjects),
         (KeyCode::Char('c'), KeyModifiers::NONE) => Some(TableCommand::HideCurrentColumn),
         (KeyCode::Char('C'), _) => Some(TableCommand::ShowAllColumns),
@@ -3107,9 +3114,13 @@ fn apply_table_command(view_data: &mut ViewData, command: TableCommand) -> Table
         }
         TableCommand::TogglePin => TableEvent::Status(toggle_pin(view_data)),
         TableCommand::ToggleFilter => TableEvent::Status(toggle_filter(view_data)),
+        TableCommand::ToggleFilterInversion => {
+            TableEvent::Status(toggle_filter_inversion(view_data))
+        }
         TableCommand::ClearPins => {
             view_data.table_state.pin = None;
             view_data.table_state.filter_active = false;
+            view_data.table_state.filter_inverted = false;
             clamp_table_cursor(view_data);
             TableEvent::Status(TableStatus::PinsCleared)
         }
@@ -3157,6 +3168,7 @@ fn apply_table_command(view_data: &mut ViewData, command: TableCommand) -> Table
             {
                 view_data.table_state.pin = None;
                 view_data.table_state.filter_active = false;
+                view_data.table_state.filter_inverted = false;
             }
             clamp_table_cursor(view_data);
             TableEvent::Status(TableStatus::ColumnHidden(label))
@@ -3685,6 +3697,7 @@ fn help_overlay_text() -> &'static str {
 nav: j/k/h/l g/G ^/$ d/u pgup/pgdn | b/f tabs | B/F first/last | tab house | D dashboard\n\
 nav: enter follow/drill/preview | s/S sort | t settled | c/C cols | / col jump\n\
 nav: n/N pin/filter | ctrl+n clear pins | i edit | @ chat | ? help\n\
+nav: ! invert filter\n\
 edit: a add | e edit (setting/date/form) | d del/restore | x show deleted | u undo | r redo | ctrl+d/u pgup/pgdn | esc nav\n\
 form: tab/shift+tab field | 1-9 choose | ctrl+s or enter submit | esc cancel\n\
 date picker: h/l day j/k week H/L month [/] year enter pick esc cancel\n\
@@ -3734,7 +3747,11 @@ fn render_table(
         let pin_match = row_matches_pin(row, &view_data.table_state);
         let preview_dim = view_data.table_state.pin.is_some()
             && !view_data.table_state.filter_active
-            && !pin_match;
+            && if view_data.table_state.filter_inverted {
+                pin_match
+            } else {
+                !pin_match
+            };
 
         let cells = visible_columns
             .iter()
@@ -3878,6 +3895,9 @@ fn table_title(projection: &TableProjection, table_state: &TableUiState) -> Stri
     if table_state.filter_active {
         parts.push("filter on".to_owned());
     }
+    if table_state.filter_inverted {
+        parts.push("invert on".to_owned());
+    }
     if table_state.hide_settled_projects && table_state.tab == Some(TabKind::Projects) {
         parts.push("settled hidden".to_owned());
     }
@@ -3979,10 +3999,16 @@ fn projection_for_snapshot(snapshot: &TabSnapshot, table_state: &TableUiState) -
         && let Some(pin) = &table_state.pin
     {
         projection.rows.retain(|row| {
-            row.cells
+            let pin_match = row
+                .cells
                 .get(pin.column)
                 .map(|value| value == &pin.value)
-                .unwrap_or(false)
+                .unwrap_or(false);
+            if table_state.filter_inverted {
+                !pin_match
+            } else {
+                pin_match
+            }
         });
     }
 
@@ -4480,6 +4506,7 @@ fn toggle_pin(view_data: &mut ViewData) -> TableStatus {
     {
         view_data.table_state.pin = None;
         view_data.table_state.filter_active = false;
+        view_data.table_state.filter_inverted = false;
         clamp_table_cursor(view_data);
         return TableStatus::PinOff;
     }
@@ -4506,6 +4533,16 @@ fn toggle_filter(view_data: &mut ViewData) -> TableStatus {
     }
 }
 
+fn toggle_filter_inversion(view_data: &mut ViewData) -> TableStatus {
+    view_data.table_state.filter_inverted = !view_data.table_state.filter_inverted;
+    clamp_table_cursor(view_data);
+    if view_data.table_state.filter_inverted {
+        TableStatus::FilterInvertedOn
+    } else {
+        TableStatus::FilterInvertedOff
+    }
+}
+
 fn clamp_table_cursor(view_data: &mut ViewData) {
     let Some(snapshot) = &view_data.active_tab_snapshot else {
         view_data.table_state.selected_col = 0;
@@ -4529,6 +4566,7 @@ fn clamp_table_cursor(view_data: &mut ViewData) {
     {
         view_data.table_state.pin = None;
         view_data.table_state.filter_active = false;
+        view_data.table_state.filter_inverted = false;
         projection = projection_for_snapshot(snapshot, &view_data.table_state);
     }
 
@@ -4854,6 +4892,7 @@ fn apply_pending_row_selection(view_data: &mut ViewData) {
 
     view_data.table_state.pin = None;
     view_data.table_state.filter_active = false;
+    view_data.table_state.filter_inverted = false;
     view_data.table_state.sorts.clear();
     projection = projection_for_snapshot(snapshot, &view_data.table_state);
     if let Some(index) = find_row_index_by_id(&projection, selection.row_id) {
@@ -6037,6 +6076,138 @@ mod tests {
                 .iter()
                 .all(|row| super::row_matches_pin(row, &view_data.table_state))
         );
+    }
+
+    #[test]
+    fn filter_inversion_flips_preview_and_active_match_behavior() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_col, 2);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.table_state.filter_inverted);
+        assert!(!view_data.table_state.filter_active);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.table_state.filter_active);
+        let inverted_active = super::active_projection(&view_data).expect("active projection");
+        assert_eq!(inverted_active.row_count(), 1);
+        assert!(
+            inverted_active
+                .rows
+                .iter()
+                .all(|row| !super::row_matches_pin(row, &view_data.table_state))
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT),
+        );
+        assert!(!view_data.table_state.filter_inverted);
+        let normal_active = super::active_projection(&view_data).expect("active projection");
+        assert_eq!(normal_active.row_count(), 2);
+        assert!(
+            normal_active
+                .rows
+                .iter()
+                .all(|row| super::row_matches_pin(row, &view_data.table_state))
+        );
+    }
+
+    #[test]
+    fn clear_pins_resets_filter_inversion() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT),
+        );
+        assert!(view_data.table_state.filter_inverted);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL),
+        );
+        assert!(view_data.table_state.pin.is_none());
+        assert!(!view_data.table_state.filter_active);
+        assert!(!view_data.table_state.filter_inverted);
     }
 
     #[test]
@@ -7428,6 +7599,10 @@ mod tests {
             Some(TableCommand::ToggleFilter)
         );
         assert_eq!(
+            table_command_for_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT)),
+            Some(TableCommand::ToggleFilterInversion)
+        );
+        assert_eq!(
             table_command_for_key(KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE)),
             Some(TableCommand::ToggleSettledProjects)
         );
@@ -7471,6 +7646,9 @@ mod tests {
             first_pin,
             TableEvent::Status(TableStatus::PinOn(_))
         ));
+
+        let invert = apply_table_command(&mut view_data, TableCommand::ToggleFilterInversion);
+        assert_eq!(invert, TableEvent::Status(TableStatus::FilterInvertedOn));
     }
 
     #[test]
@@ -7825,6 +8003,7 @@ mod tests {
             value: super::TableCell::Text("abcdefghijklmnop".to_owned()),
         });
         view_data.table_state.filter_active = true;
+        view_data.table_state.filter_inverted = true;
         view_data.table_state.hide_settled_projects = true;
         view_data.table_state.hidden_columns.insert(3);
 
@@ -7834,6 +8013,7 @@ mod tests {
         assert!(title.contains("sort id:asc#1"));
         assert!(title.contains("pin title=abcdefghijkl…"));
         assert!(title.contains("filter on"));
+        assert!(title.contains("invert on"));
         assert!(title.contains("settled hidden"));
         assert!(title.contains("hidden 1"));
     }
@@ -8003,6 +8183,7 @@ mod tests {
         let help = help_overlay_text();
         assert!(help.contains("s/S sort"));
         assert!(help.contains("t settled"));
+        assert!(help.contains("! invert filter"));
         assert!(help.contains("ctrl+d/u"));
         assert!(help.contains("pgup/pgdn"));
     }
