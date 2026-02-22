@@ -1221,6 +1221,47 @@ fn vendor_crud_and_delete_guards() -> Result<()> {
 }
 
 #[test]
+fn vendor_deletion_record_is_created_and_cleared_on_restore() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Record Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_vendor(vendor_id)?;
+
+    let active_count: i64 = store.raw_connection().query_row(
+        "SELECT COUNT(*) FROM deletion_records WHERE entity = 'vendor' AND target_id = ? AND restored_at IS NULL",
+        rusqlite::params![vendor_id.get()],
+        |row| row.get(0),
+    )?;
+    assert_eq!(active_count, 1);
+
+    store.restore_vendor(vendor_id)?;
+
+    let remaining_active: i64 = store.raw_connection().query_row(
+        "SELECT COUNT(*) FROM deletion_records WHERE entity = 'vendor' AND target_id = ? AND restored_at IS NULL",
+        rusqlite::params![vendor_id.get()],
+        |row| row.get(0),
+    )?;
+    assert_eq!(remaining_active, 0);
+
+    let restored_count: i64 = store.raw_connection().query_row(
+        "SELECT COUNT(*) FROM deletion_records WHERE entity = 'vendor' AND target_id = ? AND restored_at IS NOT NULL",
+        rusqlite::params![vendor_id.get()],
+        |row| row.get(0),
+    )?;
+    assert_eq!(restored_count, 1);
+    Ok(())
+}
+
+#[test]
 fn quote_restore_requires_live_parents() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -1298,6 +1339,50 @@ fn typed_lifecycle_api_soft_delete_and_restore_project() -> Result<()> {
     let projects = store.list_projects(false)?;
     assert_eq!(projects.len(), 1);
     assert_eq!(projects[0].id, project_id);
+    Ok(())
+}
+
+#[test]
+fn project_deletion_record_is_created_and_cleared_on_restore() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Record Project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+
+    store.soft_delete_project(project_id)?;
+
+    let active_count: i64 = store.raw_connection().query_row(
+        "SELECT COUNT(*) FROM deletion_records WHERE entity = 'project' AND target_id = ? AND restored_at IS NULL",
+        rusqlite::params![project_id.get()],
+        |row| row.get(0),
+    )?;
+    assert_eq!(active_count, 1);
+
+    store.restore_project(project_id)?;
+
+    let remaining_active: i64 = store.raw_connection().query_row(
+        "SELECT COUNT(*) FROM deletion_records WHERE entity = 'project' AND target_id = ? AND restored_at IS NULL",
+        rusqlite::params![project_id.get()],
+        |row| row.get(0),
+    )?;
+    assert_eq!(remaining_active, 0);
+
+    let restored_count: i64 = store.raw_connection().query_row(
+        "SELECT COUNT(*) FROM deletion_records WHERE entity = 'project' AND target_id = ? AND restored_at IS NOT NULL",
+        rusqlite::params![project_id.get()],
+        |row| row.get(0),
+    )?;
+    assert_eq!(restored_count, 1);
     Ok(())
 }
 
