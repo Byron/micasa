@@ -5,10 +5,11 @@ use anyhow::Result;
 use micasa_app::{DocumentEntityKind, IncidentSeverity, IncidentStatus, ProjectStatus};
 use micasa_db::{
     HouseProfileInput, LifecycleEntityRef, NewAppliance, NewDocument, NewIncident,
-    NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, Store,
+    NewMaintenanceItem, NewProject, NewQuote, NewServiceLogEntry, NewVendor, SeedSummary, Store,
     UpdateAppliance, UpdateDocument, UpdateMaintenanceItem, UpdateProject, UpdateQuote,
     UpdateServiceLogEntry, UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
 };
+use std::collections::BTreeSet;
 use std::fs;
 use std::time::{Duration, SystemTime};
 use time::{Date, Month};
@@ -4402,5 +4403,254 @@ fn multiple_documents_list_order_uses_updated_at_then_id_desc() -> Result<()> {
     assert_eq!(docs.len(), 2);
     assert_eq!(docs[0].id, second_id);
     assert_eq!(docs[1].id, first_id);
+    Ok(())
+}
+
+fn new_store_with_demo_data(seed: u64) -> Result<Store> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+    store.seed_demo_data_with_seed(seed)?;
+    Ok(store)
+}
+
+fn new_store_with_scaled_data(seed: u64, years: i32) -> Result<(Store, SeedSummary)> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+    let summary = store.seed_scaled_data_with_seed(seed, years)?;
+    Ok((store, summary))
+}
+
+#[test]
+fn seed_demo_data_populates_all_entities() -> Result<()> {
+    let store = new_store_with_demo_data(42)?;
+
+    let house = store
+        .get_house_profile()?
+        .expect("seeded demo house profile should exist");
+    assert!(!house.nickname.is_empty());
+    assert!(house.year_built.unwrap_or_default() > 0);
+
+    assert!(!store.list_vendors(false)?.is_empty());
+    assert!(!store.list_projects(false)?.is_empty());
+    assert!(!store.list_appliances(false)?.is_empty());
+    assert!(!store.list_maintenance_items(false)?.is_empty());
+    Ok(())
+}
+
+#[test]
+fn seed_demo_data_is_deterministic_for_same_seed() -> Result<()> {
+    let store1 = new_store_with_demo_data(42)?;
+    let store2 = new_store_with_demo_data(42)?;
+
+    let house1 = store1
+        .get_house_profile()?
+        .expect("first seeded house profile should exist");
+    let house2 = store2
+        .get_house_profile()?
+        .expect("second seeded house profile should exist");
+
+    assert_eq!(house1.nickname, house2.nickname);
+    Ok(())
+}
+
+#[test]
+fn seed_demo_data_varies_across_seeds() -> Result<()> {
+    let mut names = BTreeSet::new();
+    for offset in 0..5_u64 {
+        let store = new_store_with_demo_data(42 + offset)?;
+        let house = store
+            .get_house_profile()?
+            .expect("seeded house profile should exist");
+        names.insert(house.nickname);
+    }
+    assert!(
+        names.len() >= 3,
+        "expected at least 3 distinct house names, got {names:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn seed_demo_data_skips_when_data_exists() -> Result<()> {
+    let store = new_store_with_demo_data(42)?;
+    let first_count = store.list_vendors(false)?.len();
+
+    store.seed_demo_data()?;
+    let second_count = store.list_vendors(false)?.len();
+
+    assert_eq!(first_count, second_count);
+    Ok(())
+}
+
+#[test]
+fn seed_scaled_data_populates_all_entities() -> Result<()> {
+    let (store, summary) = new_store_with_scaled_data(42, 3)?;
+
+    let house = store
+        .get_house_profile()?
+        .expect("seeded scaled house profile should exist");
+    assert!(!house.nickname.is_empty());
+
+    let vendors = store.list_vendors(false)?;
+    assert!(!vendors.is_empty());
+    assert_eq!(summary.vendors, vendors.len());
+
+    let projects = store.list_projects(false)?;
+    assert!(!projects.is_empty());
+    assert_eq!(summary.projects, projects.len());
+
+    let appliances = store.list_appliances(false)?;
+    assert!(!appliances.is_empty());
+    assert_eq!(summary.appliances, appliances.len());
+
+    let maintenance = store.list_maintenance_items(false)?;
+    assert!(!maintenance.is_empty());
+    assert_eq!(summary.maintenance, maintenance.len());
+
+    assert!(summary.service_logs > 0);
+    assert!(summary.quotes > 0);
+    assert!(summary.documents > 0);
+    Ok(())
+}
+
+#[test]
+fn seed_scaled_data_is_deterministic_for_same_seed() -> Result<()> {
+    let (store1, _) = new_store_with_scaled_data(42, 5)?;
+    let (store2, _) = new_store_with_scaled_data(42, 5)?;
+
+    let house1 = store1
+        .get_house_profile()?
+        .expect("first seeded house profile should exist");
+    let house2 = store2
+        .get_house_profile()?
+        .expect("second seeded house profile should exist");
+    assert_eq!(house1.nickname, house2.nickname);
+    Ok(())
+}
+
+#[test]
+fn seed_scaled_data_grows_with_years() -> Result<()> {
+    let (_, summary1) = new_store_with_scaled_data(42, 1)?;
+    let (_, summary5) = new_store_with_scaled_data(42, 5)?;
+    let (_, summary10) = new_store_with_scaled_data(42, 10)?;
+
+    assert!(summary1.service_logs < summary5.service_logs);
+    assert!(summary5.service_logs < summary10.service_logs);
+    assert!(summary1.projects < summary10.projects);
+    assert!(summary1.vendors < summary10.vendors);
+    Ok(())
+}
+
+#[test]
+fn seed_scaled_data_spreads_service_logs_across_years() -> Result<()> {
+    let (store, _) = new_store_with_scaled_data(42, 5)?;
+    let maintenance = store.list_maintenance_items(false)?;
+
+    let mut years_seen = BTreeSet::new();
+    for item in maintenance {
+        let logs = store.list_service_log_for_maintenance(item.id, false)?;
+        for log in logs {
+            years_seen.insert(log.serviced_at.year());
+        }
+    }
+
+    let current_year = time::OffsetDateTime::now_utc().year();
+    assert!(
+        years_seen.len() >= 3,
+        "expected logs across multiple years, got {years_seen:?}"
+    );
+    assert!(
+        years_seen.contains(&current_year),
+        "expected logs in current year {current_year}, got {years_seen:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn seed_scaled_data_is_idempotent() -> Result<()> {
+    let (store, first_summary) = new_store_with_scaled_data(42, 3)?;
+
+    let second_summary = store.seed_scaled_data(3)?;
+    assert_eq!(second_summary, SeedSummary::default());
+    assert_ne!(first_summary, SeedSummary::default());
+    Ok(())
+}
+
+#[test]
+fn seed_scaled_data_preserves_fk_integrity() -> Result<()> {
+    let (store, _) = new_store_with_scaled_data(42, 3)?;
+
+    let projects = store.list_projects(false)?;
+    let project_types = store.list_project_types()?;
+    let project_type_ids = project_types
+        .iter()
+        .map(|entry| entry.id.get())
+        .collect::<BTreeSet<_>>();
+    for project in projects {
+        assert!(
+            project_type_ids.contains(&project.project_type_id.get()),
+            "project {:?} has invalid project type id {}",
+            project.title,
+            project.project_type_id.get()
+        );
+    }
+
+    let maintenance = store.list_maintenance_items(false)?;
+    let categories = store.list_maintenance_categories()?;
+    let category_ids = categories
+        .iter()
+        .map(|entry| entry.id.get())
+        .collect::<BTreeSet<_>>();
+    for item in &maintenance {
+        assert!(
+            category_ids.contains(&item.category_id.get()),
+            "maintenance {:?} has invalid category id {}",
+            item.name,
+            item.category_id.get()
+        );
+    }
+
+    let maintenance_ids = maintenance
+        .iter()
+        .map(|item| item.id.get())
+        .collect::<BTreeSet<_>>();
+    for item in maintenance {
+        let logs = store.list_service_log_for_maintenance(item.id, false)?;
+        for entry in logs {
+            assert!(
+                maintenance_ids.contains(&entry.maintenance_item_id.get()),
+                "service log references invalid maintenance item id {}",
+                entry.maintenance_item_id.get()
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn seed_scaled_data_summary_matches_database_counts() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+    let summary = store.seed_scaled_data_with_seed(42, 5)?;
+
+    let vendors = store.list_vendors(false)?;
+    assert_eq!(summary.vendors, vendors.len());
+
+    let projects = store.list_projects(false)?;
+    assert_eq!(summary.projects, projects.len());
+
+    let appliances = store.list_appliances(false)?;
+    assert_eq!(summary.appliances, appliances.len());
+
+    let maintenance = store.list_maintenance_items(false)?;
+    assert_eq!(summary.maintenance, maintenance.len());
+
+    let mut total_service_logs = 0usize;
+    for item in maintenance {
+        total_service_logs += store
+            .list_service_log_for_maintenance(item.id, false)?
+            .len();
+    }
+    assert_eq!(summary.service_logs, total_service_logs);
     Ok(())
 }

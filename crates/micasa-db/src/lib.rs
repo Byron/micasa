@@ -57,6 +57,294 @@ const DEFAULT_MAINTENANCE_CATEGORIES: [&str; 9] = [
     "Structural",
 ];
 
+const DEMO_VENDOR_TRADES: [&str; 12] = [
+    "Plumbing",
+    "Electric",
+    "Landscaping",
+    "Roofing",
+    "HVAC",
+    "Painting",
+    "Handyman",
+    "Flooring",
+    "Fencing",
+    "Pest Control",
+    "Window",
+    "Concrete",
+];
+
+const DEMO_VENDOR_SUFFIXES: [&str; 6] = ["Services", "Solutions", "Co", "Pros", "Works", "Group"];
+const DEMO_VENDOR_ADJECTIVES: [&str; 12] = [
+    "Premier",
+    "Central",
+    "Reliable",
+    "Bright",
+    "Quality",
+    "Summit",
+    "Eagle",
+    "Heritage",
+    "Greenleaf",
+    "Sparks",
+    "Hartley",
+    "Apex",
+];
+
+const DEMO_FIRST_NAMES: [&str; 16] = [
+    "Avery", "Jordan", "Taylor", "Riley", "Morgan", "Casey", "Alex", "Quinn", "Parker", "Drew",
+    "Kai", "Elliot", "Robin", "Cameron", "Hayden", "Rowan",
+];
+
+const DEMO_LAST_NAMES: [&str; 18] = [
+    "Walker", "Martin", "Hill", "Evans", "Lopez", "Gray", "Ward", "Young", "Diaz", "Reed",
+    "Campbell", "Turner", "Flores", "Bennett", "Price", "Morris", "Foster", "Brooks",
+];
+
+const DEMO_STREET_NAMES: [&str; 18] = [
+    "Cedar",
+    "Maple",
+    "Oak",
+    "Pine",
+    "Willow",
+    "Elm",
+    "Birch",
+    "Juniper",
+    "Sunset",
+    "Ridge",
+    "Valley",
+    "Lakeview",
+    "Northview",
+    "Hillcrest",
+    "Brookside",
+    "Meadow",
+    "Aspen",
+    "Canyon",
+];
+
+const DEMO_CITIES: [&str; 14] = [
+    "Austin",
+    "Seattle",
+    "Denver",
+    "Madison",
+    "Raleigh",
+    "Pittsburgh",
+    "Portland",
+    "Boise",
+    "Phoenix",
+    "Nashville",
+    "Columbus",
+    "Minneapolis",
+    "Omaha",
+    "Tucson",
+];
+
+const DEMO_STATES: [&str; 14] = [
+    "TX", "WA", "CO", "WI", "NC", "PA", "OR", "ID", "AZ", "TN", "OH", "MN", "NE", "UT",
+];
+
+const DEMO_FOUNDATION_TYPES: [&str; 6] = [
+    "Poured Concrete",
+    "Block",
+    "Crawlspace",
+    "Slab",
+    "Pier and Beam",
+    "Stone",
+];
+
+const DEMO_WIRING_TYPES: [&str; 4] = ["Copper", "Aluminum", "Knob and Tube", "Romex NM-B"];
+
+const DEMO_ROOF_TYPES: [&str; 6] = [
+    "Asphalt Shingle",
+    "Metal Standing Seam",
+    "Clay Tile",
+    "Slate",
+    "Wood Shake",
+    "TPO Flat",
+];
+
+const DEMO_EXTERIOR_TYPES: [&str; 6] = [
+    "Vinyl Siding",
+    "Brick",
+    "Stucco",
+    "Wood Clapboard",
+    "Fiber Cement",
+    "Stone Veneer",
+];
+
+const DEMO_HEATING_TYPES: [&str; 5] = [
+    "Forced Air Gas",
+    "Heat Pump",
+    "Radiant Floor",
+    "Boiler/Radiator",
+    "Electric Baseboard",
+];
+
+const DEMO_COOLING_TYPES: [&str; 5] = [
+    "Central AC",
+    "Mini-Split",
+    "Window Units",
+    "Evaporative Cooler",
+    "Heat Pump",
+];
+
+const DEMO_WATER_SOURCES: [&str; 4] = ["Municipal", "Private Well", "Community Well", "Cistern"];
+const DEMO_SEWER_TYPES: [&str; 4] = ["Municipal", "Septic", "Aerobic Septic", "Holding Tank"];
+const DEMO_PARKING_TYPES: [&str; 6] = [
+    "Attached Garage",
+    "Detached Garage",
+    "Driveway",
+    "Carport",
+    "Street",
+    "None",
+];
+const DEMO_BASEMENT_TYPES: [&str; 5] = ["Finished", "Unfinished", "Partial", "Walkout", "None"];
+
+const DEMO_INSURANCE_CARRIERS: [&str; 10] = [
+    "Northern Mutual",
+    "Summit Home",
+    "Lakeside Insurance",
+    "Homestead Mutual",
+    "Pioneer Assurance",
+    "Frontier Home",
+    "Harbor Coverage",
+    "Canyon Insurance",
+    "Evergreen Assurance",
+    "Metro Mutual",
+];
+
+const DEMO_APPLIANCE_NAMES: [&str; 20] = [
+    "Refrigerator",
+    "Washer",
+    "Dryer",
+    "Dishwasher",
+    "Water Heater",
+    "Tankless Water Heater",
+    "Furnace",
+    "Central AC",
+    "Mini-Split AC",
+    "Oven / Range",
+    "Microwave",
+    "Garage Door Opener",
+    "Sump Pump",
+    "Water Softener",
+    "Garbage Disposal",
+    "Dehumidifier",
+    "Whole-House Fan",
+    "Smoke / CO Detector",
+    "Thermostat",
+    "Ceiling Fan",
+];
+
+const DEMO_APPLIANCE_BRANDS: [&str; 12] = [
+    "Frostline",
+    "CleanWave",
+    "AquaMax",
+    "AirComfort",
+    "LiftRight",
+    "BrightHome",
+    "CoolBreeze",
+    "SteadyHeat",
+    "QuietFlow",
+    "PureAir",
+    "IronGuard",
+    "ClearView",
+];
+
+const DEMO_APPLIANCE_LOCATIONS: [&str; 12] = [
+    "Kitchen",
+    "Laundry Room",
+    "Basement",
+    "Garage",
+    "Utility Closet",
+    "Bathroom",
+    "Primary Bedroom",
+    "Living Room",
+    "Attic",
+    "Hallway",
+    "Sunroom",
+    "Crawlspace",
+];
+
+const DEMO_INCIDENT_TITLES: [&str; 11] = [
+    "Water leak in utility room",
+    "Garage door stuck halfway",
+    "HVAC not cooling",
+    "Ceiling stain after storm",
+    "Dishwasher drain backup",
+    "Breaker trips on microwave",
+    "Fence panel blown down",
+    "Toilet running continuously",
+    "Window seal condensation",
+    "Sump pump alarm",
+    "Dryer vibration noise",
+];
+
+const DEMO_INCIDENT_LOCATIONS: [&str; 10] = [
+    "Kitchen",
+    "Basement",
+    "Garage",
+    "Laundry Room",
+    "Primary Bath",
+    "Guest Bath",
+    "Backyard",
+    "Attic",
+    "Living Room",
+    "Hallway",
+];
+
+const DEMO_MAINTENANCE_NAMES: [&str; 18] = [
+    "Filter replacement",
+    "Seasonal inspection",
+    "Drain flush",
+    "Safety check",
+    "Performance tune-up",
+    "Valve lubrication",
+    "Battery swap",
+    "Deep cleaning",
+    "Sensor calibration",
+    "Seal inspection",
+    "Panel check",
+    "Pressure test",
+    "Vent cleaning",
+    "Duct inspection",
+    "Gasket replacement",
+    "Coil cleaning",
+    "Pump test",
+    "Load verification",
+];
+
+const DEMO_SERVICE_NOTES: [&str; 10] = [
+    "cleaned and tested",
+    "replaced worn part",
+    "preventive service completed",
+    "inspected and tightened fittings",
+    "verified operation under load",
+    "flushed and reset controls",
+    "lubricated moving parts",
+    "deep cleaned and reassembled",
+    "professional service visit",
+    "calibrated for seasonal load",
+];
+
+const DEMO_DOCUMENT_TEMPLATES: [(&str, &str, &str); 10] = [
+    ("Invoice", "invoice.pdf", "application/pdf"),
+    ("Receipt", "receipt.pdf", "application/pdf"),
+    ("Contract", "contract.pdf", "application/pdf"),
+    ("Warranty Card", "warranty-card.pdf", "application/pdf"),
+    ("User Manual", "manual.pdf", "application/pdf"),
+    ("Inspection Report", "inspection.pdf", "application/pdf"),
+    ("Photo", "photo.jpg", "image/jpeg"),
+    ("Estimate", "estimate.pdf", "application/pdf"),
+    ("Permit", "permit.pdf", "application/pdf"),
+    ("Insurance Claim", "claim.pdf", "application/pdf"),
+];
+
+const INCIDENT_STATUSES: [IncidentStatus; 2] = [IncidentStatus::Open, IncidentStatus::InProgress];
+
+const INCIDENT_SEVERITIES: [IncidentSeverity; 3] = [
+    IncidentSeverity::Urgent,
+    IncidentSeverity::Soon,
+    IncidentSeverity::Whenever,
+];
+
 const REQUIRED_SCHEMA: &[(&str, &[&str])] = &[
     (
         "house_profiles",
@@ -338,6 +626,18 @@ const COLUMN_HINTS: &[(&str, &str)] = &[
 pub struct LookupValue<Id> {
     pub id: Id,
     pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SeedSummary {
+    pub vendors: usize,
+    pub projects: usize,
+    pub quotes: usize,
+    pub appliances: usize,
+    pub maintenance: usize,
+    pub incidents: usize,
+    pub service_logs: usize,
+    pub documents: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -822,6 +1122,341 @@ impl Store {
                 .with_context(|| format!("insert default maintenance category {category}"))?;
         }
         Ok(())
+    }
+
+    pub fn seed_demo_data(&self) -> Result<()> {
+        self.seed_demo_data_with_seed(42)
+    }
+
+    pub fn seed_demo_data_with_seed(&self, seed: u64) -> Result<()> {
+        let _ = self.seed_scaled_data_with_seed(seed, 1)?;
+        Ok(())
+    }
+
+    pub fn seed_scaled_data(&self, years: i32) -> Result<SeedSummary> {
+        self.seed_scaled_data_with_seed(42, years)
+    }
+
+    pub fn seed_scaled_data_with_seed(&self, seed: u64, years: i32) -> Result<SeedSummary> {
+        if years <= 0 {
+            bail!("years must be positive, got {years}; pass a value like 1, 3, or 5");
+        }
+        if self.get_house_profile()?.is_some() {
+            return Ok(SeedSummary::default());
+        }
+
+        let project_types = self.list_project_types()?;
+        let maintenance_categories = self.list_maintenance_categories()?;
+        if project_types.is_empty() || maintenance_categories.is_empty() {
+            bail!(
+                "seed defaults are missing -- run bootstrap() or seed_defaults() before seeding demo data"
+            );
+        }
+
+        let current_year = OffsetDateTime::now_utc().year();
+        let mut rng = DeterministicRng::new(seed);
+        let mut summary = SeedSummary::default();
+
+        let house = seeded_house_profile_input(&mut rng, current_year);
+        self.create_house_profile(&house)?;
+
+        let mut vendors = Vec::new();
+        let mut vendor_serial = 0usize;
+        for trade in DEMO_VENDOR_TRADES.iter().take(10) {
+            let vendor = seeded_vendor_input(&mut rng, trade, vendor_serial);
+            let vendor_id = self.create_vendor(&vendor).with_context(|| {
+                format!(
+                    "seed vendor `{}` -- ensure default schema and indexes exist",
+                    vendor.name
+                )
+            })?;
+            vendors.push(vendor_id);
+            vendor_serial += 1;
+        }
+        summary.vendors = vendors.len();
+
+        let mut projects = Vec::new();
+        for index in 0..5 {
+            let type_name = DEFAULT_PROJECT_TYPES[index % DEFAULT_PROJECT_TYPES.len()];
+            let project_type_id = find_lookup_id(&project_types, type_name).with_context(|| {
+                format!("seed project requires project type `{type_name}` -- run seed_defaults()")
+            })?;
+            let years_ago = years;
+            let status = project_status_for_age(&mut rng, years_ago);
+            let mut start_date = None;
+            let mut end_date = None;
+            let mut budget_cents = None;
+            let mut actual_cents = None;
+
+            if !matches!(status, ProjectStatus::Ideating | ProjectStatus::Abandoned) {
+                let years_back = rng.int_n(usize::try_from(years).unwrap_or(1).max(1));
+                let year = current_year - i32::try_from(years_back).unwrap_or(0);
+                start_date = Some(date_in_year(&mut rng, year));
+                budget_cents = Some(rng.range_i64(5_000, 1_500_000));
+            }
+            if status == ProjectStatus::Completed {
+                if let Some(start) = start_date {
+                    end_date =
+                        Some(start + time::Duration::days(i64::from(7 + rng.int_n(120) as i32)));
+                }
+                actual_cents =
+                    Some((budget_cents.unwrap_or(100_000) + rng.range_i64(-20_000, 20_000)).max(0));
+            }
+
+            let project_id = self.create_project(&NewProject {
+                title: format!("{type_name} project {:02}", index + 1),
+                project_type_id,
+                status,
+                description: format!("Seeded {type_name} project {}", index + 1),
+                start_date,
+                end_date,
+                budget_cents,
+                actual_cents,
+            })?;
+            projects.push(SeedProjectRef {
+                id: project_id,
+                status,
+            });
+        }
+        summary.projects = projects.len();
+
+        let mut appliances = Vec::new();
+        for index in 0..8 {
+            let appliance = seeded_appliance_input(&mut rng, current_year, index);
+            let appliance_id = self.create_appliance(&appliance)?;
+            appliances.push(appliance_id);
+        }
+        summary.appliances = appliances.len();
+
+        let mut maintenance_items = Vec::new();
+        for category_name in DEFAULT_MAINTENANCE_CATEGORIES {
+            let category_id = find_lookup_id(&maintenance_categories, category_name).with_context(|| {
+                format!(
+                    "seed maintenance requires category `{category_name}` -- run seed_defaults()"
+                )
+            })?;
+            let items_for_category = 2 + rng.int_n(2);
+            for local_index in 0..items_for_category {
+                let interval_months = [1_i32, 3, 6, 12][rng.int_n(4)];
+                let appliance_id =
+                    if matches!(category_name, "Appliance" | "HVAC") && !appliances.is_empty() {
+                        Some(appliances[rng.int_n(appliances.len())])
+                    } else {
+                        None
+                    };
+                let item = NewMaintenanceItem {
+                    name: format!(
+                        "{} {}",
+                        DEMO_MAINTENANCE_NAMES[rng.int_n(DEMO_MAINTENANCE_NAMES.len())],
+                        local_index + 1
+                    ),
+                    category_id,
+                    appliance_id,
+                    last_serviced_at: {
+                        let years_back = i32::try_from(rng.int_n(2)).unwrap_or(0);
+                        Some(date_in_year(&mut rng, current_year - years_back))
+                    },
+                    interval_months,
+                    manual_url: String::new(),
+                    manual_text: String::new(),
+                    notes: format!("Seeded {category_name} maintenance"),
+                    cost_cents: Some(rng.range_i64(500, 50_000)),
+                };
+                let item_id = self.create_maintenance_item(&item)?;
+                maintenance_items.push(SeedMaintenanceRef {
+                    id: item_id,
+                    interval_months,
+                });
+            }
+        }
+        summary.maintenance = maintenance_items.len();
+
+        let mut incidents = Vec::new();
+        for index in 0..3 {
+            let incident_id = self.create_incident(&NewIncident {
+                title: DEMO_INCIDENT_TITLES[index % DEMO_INCIDENT_TITLES.len()].to_owned(),
+                description: format!("Seeded incident {}", index + 1),
+                status: INCIDENT_STATUSES[rng.int_n(INCIDENT_STATUSES.len())],
+                severity: INCIDENT_SEVERITIES[rng.int_n(INCIDENT_SEVERITIES.len())],
+                date_noticed: date_in_year(&mut rng, current_year),
+                date_resolved: None,
+                location: DEMO_INCIDENT_LOCATIONS[rng.int_n(DEMO_INCIDENT_LOCATIONS.len())]
+                    .to_owned(),
+                cost_cents: Some(rng.range_i64(2_000, 300_000)),
+                appliance_id: appliances.get(index).copied(),
+                vendor_id: vendors.get(index).copied(),
+                notes: String::new(),
+            })?;
+            incidents.push(incident_id);
+        }
+        summary.incidents = incidents.len();
+
+        seed_quotes_for_projects(self, &mut rng, &vendors, &projects, &mut summary)?;
+        seed_base_documents(self, &projects, &appliances, &incidents, &mut summary)?;
+
+        let start_year = current_year - years + 1;
+        for year in start_year..=current_year {
+            seed_service_logs_for_year(
+                self,
+                &mut rng,
+                year,
+                &maintenance_items,
+                &vendors,
+                &mut summary,
+            )?;
+
+            let new_vendors = 1 + rng.int_n(2);
+            for _ in 0..new_vendors {
+                let trade = DEMO_VENDOR_TRADES[rng.int_n(DEMO_VENDOR_TRADES.len())];
+                let vendor = seeded_vendor_input(&mut rng, trade, vendor_serial);
+                let vendor_id = self.create_vendor(&vendor)?;
+                vendors.push(vendor_id);
+                vendor_serial += 1;
+                summary.vendors += 1;
+            }
+
+            let years_ago = current_year - year;
+            let mut new_projects = Vec::new();
+            let project_count = 2 + rng.int_n(3);
+            for _ in 0..project_count {
+                let type_name = DEFAULT_PROJECT_TYPES[rng.int_n(DEFAULT_PROJECT_TYPES.len())];
+                let project_type_id = find_lookup_id(&project_types, type_name)?;
+                let status = project_status_for_age(&mut rng, years_ago);
+                let mut start_date = None;
+                let mut end_date = None;
+                let mut budget_cents = None;
+                let mut actual_cents = None;
+
+                if !matches!(status, ProjectStatus::Ideating | ProjectStatus::Abandoned) {
+                    start_date = Some(date_in_year(&mut rng, year));
+                    budget_cents = Some(rng.range_i64(5_000, 1_500_000));
+                }
+                if status == ProjectStatus::Completed {
+                    if let Some(start) = start_date {
+                        end_date = Some(
+                            start + time::Duration::days(i64::from(14 + rng.int_n(90) as i32)),
+                        );
+                    }
+                    actual_cents = Some(
+                        (budget_cents.unwrap_or(100_000) + rng.range_i64(-20_000, 20_000)).max(0),
+                    );
+                }
+
+                let project_id = self.create_project(&NewProject {
+                    title: format!(
+                        "{type_name} project {}",
+                        projects.len() + new_projects.len() + 1
+                    ),
+                    project_type_id,
+                    status,
+                    description: format!("Seeded {type_name} project for {year}"),
+                    start_date,
+                    end_date,
+                    budget_cents,
+                    actual_cents,
+                })?;
+                let project_ref = SeedProjectRef {
+                    id: project_id,
+                    status,
+                };
+                projects.push(project_ref);
+                new_projects.push(project_ref);
+                summary.projects += 1;
+            }
+            seed_quotes_for_projects(self, &mut rng, &vendors, &new_projects, &mut summary)?;
+
+            let new_appliances = rng.int_n(3);
+            for index in 0..new_appliances {
+                let appliance = seeded_appliance_input(&mut rng, year, appliances.len() + index);
+                let appliance_id = self.create_appliance(&appliance)?;
+                appliances.push(appliance_id);
+                summary.appliances += 1;
+            }
+
+            if maintenance_items.len() < 50 {
+                let mut new_maintenance = 1 + rng.int_n(3);
+                while new_maintenance > 0 && maintenance_items.len() < 50 {
+                    let category_name = DEFAULT_MAINTENANCE_CATEGORIES
+                        [rng.int_n(DEFAULT_MAINTENANCE_CATEGORIES.len())];
+                    let category_id = find_lookup_id(&maintenance_categories, category_name)?;
+                    let interval_months = [1_i32, 3, 6, 12][rng.int_n(4)];
+                    let appliance_id = if matches!(category_name, "Appliance" | "HVAC")
+                        && !appliances.is_empty()
+                    {
+                        Some(appliances[rng.int_n(appliances.len())])
+                    } else {
+                        None
+                    };
+                    let item_id = self.create_maintenance_item(&NewMaintenanceItem {
+                        name: format!(
+                            "{} {}",
+                            DEMO_MAINTENANCE_NAMES[rng.int_n(DEMO_MAINTENANCE_NAMES.len())],
+                            maintenance_items.len() + 1
+                        ),
+                        category_id,
+                        appliance_id,
+                        last_serviced_at: Some(date_in_year(&mut rng, year)),
+                        interval_months,
+                        manual_url: String::new(),
+                        manual_text: String::new(),
+                        notes: format!("Seeded {category_name} maintenance"),
+                        cost_cents: Some(rng.range_i64(500, 50_000)),
+                    })?;
+                    maintenance_items.push(SeedMaintenanceRef {
+                        id: item_id,
+                        interval_months,
+                    });
+                    summary.maintenance += 1;
+                    new_maintenance -= 1;
+                }
+            }
+
+            let incident_count = 1 + rng.int_n(2);
+            for _ in 0..incident_count {
+                let incident_id = self.create_incident(&NewIncident {
+                    title: DEMO_INCIDENT_TITLES[rng.int_n(DEMO_INCIDENT_TITLES.len())].to_owned(),
+                    description: format!("Seeded incident for {year}"),
+                    status: INCIDENT_STATUSES[rng.int_n(INCIDENT_STATUSES.len())],
+                    severity: INCIDENT_SEVERITIES[rng.int_n(INCIDENT_SEVERITIES.len())],
+                    date_noticed: date_in_year(&mut rng, year),
+                    date_resolved: None,
+                    location: DEMO_INCIDENT_LOCATIONS[rng.int_n(DEMO_INCIDENT_LOCATIONS.len())]
+                        .to_owned(),
+                    cost_cents: Some(rng.range_i64(2_000, 300_000)),
+                    appliance_id: if appliances.is_empty() {
+                        None
+                    } else {
+                        Some(appliances[rng.int_n(appliances.len())])
+                    },
+                    vendor_id: if vendors.is_empty() {
+                        None
+                    } else {
+                        Some(vendors[rng.int_n(vendors.len())])
+                    },
+                    notes: String::new(),
+                })?;
+                incidents.push(incident_id);
+                summary.incidents += 1;
+            }
+
+            let documents_for_year = 5 + rng.int_n(6);
+            let document_targets = SeedDocumentTargets {
+                projects: &projects,
+                appliances: &appliances,
+                maintenance_items: &maintenance_items,
+                vendors: &vendors,
+                incidents: &incidents,
+            };
+            seed_random_documents(
+                self,
+                &mut rng,
+                documents_for_year,
+                document_targets,
+                &mut summary,
+            )?;
+        }
+
+        Ok(summary)
     }
 
     pub fn set_max_document_size(&mut self, value: i64) -> Result<()> {
@@ -3306,6 +3941,467 @@ impl Store {
             None => bail!("{} no longer exists", parent_kind.label()),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SeedProjectRef {
+    id: ProjectId,
+    status: ProjectStatus,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SeedMaintenanceRef {
+    id: MaintenanceItemId,
+    interval_months: i32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SeedDocumentTargets<'a> {
+    projects: &'a [SeedProjectRef],
+    appliances: &'a [ApplianceId],
+    maintenance_items: &'a [SeedMaintenanceRef],
+    vendors: &'a [VendorId],
+    incidents: &'a [IncidentId],
+}
+
+#[derive(Debug, Clone)]
+struct DeterministicRng {
+    state: u64,
+}
+
+impl DeterministicRng {
+    fn new(seed: u64) -> Self {
+        let normalized = if seed == 0 { 1 } else { seed };
+        let mut state = normalized ^ 0x9E37_79B9_7F4A_7C15;
+        if state == 0 {
+            state = 0xA409_3822_299F_31D0;
+        }
+        Self { state }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.state = self
+            .state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+
+        let mut x = self.state;
+        x ^= x >> 13;
+        x ^= x << 7;
+        x ^= x >> 17;
+        x
+    }
+
+    fn int_n(&mut self, n: usize) -> usize {
+        if n <= 1 {
+            return 0;
+        }
+        (self.next_u64() % (n as u64)) as usize
+    }
+
+    fn range_i64(&mut self, min: i64, max: i64) -> i64 {
+        if max <= min {
+            return min;
+        }
+        let span = max - min + 1;
+        min + (self.next_u64() % (span as u64)) as i64
+    }
+}
+
+fn find_lookup_id<Id: Copy>(values: &[LookupValue<Id>], name: &str) -> Result<Id> {
+    values
+        .iter()
+        .find(|value| value.name == name)
+        .map(|value| value.id)
+        .ok_or_else(|| anyhow!("lookup value `{name}` not found"))
+}
+
+fn pick<'a>(rng: &mut DeterministicRng, values: &'a [&'a str]) -> &'a str {
+    values[rng.int_n(values.len())]
+}
+
+fn safe_date_from_ordinal(year: i32, mut ordinal: u16) -> Date {
+    loop {
+        if let Ok(value) = Date::from_ordinal_date(year, ordinal) {
+            return value;
+        }
+        if ordinal == 1 {
+            return Date::from_ordinal_date(year, 1).expect("ordinal day 1 must be valid");
+        }
+        ordinal -= 1;
+    }
+}
+
+fn date_in_year(rng: &mut DeterministicRng, year: i32) -> Date {
+    let ordinal = 1 + u16::try_from(rng.int_n(365)).unwrap_or(0);
+    safe_date_from_ordinal(year, ordinal)
+}
+
+fn seeded_house_profile_input(rng: &mut DeterministicRng, current_year: i32) -> HouseProfileInput {
+    let street = pick(rng, &DEMO_STREET_NAMES);
+    let city = pick(rng, &DEMO_CITIES);
+    let state = pick(rng, &DEMO_STATES);
+    let square_feet = 900 + i32::try_from(rng.int_n(3_100)).unwrap_or(0);
+    let lot_square_feet = square_feet + i32::try_from(rng.int_n(square_feet as usize)).unwrap_or(0);
+    HouseProfileInput {
+        nickname: format!("{street} house"),
+        address_line_1: format!(
+            "{} {} St",
+            100 + i32::try_from(rng.int_n(9_000)).unwrap_or(0),
+            street
+        ),
+        address_line_2: String::new(),
+        city: city.to_owned(),
+        state: state.to_owned(),
+        postal_code: format!("{:05}", 10_000 + rng.int_n(90_000)),
+        year_built: Some(1920 + i32::try_from(rng.int_n(105)).unwrap_or(0)),
+        square_feet: Some(square_feet),
+        lot_square_feet: Some(lot_square_feet),
+        bedrooms: Some(1 + i32::try_from(rng.int_n(6)).unwrap_or(0)),
+        bathrooms: Some((2 + i32::try_from(rng.int_n(8)).unwrap_or(0)) as f64 / 2.0),
+        foundation_type: pick(rng, &DEMO_FOUNDATION_TYPES).to_owned(),
+        wiring_type: pick(rng, &DEMO_WIRING_TYPES).to_owned(),
+        roof_type: pick(rng, &DEMO_ROOF_TYPES).to_owned(),
+        exterior_type: pick(rng, &DEMO_EXTERIOR_TYPES).to_owned(),
+        heating_type: pick(rng, &DEMO_HEATING_TYPES).to_owned(),
+        cooling_type: pick(rng, &DEMO_COOLING_TYPES).to_owned(),
+        water_source: pick(rng, &DEMO_WATER_SOURCES).to_owned(),
+        sewer_type: pick(rng, &DEMO_SEWER_TYPES).to_owned(),
+        parking_type: pick(rng, &DEMO_PARKING_TYPES).to_owned(),
+        basement_type: pick(rng, &DEMO_BASEMENT_TYPES).to_owned(),
+        insurance_carrier: pick(rng, &DEMO_INSURANCE_CARRIERS).to_owned(),
+        insurance_policy: format!(
+            "HO-{:02}-{:07}",
+            1 + i32::try_from(rng.int_n(99)).unwrap_or(0),
+            i32::try_from(rng.int_n(9_999_999)).unwrap_or(0)
+        ),
+        insurance_renewal: Some(date_in_year(rng, current_year + 1)),
+        property_tax_cents: Some(rng.range_i64(100_000, 1_200_000)),
+        hoa_name: format!("{street} HOA"),
+        hoa_fee_cents: Some(rng.range_i64(5_000, 50_000)),
+    }
+}
+
+fn seeded_vendor_input(rng: &mut DeterministicRng, trade: &str, serial: usize) -> NewVendor {
+    let first = pick(rng, &DEMO_FIRST_NAMES);
+    let last = pick(rng, &DEMO_LAST_NAMES);
+    let slug = trade.to_ascii_lowercase().replace(' ', "-");
+    let label = serial + 1;
+    NewVendor {
+        name: format!(
+            "{} {} {} #{label:03}",
+            pick(rng, &DEMO_VENDOR_ADJECTIVES),
+            trade,
+            pick(rng, &DEMO_VENDOR_SUFFIXES),
+        ),
+        contact_name: format!("{first} {last}"),
+        email: format!(
+            "{}.{}+{label}@example-home.com",
+            first.to_ascii_lowercase(),
+            last.to_ascii_lowercase()
+        ),
+        phone: format!(
+            "({:03}) {:03}-{:04}",
+            200 + rng.int_n(800),
+            200 + rng.int_n(800),
+            rng.int_n(10_000)
+        ),
+        website: format!("https://{slug}-{label}.example-home.com"),
+        notes: String::new(),
+    }
+}
+
+fn seeded_appliance_input(
+    rng: &mut DeterministicRng,
+    reference_year: i32,
+    serial: usize,
+) -> NewAppliance {
+    let brand = pick(rng, &DEMO_APPLIANCE_BRANDS).to_owned();
+    let purchase_year = reference_year - i32::try_from(rng.int_n(10)).unwrap_or(0);
+    let purchase_date = date_in_year(rng, purchase_year);
+    let warranty_years = 1 + i64::try_from(rng.int_n(8)).unwrap_or(0);
+    let serial_tag = serial + 1;
+    NewAppliance {
+        name: format!("{} {}", pick(rng, &DEMO_APPLIANCE_NAMES), serial_tag),
+        brand: brand.clone(),
+        model_number: format!("{}-{:04}", brand_prefix(&brand), 100 + rng.int_n(9_900)),
+        serial_number: format!(
+            "{}-{:05}-{serial_tag:04}",
+            brand_prefix(&brand),
+            rng.int_n(100_000)
+        ),
+        purchase_date: Some(purchase_date),
+        warranty_expiry: Some(purchase_date + time::Duration::days(365 * warranty_years)),
+        location: pick(rng, &DEMO_APPLIANCE_LOCATIONS).to_owned(),
+        cost_cents: Some(rng.range_i64(15_000, 800_000)),
+        notes: String::new(),
+    }
+}
+
+fn project_status_for_age(rng: &mut DeterministicRng, years_ago: i32) -> ProjectStatus {
+    let completed_weight = (10 + years_ago.max(0) * 15).min(80);
+    let roll = i32::try_from(rng.int_n(100)).unwrap_or(0);
+    if roll < completed_weight {
+        return ProjectStatus::Completed;
+    }
+    if roll < completed_weight + 5 {
+        return ProjectStatus::Abandoned;
+    }
+    if roll < completed_weight + 10 {
+        return ProjectStatus::Delayed;
+    }
+    if roll < completed_weight + 15 {
+        return ProjectStatus::Underway;
+    }
+    if roll < completed_weight + 20 {
+        return ProjectStatus::Quoted;
+    }
+    if roll < completed_weight + 25 {
+        return ProjectStatus::Planned;
+    }
+    ProjectStatus::Ideating
+}
+
+fn seed_quotes_for_projects(
+    store: &Store,
+    rng: &mut DeterministicRng,
+    vendors: &[VendorId],
+    projects: &[SeedProjectRef],
+    summary: &mut SeedSummary,
+) -> Result<()> {
+    if vendors.is_empty() {
+        return Ok(());
+    }
+
+    for project in projects {
+        if matches!(
+            project.status,
+            ProjectStatus::Ideating | ProjectStatus::Abandoned
+        ) {
+            continue;
+        }
+
+        let quote_count = 1 + rng.int_n(2);
+        for _ in 0..quote_count {
+            let total_cents = rng.range_i64(10_000, 2_000_000);
+            let labor_percent = rng.range_i64(40, 70);
+            let labor_cents = total_cents * labor_percent / 100;
+            let materials_cents = total_cents - labor_cents;
+
+            store.create_quote(&NewQuote {
+                project_id: project.id,
+                vendor_id: vendors[rng.int_n(vendors.len())],
+                total_cents,
+                labor_cents: Some(labor_cents),
+                materials_cents: Some(materials_cents),
+                other_cents: None,
+                received_date: Some(date_in_year(rng, OffsetDateTime::now_utc().year())),
+                notes: "seeded quote".to_owned(),
+            })?;
+            summary.quotes += 1;
+        }
+    }
+
+    Ok(())
+}
+
+fn insert_seed_document(
+    store: &Store,
+    title: &str,
+    file_name: &str,
+    mime_type: &str,
+    entity_kind: DocumentEntityKind,
+    entity_id: i64,
+    summary: &mut SeedSummary,
+) -> Result<()> {
+    let data = format!("{title} placeholder content").into_bytes();
+    store.insert_document(&NewDocument {
+        title: title.to_owned(),
+        file_name: file_name.to_owned(),
+        entity_kind,
+        entity_id,
+        mime_type: mime_type.to_owned(),
+        data,
+        notes: String::new(),
+    })?;
+    summary.documents += 1;
+    Ok(())
+}
+
+fn seed_base_documents(
+    store: &Store,
+    projects: &[SeedProjectRef],
+    appliances: &[ApplianceId],
+    incidents: &[IncidentId],
+    summary: &mut SeedSummary,
+) -> Result<()> {
+    if let Some(project) = projects.first() {
+        insert_seed_document(
+            store,
+            "Invoice",
+            "invoice.pdf",
+            "application/pdf",
+            DocumentEntityKind::Project,
+            project.id.get(),
+            summary,
+        )?;
+    }
+    if let Some(project) = projects.get(1) {
+        insert_seed_document(
+            store,
+            "Contract",
+            "contract.pdf",
+            "application/pdf",
+            DocumentEntityKind::Project,
+            project.id.get(),
+            summary,
+        )?;
+    }
+    if let Some(appliance) = appliances.first() {
+        insert_seed_document(
+            store,
+            "Warranty Card",
+            "warranty-card.jpg",
+            "image/jpeg",
+            DocumentEntityKind::Appliance,
+            appliance.get(),
+            summary,
+        )?;
+    }
+    if let Some(appliance) = appliances.get(1) {
+        insert_seed_document(
+            store,
+            "User Manual",
+            "user-manual.pdf",
+            "application/pdf",
+            DocumentEntityKind::Appliance,
+            appliance.get(),
+            summary,
+        )?;
+    }
+    if let Some(incident) = incidents.first() {
+        insert_seed_document(
+            store,
+            "Incident Photo",
+            "incident-photo.jpg",
+            "image/jpeg",
+            DocumentEntityKind::Incident,
+            incident.get(),
+            summary,
+        )?;
+    }
+    Ok(())
+}
+
+fn seed_service_logs_for_year(
+    store: &Store,
+    rng: &mut DeterministicRng,
+    year: i32,
+    maintenance_items: &[SeedMaintenanceRef],
+    vendors: &[VendorId],
+    summary: &mut SeedSummary,
+) -> Result<()> {
+    for maintenance in maintenance_items {
+        if maintenance.interval_months <= 0 {
+            continue;
+        }
+        let mut services_per_year = 12 / maintenance.interval_months;
+        if services_per_year < 1 {
+            services_per_year = 1;
+        }
+        let interval_days = 365 / services_per_year;
+        for index in 0..services_per_year {
+            if rng.int_n(100) < 15 {
+                continue;
+            }
+
+            let base_day = index * interval_days + interval_days / 2;
+            let jitter = i32::try_from(rng.int_n(15)).unwrap_or(0) - 7;
+            let mut day_of_year = base_day + jitter;
+            day_of_year = day_of_year.clamp(1, 365);
+            let serviced_at = safe_date_from_ordinal(year, u16::try_from(day_of_year).unwrap_or(1));
+            let vendor_id = if vendors.is_empty() || rng.int_n(10) >= 3 {
+                None
+            } else {
+                Some(vendors[rng.int_n(vendors.len())])
+            };
+
+            store.create_service_log_entry(&NewServiceLogEntry {
+                maintenance_item_id: maintenance.id,
+                serviced_at,
+                vendor_id,
+                cost_cents: Some(rng.range_i64(1_000, 60_000)),
+                notes: DEMO_SERVICE_NOTES[rng.int_n(DEMO_SERVICE_NOTES.len())].to_owned(),
+            })?;
+            summary.service_logs += 1;
+        }
+    }
+    Ok(())
+}
+
+fn seed_random_documents(
+    store: &Store,
+    rng: &mut DeterministicRng,
+    count: usize,
+    targets: SeedDocumentTargets<'_>,
+    summary: &mut SeedSummary,
+) -> Result<()> {
+    if targets.projects.is_empty()
+        && targets.appliances.is_empty()
+        && targets.maintenance_items.is_empty()
+        && targets.vendors.is_empty()
+        && targets.incidents.is_empty()
+    {
+        return Ok(());
+    }
+
+    for _ in 0..count {
+        let (title, file_name, mime_type) =
+            DEMO_DOCUMENT_TEMPLATES[rng.int_n(DEMO_DOCUMENT_TEMPLATES.len())];
+
+        let target = match rng.int_n(5) {
+            0 => targets
+                .projects
+                .get(rng.int_n(targets.projects.len()))
+                .map(|project| (DocumentEntityKind::Project, project.id.get())),
+            1 => targets
+                .appliances
+                .get(rng.int_n(targets.appliances.len()))
+                .map(|appliance| (DocumentEntityKind::Appliance, appliance.get())),
+            2 => targets
+                .maintenance_items
+                .get(rng.int_n(targets.maintenance_items.len()))
+                .map(|item| (DocumentEntityKind::Maintenance, item.id.get())),
+            3 => targets
+                .vendors
+                .get(rng.int_n(targets.vendors.len()))
+                .map(|vendor| (DocumentEntityKind::Vendor, vendor.get())),
+            _ => targets
+                .incidents
+                .get(rng.int_n(targets.incidents.len()))
+                .map(|incident| (DocumentEntityKind::Incident, incident.get())),
+        };
+
+        let Some((entity_kind, entity_id)) = target else {
+            continue;
+        };
+
+        insert_seed_document(
+            store,
+            title,
+            file_name,
+            mime_type,
+            entity_kind,
+            entity_id,
+            summary,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn brand_prefix(brand: &str) -> String {
+    brand.chars().take(2).collect::<String>().to_uppercase()
 }
 
 pub fn default_db_path() -> Result<PathBuf> {
