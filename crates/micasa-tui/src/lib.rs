@@ -5555,6 +5555,71 @@ mod tests {
     }
 
     #[test]
+    fn form_for_tab_maps_each_tab_to_expected_form_kind() {
+        let cases = [
+            (TabKind::Dashboard, None),
+            (TabKind::House, Some(FormKind::HouseProfile)),
+            (TabKind::Projects, Some(FormKind::Project)),
+            (TabKind::Quotes, Some(FormKind::Quote)),
+            (TabKind::Maintenance, Some(FormKind::MaintenanceItem)),
+            (TabKind::ServiceLog, Some(FormKind::ServiceLogEntry)),
+            (TabKind::Incidents, Some(FormKind::Incident)),
+            (TabKind::Appliances, Some(FormKind::Appliance)),
+            (TabKind::Vendors, Some(FormKind::Vendor)),
+            (TabKind::Documents, Some(FormKind::Document)),
+            (TabKind::Settings, None),
+        ];
+
+        for (tab, expected) in cases {
+            assert_eq!(super::form_for_tab(tab), expected);
+        }
+    }
+
+    #[test]
+    fn edit_mode_e_routes_to_form_or_unavailable_by_tab_capability() {
+        let tx = internal_tx();
+
+        let mut vendor_state = AppState {
+            active_tab: TabKind::Vendors,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut vendor_runtime = TestRuntime::default();
+        let mut vendor_view_data = view_data_for_test();
+        refresh_view_data(&vendor_state, &mut vendor_runtime, &mut vendor_view_data)
+            .expect("refresh should work");
+
+        handle_key_event(
+            &mut vendor_state,
+            &mut vendor_runtime,
+            &mut vendor_view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+        );
+        assert_eq!(vendor_state.mode, AppMode::Form(FormKind::Vendor));
+
+        let mut dash_state = AppState {
+            active_tab: TabKind::Dashboard,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut dash_runtime = TestRuntime::default();
+        let mut dash_view_data = view_data_for_test();
+        refresh_view_data(&dash_state, &mut dash_runtime, &mut dash_view_data)
+            .expect("refresh should work");
+
+        handle_key_event(
+            &mut dash_state,
+            &mut dash_runtime,
+            &mut dash_view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE),
+        );
+        assert_eq!(dash_state.mode, AppMode::Edit);
+        assert_eq!(dash_state.status_line.as_deref(), Some("edit unavailable"));
+    }
+
+    #[test]
     fn enter_submits_form() {
         let mut state = AppState {
             active_tab: TabKind::Projects,

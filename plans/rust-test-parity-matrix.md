@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 410 tests
+- Rust tests currently (`crates/`): 412 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -43,7 +43,7 @@
 | `internal/app/form_select_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/form_validators_test.go` | 34 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/handler_crud_test.go` | 25 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/handlers_test.go` | 4 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/handlers_test.go` | 4 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Rust replaces Go tab handler objects with typed form dispatch (`form_for_tab`) and inline-edit routing. Parity tests now cover tab→form mapping and `e` edit dispatch behavior for supported vs unsupported tabs. |
 | `internal/app/inline_edit_dispatch_test.go` | 5 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/inline_input_test.go` | 9 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/lazy_reload_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -152,6 +152,7 @@
 - Reclassified `internal/app/bench_test.go` and `internal/data/bench_test.go` to `n/a` because they are Go benchmark-only throughput suites, not functional behavior-parity tests.
 - Added note-preview parity regressions from `internal/app/notes_test.go` in `crates/micasa-tui/src/lib.rs`: empty-note enter behavior (`no note to preview`), overlay key swallowing (dismiss before nav movement), and contextual `enter` hint rendering as `preview` on notes columns.
 - Added note-preview overlay text rendering parity (`press any key to close` and note body/title content) and reclassified `internal/app/notes_test.go` to `ported`.
+- Added handler-dispatch parity tests in `crates/micasa-tui/src/lib.rs` for full tab→form kind mapping and edit-key routing (`e`) across form-capable vs unsupported tabs, and reclassified `internal/app/handlers_test.go` to `ported`.
 
 ## Known Gaps
 
