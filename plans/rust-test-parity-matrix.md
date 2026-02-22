@@ -40,7 +40,7 @@
 | `internal/app/detail_test.go` | 57 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/filter_test.go` | 39 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/form_save_test.go` | 18 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/form_select_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/form_select_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go tests target `huh`-specific select helpers (`withOrdinals`, focused-field introspection). Rust uses typed form-choice handling without `huh`; equivalent end-user behavior (numeric choice selection) is covered by form shortcut tests. |
 | `internal/app/form_validators_test.go` | 34 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/handler_crud_test.go` | 25 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/handlers_test.go` | 4 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Rust replaces Go tab handler objects with typed form dispatch (`form_for_tab`) and inline-edit routing. Parity tests now cover tab→form mapping and `e` edit dispatch behavior for supported vs unsupported tabs. |
@@ -155,6 +155,7 @@
 - Added handler-dispatch parity tests in `crates/micasa-tui/src/lib.rs` for full tab→form kind mapping and edit-key routing (`e`) across form-capable vs unsupported tabs, and reclassified `internal/app/handlers_test.go` to `ported`.
 - Reclassified `internal/app/overlay_status_test.go` to `ported` based on existing Rust overlay suppression tests (`status_text_hides_primary_hints_while_overlays_are_active` and `status_text_shows_primary_hints_when_no_overlays_are_active`).
 - Reclassified `internal/app/testmain_test.go` and `internal/data/testmain_test.go` to `n/a` because both are Go `TestMain` seed/bootstrap harnesses with no direct Rust test-runner analogue.
+- Reclassified `internal/app/form_select_test.go` to `n/a` because it validates `huh` library internals; Rust’s typed form-choice flow does not use `huh`, and numeric choice behavior is already covered in end-to-end form shortcut tests.
 
 ## Known Gaps
 
