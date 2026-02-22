@@ -38,6 +38,91 @@ fn validate_db_path_rejects_uri_forms() {
 }
 
 #[test]
+fn validate_db_path_accepts_and_rejects_expected_cases() {
+    let cases = [
+        (":memory:", true, ""),
+        ("/home/user/micasa.db", true, ""),
+        ("relative/path.db", true, ""),
+        ("./local.db", true, ""),
+        ("../parent/db.sqlite", true, ""),
+        ("/tmp/micasa test.db", true, ""),
+        ("C:\\Users\\me\\micasa.db", true, ""),
+        ("https://evil.com/db", false, "looks like a URI"),
+        ("http://localhost/db", false, "looks like a URI"),
+        ("ftp://files.example.com/data.db", false, "looks like a URI"),
+        ("file://localhost/tmp/test.db", false, "looks like a URI"),
+        ("file:/tmp/test.db", false, "file: URI syntax"),
+        ("file:test.db", false, "file: URI syntax"),
+        ("file:test.db?mode=ro", false, "file: URI syntax"),
+        (
+            "/tmp/test.db?_pragma=journal_mode(wal)",
+            false,
+            "contains '?'",
+        ),
+        ("test.db?cache=shared", false, "contains '?'"),
+        ("", false, "must not be empty"),
+        ("/path/with://in/middle", true, ""),
+        ("123://not-a-scheme", true, ""),
+    ];
+
+    for (path, valid, needle) in cases {
+        let outcome = validate_db_path(path);
+        if valid {
+            assert!(
+                outcome.is_ok(),
+                "expected {path:?} to be accepted, got {outcome:?}"
+            );
+        } else {
+            let error = outcome.expect_err("path should be rejected");
+            assert!(
+                error.to_string().contains(needle),
+                "expected error for {path:?} to contain {needle:?}, got {error:#}"
+            );
+        }
+    }
+}
+
+#[test]
+fn validate_db_path_rejects_url_like_inputs() {
+    let candidates = [
+        "https://example.com/micasa.db",
+        "http://localhost:8080/db.sqlite",
+        "ftp://files.example.com/data.db",
+        "file://localhost/tmp/test.db",
+        "ssh://remote.example.com/var/db.sqlite",
+        "ws://localhost/socket",
+        "wss://localhost/socket",
+        "mongodb://localhost:27017/micasa",
+        "postgres://localhost/micasa",
+        "mysql://localhost:3306/micasa",
+    ];
+    for candidate in candidates {
+        assert!(
+            validate_db_path(candidate).is_err(),
+            "validate_db_path({candidate:?}) should reject URL-like paths"
+        );
+    }
+}
+
+#[test]
+fn store_open_rejects_uri_paths() {
+    let candidates = [
+        "https://evil.example/db",
+        "file:test.db",
+        "http://localhost/db.sqlite",
+        "postgres://localhost/micasa",
+    ];
+
+    for candidate in candidates {
+        let outcome = Store::open(std::path::Path::new(candidate));
+        assert!(
+            outcome.is_err(),
+            "Store::open({candidate:?}) should reject URI-style input"
+        );
+    }
+}
+
+#[test]
 fn bootstrap_creates_schema_and_seed_defaults() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
