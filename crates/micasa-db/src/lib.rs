@@ -3334,6 +3334,9 @@ pub fn document_cache_dir() -> Result<PathBuf> {
 }
 
 pub fn evict_stale_cache(dir: &Path, ttl_days: i64) -> Result<usize> {
+    if dir.as_os_str().is_empty() {
+        return Ok(0);
+    }
     if ttl_days <= 0 {
         return Ok(0);
     }

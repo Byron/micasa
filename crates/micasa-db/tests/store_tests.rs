@@ -10,6 +10,7 @@ use micasa_db::{
     UpdateServiceLogEntry, UpdateVendor, document_cache_dir, evict_stale_cache, validate_db_path,
 };
 use std::fs;
+use std::time::{Duration, SystemTime};
 use time::{Date, Month};
 
 fn index_exists(store: &Store, name: &str) -> Result<bool> {
@@ -19,6 +20,12 @@ fn index_exists(store: &Store, name: &str) -> Result<bool> {
         |row| row.get(0),
     )?;
     Ok(exists == 1)
+}
+
+fn days_ago(days: u64) -> SystemTime {
+    SystemTime::now()
+        .checked_sub(Duration::from_secs(days * 24 * 60 * 60))
+        .expect("system clock should support subtraction")
 }
 
 #[test]
@@ -1364,6 +1371,61 @@ fn cache_eviction_rejects_overflowing_ttl_days() -> Result<()> {
 }
 
 #[test]
+fn cache_eviction_removes_stale_files() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let fresh_path = temp_dir.path().join("fresh.txt");
+    let stale_path = temp_dir.path().join("stale.txt");
+    fs::write(&fresh_path, b"fresh")?;
+    fs::write(&stale_path, b"stale")?;
+
+    let stale_file = fs::OpenOptions::new().write(true).open(&stale_path)?;
+    stale_file.set_modified(days_ago(40))?;
+
+    let removed = evict_stale_cache(temp_dir.path(), 30)?;
+    assert_eq!(removed, 1);
+    assert!(fresh_path.exists());
+    assert!(!stale_path.exists());
+    Ok(())
+}
+
+#[test]
+fn cache_eviction_keeps_recent_files_within_ttl() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let recent_path = temp_dir.path().join("recent.txt");
+    fs::write(&recent_path, b"keep")?;
+
+    let recent_file = fs::OpenOptions::new().write(true).open(&recent_path)?;
+    recent_file.set_modified(days_ago(29))?;
+
+    let removed = evict_stale_cache(temp_dir.path(), 30)?;
+    assert_eq!(removed, 0);
+    assert!(recent_path.exists());
+    Ok(())
+}
+
+#[test]
+fn cache_eviction_zero_ttl_disables_removal_even_for_old_files() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let old_path = temp_dir.path().join("old.txt");
+    fs::write(&old_path, b"old")?;
+
+    let old_file = fs::OpenOptions::new().write(true).open(&old_path)?;
+    old_file.set_modified(days_ago(365))?;
+
+    let removed = evict_stale_cache(temp_dir.path(), 0)?;
+    assert_eq!(removed, 0);
+    assert!(old_path.exists());
+    Ok(())
+}
+
+#[test]
+fn cache_eviction_empty_path_is_noop() -> Result<()> {
+    let removed = evict_stale_cache(std::path::Path::new(""), 30)?;
+    assert_eq!(removed, 0);
+    Ok(())
+}
+
+#[test]
 fn vendor_crud_and_delete_guards() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -1406,7 +1468,7 @@ fn vendor_crud_and_delete_guards() -> Result<()> {
         budget_cents: None,
         actual_cents: None,
     })?;
-    let _quote_id = store.create_quote(&NewQuote {
+    let quote_id = store.create_quote(&NewQuote {
         project_id,
         vendor_id,
         total_cents: 25_000,
@@ -1421,6 +1483,10 @@ fn vendor_crud_and_delete_guards() -> Result<()> {
         .soft_delete_vendor(vendor_id)
         .expect_err("vendor with active quote should not delete");
     assert!(delete_error.to_string().contains("active quote"));
+
+    store.soft_delete_quote(quote_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+    assert!(store.list_vendors(false)?.is_empty());
 
     Ok(())
 }
@@ -1850,6 +1916,32 @@ fn appliance_and_maintenance_delete_restore_flow() -> Result<()> {
 }
 
 #[test]
+fn restore_maintenance_item_allowed_without_appliance_link() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Gutter cleaning".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    store.soft_delete_maintenance_item(maintenance_id)?;
+    store.restore_maintenance_item(maintenance_id)?;
+
+    let items = store.list_maintenance_items(false)?;
+    assert!(items.iter().any(|item| item.id == maintenance_id));
+    Ok(())
+}
+
+#[test]
 fn incident_crud_and_restore_parent_guards() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -1948,6 +2040,47 @@ fn incident_restore_blocked_by_deleted_appliance() -> Result<()> {
     assert!(restore_error.to_string().contains("appliance is deleted"));
 
     store.restore_appliance(appliance_id)?;
+    store.restore_incident(incident_id)?;
+    Ok(())
+}
+
+#[test]
+fn incident_restore_blocked_by_deleted_vendor() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Doomed Exterminator".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Termites".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Urgent,
+        date_noticed: Date::from_calendar_date(2026, Month::January, 10)?,
+        date_resolved: None,
+        location: "Basement".to_owned(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: Some(vendor_id),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_incident(incident_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+
+    let restore_error = store
+        .restore_incident(incident_id)
+        .expect_err("incident restore should fail when vendor is deleted");
+    assert!(restore_error.to_string().contains("vendor is deleted"));
+
+    store.restore_vendor(vendor_id)?;
     store.restore_incident(incident_id)?;
     Ok(())
 }
@@ -2953,6 +3086,66 @@ fn list_maintenance_items_filtered_by_appliance_via_typed_list() -> Result<()> {
 }
 
 #[test]
+fn count_maintenance_items_filtered_by_appliance_via_typed_list() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Range".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Clean burners".to_owned(),
+        category_id,
+        appliance_id: Some(appliance_id),
+        last_serviced_at: None,
+        interval_months: 4,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Inspect igniter".to_owned(),
+        category_id,
+        appliance_id: Some(appliance_id),
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    store.create_maintenance_item(&NewMaintenanceItem {
+        name: "General house check".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    let count = store
+        .list_maintenance_items(false)?
+        .into_iter()
+        .filter(|item| item.appliance_id == Some(appliance_id))
+        .count();
+    assert_eq!(count, 2);
+    Ok(())
+}
+
+#[test]
 fn list_maintenance_items_filtered_by_appliance_include_deleted_via_typed_list() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -3889,6 +4082,43 @@ fn update_document_replaces_blob_and_cache_content() -> Result<()> {
     let extracted_path = store.extract_document(document_id)?;
     let extracted = fs::read(extracted_path)?;
     assert_eq!(extracted, b"new-content-v2".to_vec());
+    Ok(())
+}
+
+#[test]
+fn update_document_can_clear_notes_while_preserving_file_metadata() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let payload = b"receipt-data".to_vec();
+    let document_id = store.insert_document(&NewDocument {
+        title: "Receipt".to_owned(),
+        file_name: "receipt.pdf".to_owned(),
+        entity_kind: DocumentEntityKind::None,
+        entity_id: 0,
+        mime_type: "application/pdf".to_owned(),
+        data: payload.clone(),
+        notes: "plumber visit 2026-01".to_owned(),
+    })?;
+
+    store.update_document(
+        document_id,
+        &UpdateDocument {
+            title: "Receipt".to_owned(),
+            file_name: "receipt.pdf".to_owned(),
+            entity_kind: DocumentEntityKind::None,
+            entity_id: 0,
+            mime_type: "application/pdf".to_owned(),
+            data: None,
+            notes: String::new(),
+        },
+    )?;
+
+    let updated = store.get_document(document_id)?;
+    assert_eq!(updated.notes, "");
+    assert_eq!(updated.file_name, "receipt.pdf");
+    assert_eq!(updated.mime_type, "application/pdf");
+    assert_eq!(updated.data, payload);
     Ok(())
 }
 
