@@ -2901,3 +2901,350 @@ fn restore_service_log_allowed_without_vendor_link() -> Result<()> {
     assert_eq!(restored.vendor_id, None);
     Ok(())
 }
+
+#[test]
+fn list_maintenance_items_filtered_by_appliance_via_typed_list() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Fridge".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Clean coils".to_owned(),
+        category_id,
+        appliance_id: Some(appliance_id),
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Check smoke detectors".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    let filtered = store
+        .list_maintenance_items(false)?
+        .into_iter()
+        .filter(|item| item.appliance_id == Some(appliance_id))
+        .collect::<Vec<_>>();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].name, "Clean coils");
+    Ok(())
+}
+
+#[test]
+fn list_maintenance_items_filtered_by_appliance_include_deleted_via_typed_list() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Furnace".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Filter change".to_owned(),
+        category_id,
+        appliance_id: Some(appliance_id),
+        last_serviced_at: None,
+        interval_months: 3,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    store.soft_delete_maintenance_item(maintenance_id)?;
+
+    let visible = store
+        .list_maintenance_items(false)?
+        .into_iter()
+        .filter(|item| item.appliance_id == Some(appliance_id))
+        .collect::<Vec<_>>();
+    assert!(visible.is_empty());
+
+    let include_deleted = store
+        .list_maintenance_items(true)?
+        .into_iter()
+        .filter(|item| item.appliance_id == Some(appliance_id))
+        .collect::<Vec<_>>();
+    assert_eq!(include_deleted.len(), 1);
+    assert!(include_deleted[0].deleted_at.is_some());
+    Ok(())
+}
+
+#[test]
+fn list_quotes_filtered_by_vendor_via_typed_list() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "P1".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_a = store.create_vendor(&NewVendor {
+        name: "TestVendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let vendor_b = store.create_vendor(&NewVendor {
+        name: "OtherVendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    store.create_quote(&NewQuote {
+        project_id,
+        vendor_id: vendor_a,
+        total_cents: 1_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+    store.create_quote(&NewQuote {
+        project_id,
+        vendor_id: vendor_b,
+        total_cents: 2_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    let filtered = store
+        .list_quotes(false)?
+        .into_iter()
+        .filter(|quote| quote.vendor_id == vendor_a)
+        .collect::<Vec<_>>();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].total_cents, 1_000);
+    Ok(())
+}
+
+#[test]
+fn list_quotes_filtered_by_project_via_typed_list() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_a = store.create_project(&NewProject {
+        title: "P1".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let project_b = store.create_project(&NewProject {
+        title: "P2".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "V1".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    store.create_quote(&NewQuote {
+        project_id: project_a,
+        vendor_id,
+        total_cents: 1_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+    store.create_quote(&NewQuote {
+        project_id: project_b,
+        vendor_id,
+        total_cents: 5_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    let filtered = store
+        .list_quotes(false)?
+        .into_iter()
+        .filter(|quote| quote.project_id == project_a)
+        .collect::<Vec<_>>();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].total_cents, 1_000);
+    Ok(())
+}
+
+#[test]
+fn count_quotes_by_project_via_typed_list_filtering() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "P1".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_a = store.create_vendor(&NewVendor {
+        name: "V1".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let vendor_b = store.create_vendor(&NewVendor {
+        name: "V2".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    store.create_quote(&NewQuote {
+        project_id,
+        vendor_id: vendor_a,
+        total_cents: 5_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+    store.create_quote(&NewQuote {
+        project_id,
+        vendor_id: vendor_b,
+        total_cents: 7_500,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+
+    let count = store
+        .list_quotes(false)?
+        .into_iter()
+        .filter(|quote| quote.project_id == project_id)
+        .count();
+    assert_eq!(count, 2);
+    Ok(())
+}
+
+#[test]
+fn list_and_count_service_logs_by_vendor_via_typed_list_filtering() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Filter".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let vendor_a = store.create_vendor(&NewVendor {
+        name: "LogVendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let vendor_b = store.create_vendor(&NewVendor {
+        name: "OtherVendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::July, 1)?,
+        vendor_id: Some(vendor_a),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::July, 2)?,
+        vendor_id: Some(vendor_b),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+
+    let filtered = store
+        .list_service_log_entries(false)?
+        .into_iter()
+        .filter(|entry| entry.vendor_id == Some(vendor_a))
+        .collect::<Vec<_>>();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].maintenance_item_id, maintenance_id);
+    Ok(())
+}
