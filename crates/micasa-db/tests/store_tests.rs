@@ -561,6 +561,51 @@ fn dashboard_query_helpers_filter_and_summarize() -> Result<()> {
 }
 
 #[test]
+fn total_project_spend_unaffected_by_project_edits() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Kitchen Remodel".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Completed,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: Some(50_000),
+    })?;
+
+    store.raw_connection().execute(
+        "UPDATE projects SET updated_at = ? WHERE id = ?",
+        rusqlite::params!["2024-06-01T00:00:00Z", project_id.get()],
+    )?;
+    let before = store.total_project_spend_cents()?;
+    assert_eq!(before, 50_000);
+
+    let mut project = store.get_project(project_id)?;
+    project.description = "added new countertops".to_owned();
+    store.update_project(
+        project_id,
+        &UpdateProject {
+            title: project.title,
+            project_type_id: project.project_type_id,
+            status: project.status,
+            description: project.description,
+            start_date: project.start_date,
+            end_date: project.end_date,
+            budget_cents: project.budget_cents,
+            actual_cents: project.actual_cents,
+        },
+    )?;
+
+    let after = store.total_project_spend_cents()?;
+    assert_eq!(after, before);
+    Ok(())
+}
+
+#[test]
 fn document_blob_round_trip_and_cache_extract() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -739,6 +784,35 @@ fn model_setting_persists_across_reopen() -> Result<()> {
         store.bootstrap()?;
         assert_eq!(store.get_last_model()?.as_deref(), Some("qwen3:8b"));
     }
+    Ok(())
+}
+
+#[test]
+fn show_dashboard_setting_persists_across_reopen() -> Result<()> {
+    let temp_dir = tempfile::tempdir()?;
+    let db_path = temp_dir.path().join("dashboard-setting.db");
+
+    {
+        let store = Store::open(&db_path)?;
+        store.bootstrap()?;
+        store.put_show_dashboard(false)?;
+    }
+
+    {
+        let store = Store::open(&db_path)?;
+        store.bootstrap()?;
+        assert!(!store.get_show_dashboard()?);
+    }
+    Ok(())
+}
+
+#[test]
+fn chat_history_is_empty_by_default() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let history = store.load_chat_history()?;
+    assert!(history.is_empty());
     Ok(())
 }
 

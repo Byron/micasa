@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 270 tests
+- Rust tests currently (`crates/`): 273 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -111,6 +111,7 @@
 - Added TUI sort parity tests from Go `internal/app/sort_test.go` for null-last ordering regardless of direction and deterministic ID tiebreaking on equal sort values in `crates/micasa-tui/src/lib.rs`, with a corresponding null-order fix in projection sorting.
 - Added additional TUI sort parity tests from Go `internal/app/sort_test.go` in `crates/micasa-tui/src/lib.rs` for case-insensitive text sorting, money ascending ordering, date descending ordering, and multi-key sort ordering.
 - Added DB settings/chat parity tests from Go `internal/data/settings_test.go` and `internal/data/settings_integration_test.go` in `crates/micasa-db/tests/store_tests.rs` for model/dashboard default+round-trip behavior, persistence across reopen, and non-consecutive chat history duplicates.
+- Added DB parity regressions in `crates/micasa-db/tests/store_tests.rs` for project-spend stability across project edits, dashboard preference persistence across reopen, and empty chat-history defaults.
 
 ## Known Gaps
 
