@@ -7005,6 +7005,78 @@ mod tests {
     }
 
     #[test]
+    fn enter_on_empty_notes_column_does_not_open_preview() {
+        let mut state = AppState {
+            active_tab: TabKind::ServiceLog,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        view_data.active_tab_snapshot = Some(TabSnapshot::ServiceLog(vec![
+            TestRuntime::sample_service_log(91, 2, Some(7), ""),
+        ]));
+        view_data.table_state.tab = Some(TabKind::ServiceLog);
+        view_data.table_state.selected_row = 0;
+        view_data.table_state.selected_col = 5;
+        super::clamp_table_cursor(&mut view_data);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+
+        assert!(!view_data.note_preview.visible);
+        assert_eq!(state.status_line.as_deref(), Some("no note to preview"));
+    }
+
+    #[test]
+    fn note_preview_closes_before_other_keys_apply() {
+        let mut state = AppState {
+            active_tab: TabKind::ServiceLog,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        view_data.note_preview.visible = true;
+        view_data.note_preview.title = "service notes".to_owned();
+        view_data.note_preview.text = "Inspect vent".to_owned();
+        view_data.table_state.selected_row = 0;
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+
+        assert!(!view_data.note_preview.visible);
+        assert_eq!(view_data.table_state.selected_row, 0);
+    }
+
+    #[test]
+    fn contextual_enter_hint_is_preview_for_notes_column() {
+        let state = AppState {
+            active_tab: TabKind::ServiceLog,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        view_data.table_state.selected_col = 5;
+        assert_eq!(contextual_enter_hint(&view_data), "preview");
+    }
+
+    #[test]
     fn edit_mode_blocks_non_navigation_table_commands() {
         let mut state = AppState {
             active_tab: TabKind::Projects,

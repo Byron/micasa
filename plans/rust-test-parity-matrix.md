@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 406 tests
+- Rust tests currently (`crates/`): 409 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -150,6 +150,7 @@
 - Reclassified Go `cmd/micasa/main_test.go` parity status to `n/a` based on docs-backed CLI contract changes in Rust (`configuration-v2.md`): old Go-only `--demo`/`--years`/ldflags-version behavior is intentionally removed, while Rust CLI/config path behavior remains covered by tests.
 - Added direct Go-equivalent prompt parity tests in `crates/micasa-llm/src/lib.rs` for DDL/date/context rendering and bare SQL extraction, and reclassified `internal/llm/client_test.go` and `internal/llm/prompt_test.go` to `ported`.
 - Reclassified `internal/app/bench_test.go` and `internal/data/bench_test.go` to `n/a` because they are Go benchmark-only throughput suites, not functional behavior-parity tests.
+- Added note-preview parity regressions from `internal/app/notes_test.go` in `crates/micasa-tui/src/lib.rs`: empty-note enter behavior (`no note to preview`), overlay key swallowing (dismiss before nav movement), and contextual `enter` hint rendering as `preview` on notes columns.
 
 ## Known Gaps
 
