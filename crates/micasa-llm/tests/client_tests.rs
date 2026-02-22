@@ -64,6 +64,41 @@ fn list_models_and_ping_work_against_mock_server() -> Result<()> {
 }
 
 #[test]
+fn list_models_returns_all_model_ids_in_order() -> Result<()> {
+    let server =
+        Server::http("127.0.0.1:0").map_err(|error| anyhow!("start mock server: {error}"))?;
+    let addr = format!("http://{}/v1", server.server_addr());
+
+    let handle = thread::spawn(move || {
+        let request = server.recv().expect("request expected");
+        assert_eq!(request.url(), "/v1/models");
+        let response = Response::from_string(
+            r#"{"data":[{"id":"qwen3:latest"},{"id":"llama3:8b"},{"id":"mistral:7b"}]}"#,
+        )
+        .with_status_code(200)
+        .with_header(
+            Header::from_bytes("Content-Type", "application/json")
+                .expect("valid content type header"),
+        );
+        request.respond(response).expect("response should succeed");
+    });
+
+    let client = Client::new(&addr, "qwen3", Duration::from_secs(1))?;
+    let models = client.list_models()?;
+    assert_eq!(
+        models,
+        vec![
+            "qwen3:latest".to_owned(),
+            "llama3:8b".to_owned(),
+            "mistral:7b".to_owned()
+        ]
+    );
+
+    handle.join().expect("server thread should join");
+    Ok(())
+}
+
+#[test]
 fn chat_stream_drop_disconnects_server_promptly() -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|error| anyhow!("bind cancellation test server: {error}"))?;
