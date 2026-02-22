@@ -1668,6 +1668,71 @@ fn delete_appliance_blocked_by_active_incident() -> Result<()> {
 }
 
 #[test]
+fn incident_restore_allowed_without_appliance_or_vendor() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Loose trim".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Whenever,
+        date_noticed: Date::from_calendar_date(2026, Month::April, 9)?,
+        date_resolved: None,
+        location: "Hallway".to_owned(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_incident(incident_id)?;
+    store.restore_incident(incident_id)?;
+
+    let incidents = store.list_incidents(false)?;
+    assert!(incidents.iter().any(|incident| incident.id == incident_id));
+    Ok(())
+}
+
+#[test]
+fn deleting_incident_with_documents_is_allowed_and_preserves_document_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let incident_id = store.create_incident(&NewIncident {
+        title: "Leaky pipe".to_owned(),
+        description: String::new(),
+        status: IncidentStatus::Open,
+        severity: IncidentSeverity::Soon,
+        date_noticed: Date::from_calendar_date(2026, Month::April, 15)?,
+        date_resolved: None,
+        location: "Basement".to_owned(),
+        cost_cents: None,
+        appliance_id: None,
+        vendor_id: None,
+        notes: String::new(),
+    })?;
+    let document_id = store.insert_document(&NewDocument {
+        title: "Pipe photo".to_owned(),
+        file_name: "pipe.jpg".to_owned(),
+        entity_kind: DocumentEntityKind::Incident,
+        entity_id: incident_id.get(),
+        mime_type: "image/jpeg".to_owned(),
+        data: b"jpeg".to_vec(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_incident(incident_id)?;
+
+    let documents = store.list_documents(false)?;
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].id, document_id);
+    assert_eq!(documents[0].entity_kind, DocumentEntityKind::Incident);
+    assert_eq!(documents[0].entity_id, incident_id.get());
+    Ok(())
+}
+
+#[test]
 fn project_update_persists_fields() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
