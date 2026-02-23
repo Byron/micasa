@@ -5233,6 +5233,8 @@ mod tests {
         redo_count: usize,
         can_undo: bool,
         can_redo: bool,
+        undo_error: Option<String>,
+        redo_error: Option<String>,
         chat_history: Vec<String>,
         show_dashboard_pref: Option<bool>,
         available_models: Vec<String>,
@@ -5535,11 +5537,17 @@ mod tests {
 
         fn undo_last_edit(&mut self) -> anyhow::Result<bool> {
             self.undo_count += 1;
+            if let Some(error) = &self.undo_error {
+                return Err(anyhow::anyhow!(error.clone()));
+            }
             Ok(self.can_undo)
         }
 
         fn redo_last_edit(&mut self) -> anyhow::Result<bool> {
             self.redo_count += 1;
+            if let Some(error) = &self.redo_error {
+                return Err(anyhow::anyhow!(error.clone()));
+            }
             Ok(self.can_redo)
         }
 
@@ -11350,5 +11358,130 @@ mod tests {
         );
         assert_eq!(runtime.undo_count, 1);
         assert_eq!(runtime.redo_count, 1);
+    }
+
+    #[test]
+    fn edit_mode_undo_and_redo_report_empty_history() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime {
+            can_undo: false,
+            can_redo: false,
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.status_line.as_deref(), Some("nothing to undo"));
+        assert_eq!(runtime.undo_count, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.status_line.as_deref(), Some("nothing to redo"));
+        assert_eq!(runtime.redo_count, 1);
+    }
+
+    #[test]
+    fn edit_mode_undo_and_redo_surface_runtime_errors() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime {
+            undo_error: Some("db failure".to_owned()),
+            redo_error: Some("tx conflict".to_owned()),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+        );
+        assert_eq!(
+            state.status_line.as_deref(),
+            Some("undo failed: db failure")
+        );
+        assert_eq!(runtime.undo_count, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+        );
+        assert_eq!(
+            state.status_line.as_deref(),
+            Some("redo failed: tx conflict")
+        );
+        assert_eq!(runtime.redo_count, 1);
+    }
+
+    #[test]
+    fn nav_mode_u_and_r_do_not_dispatch_undo_or_redo_runtime_calls() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Nav,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime {
+            can_undo: true,
+            can_redo: true,
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_row, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.selected_row, 0);
+        assert_eq!(runtime.undo_count, 0);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+        );
+        assert_eq!(runtime.redo_count, 0);
     }
 }

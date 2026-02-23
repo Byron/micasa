@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 474 tests
+- Rust tests currently (`crates/`): 477 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -55,7 +55,7 @@
 | `internal/app/rows_test.go` | 24 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/sort_test.go` | 16 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/testmain_test.go` | 1 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go `TestMain` seed/env harness is package-level test bootstrap plumbing; Rust tests use explicit fixture builders/seeds directly and do not require a `TestMain` equivalent. |
-| `internal/app/undo_test.go` | 15 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/undo_test.go` | 15 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers edit-mode undo/redo dispatch, empty-history status feedback (`nothing to undo/redo`), runtime error surfacing (`undo/redo failed: ...`), and nav-mode non-dispatch semantics for `u`/`r`; stack-internal LIFO/cap helpers remain architecture-specific to Go internals. |
 | `internal/app/vendor_test.go` | 13 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/view_test.go` | 72 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers status-width stability, table-title metadata, active-tab filter markers, single- and multi-sort header indicators (including leading-space single-sort arrows and short-title preservation), money/drill suffix preservation under multi-sort, and link-arrow/link-target gating on positive FK targets only (including all-zero/empty and optional-int cases); width-allocation and ANSI-style Go renderer internals remain architecture-specific. |
 | `internal/config/config_test.go` | 19 | `crates/micasa-cli/src/config.rs` | partial | Config v2 semantics intentionally differ; migration/error behavior plus DB-path precedence (`[storage].db_path` vs `MICASA_DB_PATH` vs default) are covered, with legacy v1/env surface intentionally excluded. |
@@ -172,6 +172,7 @@
 - Added an additional docs-derived scripted interaction parity test in `crates/micasa-tui/src/lib.rs` for filter/pin/invert/clear plus column-finder jump and column hide/show keybinding flow.
 - Added additional deletion-record parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for latest active record ordering (`deleted_at`, `id` tie-break) and entity-scoped record selection semantics.
 - Added additional view/status parity tests from Go `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs` for NAV badge wording (no legacy `NORMAL`), edit-mode hint exclusions (no undo/redo/profile), hidden pin-summary behavior in status hints, and legacy date-picker heading exclusion checks in help content.
+- Added additional undo-key parity tests from Go `internal/app/undo_test.go` in `crates/micasa-tui/src/lib.rs` for edit-mode empty-history feedback, edit-mode runtime error propagation in status text, and nav-mode `u`/`r` behavior that does not dispatch undo/redo runtime hooks.
 
 ## Known Gaps
 
