@@ -14,8 +14,8 @@ use micasa_llm::{
 };
 use micasa_tui::{
     ChatHistoryMessage, ChatHistoryRole, ChatPipelineEvent, ChatPipelineResult, DashboardIncident,
-    DashboardMaintenance, DashboardProject, DashboardServiceEntry, DashboardSnapshot,
-    DashboardWarranty, InternalEvent, LifecycleAction, TabSnapshot,
+    DashboardInsuranceRenewal, DashboardMaintenance, DashboardProject, DashboardServiceEntry,
+    DashboardSnapshot, DashboardWarranty, InternalEvent, LifecycleAction, TabSnapshot,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -340,6 +340,25 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
             })
             .collect::<Vec<_>>();
 
+        let insurance_renewal = self.store.get_house_profile()?.and_then(|house| {
+            let renewal_date = house.insurance_renewal?;
+            let days_from_now = days_from_to(today, renewal_date);
+            if !(-30..=90).contains(&days_from_now) {
+                return None;
+            }
+            let carrier = if house.insurance_carrier.trim().is_empty() {
+                "insurance renewal".to_owned()
+            } else {
+                house.insurance_carrier
+            };
+            Some(DashboardInsuranceRenewal {
+                house_profile_id: house.id,
+                carrier,
+                renewal_date,
+                days_from_now,
+            })
+        });
+
         let recent_activity = self
             .store
             .list_recent_service_logs(5)?
@@ -358,6 +377,7 @@ impl micasa_tui::AppRuntime for DbRuntime<'_> {
             upcoming,
             active_projects,
             expiring_warranties,
+            insurance_renewal,
             recent_activity,
         })
     }
@@ -1108,6 +1128,41 @@ mod tests {
     use time::{Date, Duration as TimeDuration, Month, OffsetDateTime};
     use tiny_http::{Header, Response, Server};
 
+    fn house_form_input_with_insurance(
+        carrier: &str,
+        renewal: Option<Date>,
+    ) -> HouseProfileFormInput {
+        HouseProfileFormInput {
+            nickname: "Elm Street".to_owned(),
+            address_line_1: "123 Elm".to_owned(),
+            address_line_2: String::new(),
+            city: "Springfield".to_owned(),
+            state: "IL".to_owned(),
+            postal_code: "62701".to_owned(),
+            year_built: Some(1987),
+            square_feet: Some(2400),
+            lot_square_feet: None,
+            bedrooms: Some(4),
+            bathrooms: Some(2.5),
+            foundation_type: String::new(),
+            wiring_type: String::new(),
+            roof_type: String::new(),
+            exterior_type: String::new(),
+            heating_type: String::new(),
+            cooling_type: String::new(),
+            water_source: String::new(),
+            sewer_type: String::new(),
+            parking_type: String::new(),
+            basement_type: String::new(),
+            insurance_carrier: carrier.to_owned(),
+            insurance_policy: String::new(),
+            insurance_renewal: renewal,
+            property_tax_cents: None,
+            hoa_name: String::new(),
+            hoa_fee_cents: None,
+        }
+    }
+
     #[test]
     fn submit_form_creates_project_row() -> Result<()> {
         let store = Store::open_memory()?;
@@ -1173,35 +1228,7 @@ mod tests {
         assert_eq!(before.row_count(), 0);
 
         runtime.submit_form(&FormPayload::HouseProfile(Box::new(
-            HouseProfileFormInput {
-                nickname: "Elm Street".to_owned(),
-                address_line_1: "123 Elm".to_owned(),
-                address_line_2: String::new(),
-                city: "Springfield".to_owned(),
-                state: "IL".to_owned(),
-                postal_code: "62701".to_owned(),
-                year_built: Some(1987),
-                square_feet: Some(2400),
-                lot_square_feet: None,
-                bedrooms: Some(4),
-                bathrooms: Some(2.5),
-                foundation_type: String::new(),
-                wiring_type: String::new(),
-                roof_type: String::new(),
-                exterior_type: String::new(),
-                heating_type: String::new(),
-                cooling_type: String::new(),
-                water_source: String::new(),
-                sewer_type: String::new(),
-                parking_type: String::new(),
-                basement_type: String::new(),
-                insurance_carrier: String::new(),
-                insurance_policy: String::new(),
-                insurance_renewal: None,
-                property_tax_cents: None,
-                hoa_name: String::new(),
-                hoa_fee_cents: None,
-            },
+            house_form_input_with_insurance("", None),
         )))?;
 
         let after = runtime
@@ -1287,6 +1314,7 @@ mod tests {
             + dashboard.upcoming.len()
             + dashboard.active_projects.len()
             + dashboard.expiring_warranties.len()
+            + usize::from(dashboard.insurance_renewal.is_some())
             + dashboard.recent_activity.len();
         assert!(
             dashboard_rows > 0,
@@ -1641,6 +1669,45 @@ mod tests {
             .expect("soon warranty row should exist");
         assert!(expired.days_from_now < 0);
         assert!(soon.days_from_now >= 0);
+        Ok(())
+    }
+
+    #[test]
+    fn dashboard_snapshot_includes_insurance_renewal_when_in_window() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+        let today = OffsetDateTime::now_utc().date();
+        let renewal = today + TimeDuration::days(28);
+
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+        runtime.submit_form(&FormPayload::HouseProfile(Box::new(
+            house_form_input_with_insurance("State Farm", Some(renewal)),
+        )))?;
+
+        let snapshot = runtime.load_dashboard_snapshot()?;
+        let insurance = snapshot
+            .insurance_renewal
+            .expect("in-window insurance renewal should be present");
+        assert_eq!(insurance.carrier, "State Farm");
+        assert_eq!(insurance.renewal_date, renewal);
+        assert_eq!(insurance.days_from_now, 28);
+        Ok(())
+    }
+
+    #[test]
+    fn dashboard_snapshot_excludes_insurance_renewal_outside_window() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+        let today = OffsetDateTime::now_utc().date();
+        let renewal = today + TimeDuration::days(180);
+
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+        runtime.submit_form(&FormPayload::HouseProfile(Box::new(
+            house_form_input_with_insurance("Allstate", Some(renewal)),
+        )))?;
+
+        let snapshot = runtime.load_dashboard_snapshot()?;
+        assert!(snapshot.insurance_renewal.is_none());
         Ok(())
     }
 

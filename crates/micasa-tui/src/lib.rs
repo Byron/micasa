@@ -7,10 +7,10 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use crossterm::{execute, terminal};
 use micasa_app::{
     AppCommand, AppEvent, AppMode, AppSetting, AppState, Appliance, ApplianceId, DashboardCounts,
-    Document, DocumentEntityKind, FormKind, FormPayload, HouseProfile, Incident, IncidentId,
-    IncidentSeverity, MaintenanceItem, MaintenanceItemId, Project, ProjectId, ProjectStatus, Quote,
-    ServiceLogEntry, ServiceLogEntryId, SettingKey, SettingValue, SortDirection, TabKind, Vendor,
-    VendorId,
+    Document, DocumentEntityKind, FormKind, FormPayload, HouseProfile, HouseProfileId, Incident,
+    IncidentId, IncidentSeverity, MaintenanceItem, MaintenanceItemId, Project, ProjectId,
+    ProjectStatus, Quote, ServiceLogEntry, ServiceLogEntryId, SettingKey, SettingValue,
+    SortDirection, TabKind, Vendor, VendorId,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -133,6 +133,14 @@ pub struct DashboardWarranty {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DashboardInsuranceRenewal {
+    pub house_profile_id: HouseProfileId,
+    pub carrier: String,
+    pub renewal_date: Date,
+    pub days_from_now: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DashboardServiceEntry {
     pub service_log_entry_id: ServiceLogEntryId,
     pub maintenance_item_id: MaintenanceItemId,
@@ -147,6 +155,7 @@ pub struct DashboardSnapshot {
     pub upcoming: Vec<DashboardMaintenance>,
     pub active_projects: Vec<DashboardProject>,
     pub expiring_warranties: Vec<DashboardWarranty>,
+    pub insurance_renewal: Option<DashboardInsuranceRenewal>,
     pub recent_activity: Vec<DashboardServiceEntry>,
 }
 
@@ -157,6 +166,7 @@ impl DashboardSnapshot {
             && self.upcoming.is_empty()
             && self.active_projects.is_empty()
             && self.expiring_warranties.is_empty()
+            && self.insurance_renewal.is_none()
             && self.recent_activity.is_empty())
     }
 }
@@ -643,6 +653,7 @@ enum DashboardNavEntry {
     Upcoming(MaintenanceItemId),
     ActiveProject(ProjectId),
     ExpiringWarranty(ApplianceId),
+    InsuranceRenewal(HouseProfileId),
     RecentService(ServiceLogEntryId),
 }
 
@@ -664,6 +675,10 @@ impl DashboardNavEntry {
             }),
             Self::ExpiringWarranty(id) => Some(DashboardTarget {
                 tab: TabKind::Appliances,
+                row_id: id.get(),
+            }),
+            Self::InsuranceRenewal(id) => Some(DashboardTarget {
+                tab: TabKind::House,
                 row_id: id.get(),
             }),
             Self::RecentService(id) => Some(DashboardTarget {
@@ -3511,13 +3526,15 @@ fn dashboard_nav_entries(snapshot: &DashboardSnapshot) -> Vec<(DashboardNavEntry
         }
     }
 
-    if !snapshot.expiring_warranties.is_empty() {
+    if !snapshot.expiring_warranties.is_empty() || snapshot.insurance_renewal.is_some() {
+        let expiring_total =
+            snapshot.expiring_warranties.len() + usize::from(snapshot.insurance_renewal.is_some());
         entries.push((
             DashboardNavEntry::Section(DashboardSection::ExpiringSoon),
             format!(
                 "{} ({})",
                 DashboardSection::ExpiringSoon.label(),
-                snapshot.expiring_warranties.len()
+                expiring_total
             ),
         ));
         for warranty in &snapshot.expiring_warranties {
@@ -3529,6 +3546,17 @@ fn dashboard_nav_entries(snapshot: &DashboardSnapshot) -> Vec<(DashboardNavEntry
             entries.push((
                 DashboardNavEntry::ExpiringWarranty(warranty.appliance_id),
                 format!("{} | {}", warranty.appliance_name, suffix),
+            ));
+        }
+        if let Some(insurance) = &snapshot.insurance_renewal {
+            let suffix = if insurance.days_from_now < 0 {
+                format!("{}d expired", insurance.days_from_now.abs())
+            } else {
+                format!("{}d left", insurance.days_from_now)
+            };
+            entries.push((
+                DashboardNavEntry::InsuranceRenewal(insurance.house_profile_id),
+                format!("{} | {}", insurance.carrier, suffix),
             ));
         }
     }
@@ -10768,6 +10796,53 @@ mod tests {
             matches!(entry, super::DashboardNavEntry::ExpiringWarranty(_))
                 && label == "Oven | 3d expired"
         }));
+    }
+
+    #[test]
+    fn dashboard_nav_entries_include_expiring_section_when_only_insurance_exists() {
+        let snapshot = DashboardSnapshot {
+            insurance_renewal: Some(super::DashboardInsuranceRenewal {
+                house_profile_id: micasa_app::HouseProfileId::new(1),
+                carrier: "Acme Insurance".to_owned(),
+                renewal_date: Date::from_calendar_date(2026, Month::April, 15).expect("date"),
+                days_from_now: 60,
+            }),
+            ..DashboardSnapshot::default()
+        };
+
+        let entries = dashboard_nav_entries(&snapshot);
+        let labels = entries
+            .iter()
+            .map(|(_, label)| label.as_str())
+            .collect::<Vec<_>>();
+        assert!(labels.contains(&"expiring soon (1)"));
+        assert!(labels.contains(&"Acme Insurance | 60d left"));
+        assert!(entries.iter().any(|(entry, label)| {
+            matches!(entry, super::DashboardNavEntry::InsuranceRenewal(_))
+                && label == "Acme Insurance | 60d left"
+        }));
+    }
+
+    #[test]
+    fn dashboard_snapshot_with_only_insurance_is_not_empty() {
+        let snapshot = DashboardSnapshot {
+            insurance_renewal: Some(super::DashboardInsuranceRenewal {
+                house_profile_id: micasa_app::HouseProfileId::new(1),
+                carrier: "Carrier".to_owned(),
+                renewal_date: Date::from_calendar_date(2026, Month::April, 1).expect("date"),
+                days_from_now: 45,
+            }),
+            ..DashboardSnapshot::default()
+        };
+        assert!(snapshot.has_rows());
+    }
+
+    #[test]
+    fn dashboard_nav_insurance_entry_targets_house_tab() {
+        let entry = super::DashboardNavEntry::InsuranceRenewal(micasa_app::HouseProfileId::new(9));
+        let target = entry.target().expect("insurance entry target");
+        assert_eq!(target.tab, TabKind::House);
+        assert_eq!(target.row_id, 9);
     }
 
     #[test]
