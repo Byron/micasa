@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 477 tests
+- Rust tests currently (`crates/`): 484 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -52,7 +52,7 @@
 | `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers Enter-on-plain-cell edit guidance, help overlay toggle/key-absorption, nav-mode Esc status clearing when no detail is open, nav `d` row movement without delete dispatch, and edit-mode `i` no-op behavior; remaining mode/layout edge cases are still open. |
 | `internal/app/notes_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Note-preview parity is covered for enter-to-open, empty-note no-op with status, any-key dismiss/key swallowing, overlay text rendering/close hint, and contextual `enter` hint semantics on notes columns. |
 | `internal/app/overlay_status_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Overlay status suppression parity is covered for dashboard/help/note-preview/column-finder/date-picker overlays plus no-overlay fallback, including hidden vs visible primary keybinding hints. |
-| `internal/app/rows_test.go` | 24 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/rows_test.go` | 24 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers typed projection-row parity for projects/maintenance/service-log/appliances/documents/settings and empty-house snapshots, including deleted-row flags and optional/null cell semantics; Go renderer-specific row formatting helpers remain architecture-specific. |
 | `internal/app/sort_test.go` | 16 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/testmain_test.go` | 1 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go `TestMain` seed/env harness is package-level test bootstrap plumbing; Rust tests use explicit fixture builders/seeds directly and do not require a `TestMain` equivalent. |
 | `internal/app/undo_test.go` | 15 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers edit-mode undo/redo dispatch, empty-history status feedback (`nothing to undo/redo`), runtime error surfacing (`undo/redo failed: ...`), and nav-mode non-dispatch semantics for `u`/`r`; stack-internal LIFO/cap helpers remain architecture-specific to Go internals. |
@@ -173,6 +173,7 @@
 - Added additional deletion-record parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for latest active record ordering (`deleted_at`, `id` tie-break) and entity-scoped record selection semantics.
 - Added additional view/status parity tests from Go `internal/app/view_test.go` in `crates/micasa-tui/src/lib.rs` for NAV badge wording (no legacy `NORMAL`), edit-mode hint exclusions (no undo/redo/profile), hidden pin-summary behavior in status hints, and legacy date-picker heading exclusion checks in help content.
 - Added additional undo-key parity tests from Go `internal/app/undo_test.go` in `crates/micasa-tui/src/lib.rs` for edit-mode empty-history feedback, edit-mode runtime error propagation in status text, and nav-mode `u`/`r` behavior that does not dispatch undo/redo runtime hooks.
+- Added additional row-projection parity tests from Go `internal/app/rows_test.go` in `crates/micasa-tui/src/lib.rs` for project deleted/null-money cells, maintenance optional-appliance interval cells, service-log optional vendor/cost cells, appliance warranty/cost/deleted cells, document entity-kind/size typed cells, settings row tags/labels/values, and empty-house snapshot row behavior.
 
 ## Known Gaps
 

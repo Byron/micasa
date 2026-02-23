@@ -5911,6 +5911,191 @@ mod tests {
     }
 
     #[test]
+    fn projection_projects_capture_deleted_and_optional_money_nulls() {
+        let mut project = TestRuntime::sample_project(7, "Legacy kitchen");
+        project.budget_cents = None;
+        project.actual_cents = None;
+        project.deleted_at = Some(OffsetDateTime::UNIX_EPOCH);
+
+        let snapshot = TabSnapshot::Projects(vec![project]);
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Projects),
+            ..super::TableUiState::default()
+        };
+
+        let projection = super::projection_for_snapshot(&snapshot, &table_state);
+        assert_eq!(projection.row_count(), 1);
+        let row = &projection.rows[0];
+        assert!(row.deleted);
+        assert_eq!(
+            row.tag,
+            Some(super::RowTag::ProjectStatus(ProjectStatus::Planned))
+        );
+        assert!(matches!(row.cells[3], super::TableCell::Money(None)));
+        assert!(matches!(row.cells[4], super::TableCell::Money(None)));
+    }
+
+    #[test]
+    fn projection_maintenance_keeps_optional_appliance_and_interval_cells() {
+        let mut item = TestRuntime::sample_maintenance(3, None, "Gutters");
+        item.last_serviced_at =
+            Some(Date::from_calendar_date(2026, Month::January, 9).expect("date"));
+        item.interval_months = 3;
+        item.cost_cents = Some(2_500);
+
+        let snapshot = TabSnapshot::Maintenance(vec![item]);
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Maintenance),
+            ..super::TableUiState::default()
+        };
+        let projection = super::projection_for_snapshot(&snapshot, &table_state);
+
+        let row = &projection.rows[0];
+        assert!(matches!(
+            row.cells[3],
+            super::TableCell::OptionalInteger(None)
+        ));
+        assert_eq!(row.cells[4].display(), "2026-01-09");
+        assert_eq!(row.cells[5].display(), "3m");
+        assert_eq!(row.cells[6].display(), "25.00");
+    }
+
+    #[test]
+    fn projection_service_log_keeps_optional_vendor_and_notes_cells() {
+        let mut entry = TestRuntime::sample_service_log(19, 2, None, "Check pressure");
+        entry.cost_cents = None;
+
+        let snapshot = TabSnapshot::ServiceLog(vec![entry]);
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::ServiceLog),
+            ..super::TableUiState::default()
+        };
+        let projection = super::projection_for_snapshot(&snapshot, &table_state);
+
+        let row = &projection.rows[0];
+        assert!(matches!(
+            row.cells[3],
+            super::TableCell::OptionalInteger(None)
+        ));
+        assert!(matches!(row.cells[4], super::TableCell::Money(None)));
+        assert_eq!(
+            row.cells[5],
+            super::TableCell::Text("Check pressure".to_owned())
+        );
+    }
+
+    #[test]
+    fn projection_appliances_map_optional_warranty_and_cost_cells() {
+        let mut appliance = TestRuntime::sample_appliance(4, "Furnace");
+        appliance.warranty_expiry =
+            Some(Date::from_calendar_date(2027, Month::June, 1).expect("date"));
+        appliance.cost_cents = Some(89_900);
+        appliance.deleted_at = Some(OffsetDateTime::UNIX_EPOCH);
+
+        let snapshot = TabSnapshot::Appliances(vec![appliance]);
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Appliances),
+            ..super::TableUiState::default()
+        };
+        let projection = super::projection_for_snapshot(&snapshot, &table_state);
+
+        let row = &projection.rows[0];
+        assert!(row.deleted);
+        assert_eq!(row.cells[2], super::TableCell::Text("brand".to_owned()));
+        assert_eq!(row.cells[4].display(), "2027-06-01");
+        assert_eq!(row.cells[5].display(), "899.00");
+    }
+
+    #[test]
+    fn projection_documents_map_entity_kind_and_size_as_typed_cells() {
+        let document = TestRuntime::sample_document(
+            31,
+            micasa_app::DocumentEntityKind::Project,
+            42,
+            "Invoice",
+            "Paid",
+        );
+
+        let snapshot = TabSnapshot::Documents(vec![document]);
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Documents),
+            ..super::TableUiState::default()
+        };
+        let projection = super::projection_for_snapshot(&snapshot, &table_state);
+
+        let row = &projection.rows[0];
+        assert_eq!(row.cells[0], super::TableCell::Integer(31));
+        assert_eq!(
+            row.cells[2],
+            super::TableCell::Text("invoice.pdf".to_owned())
+        );
+        assert_eq!(row.cells[3], super::TableCell::Text("project".to_owned()));
+        assert_eq!(row.cells[4], super::TableCell::Integer(1_024));
+        assert_eq!(row.cells[5], super::TableCell::Text("Paid".to_owned()));
+    }
+
+    #[test]
+    fn projection_settings_rows_include_stable_ids_labels_values_and_tags() {
+        let snapshot = TabSnapshot::Settings(vec![
+            AppSetting {
+                key: SettingKey::UiShowDashboard,
+                value: SettingValue::Bool(false),
+            },
+            AppSetting {
+                key: SettingKey::LlmModel,
+                value: SettingValue::Text("qwen3:latest".to_owned()),
+            },
+        ]);
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::Settings),
+            ..super::TableUiState::default()
+        };
+        let projection = super::projection_for_snapshot(&snapshot, &table_state);
+
+        assert_eq!(projection.row_count(), 2);
+        assert_eq!(projection.rows[0].cells[0], super::TableCell::Integer(1));
+        assert_eq!(
+            projection.rows[0].cells[1],
+            super::TableCell::Text("dashboard startup".to_owned())
+        );
+        assert_eq!(
+            projection.rows[0].cells[2],
+            super::TableCell::Text("off".to_owned())
+        );
+        assert_eq!(
+            projection.rows[0].tag,
+            Some(super::RowTag::Setting(SettingKey::UiShowDashboard))
+        );
+        assert_eq!(projection.rows[1].cells[0], super::TableCell::Integer(2));
+        assert_eq!(
+            projection.rows[1].cells[1],
+            super::TableCell::Text("llm model".to_owned())
+        );
+        assert_eq!(
+            projection.rows[1].cells[2],
+            super::TableCell::Text("qwen3:latest".to_owned())
+        );
+        assert_eq!(
+            projection.rows[1].tag,
+            Some(super::RowTag::Setting(SettingKey::LlmModel))
+        );
+    }
+
+    #[test]
+    fn projection_house_snapshot_with_no_profile_has_zero_rows() {
+        let snapshot = TabSnapshot::House(Box::new(None));
+        let table_state = super::TableUiState {
+            tab: Some(TabKind::House),
+            ..super::TableUiState::default()
+        };
+        let projection = super::projection_for_snapshot(&snapshot, &table_state);
+
+        assert_eq!(projection.title, "house");
+        assert_eq!(projection.row_count(), 0);
+        assert_eq!(projection.columns.len(), 9);
+    }
+
+    #[test]
     fn apply_mag_mode_to_text_formats_money_and_bare_numbers() {
         assert_eq!(
             apply_mag_mode_to_text("You spent $5,234.23 on kitchen.", true),
