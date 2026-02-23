@@ -5320,13 +5320,14 @@ mod tests {
         render_dashboard_text, render_date_picker_overlay_text, render_note_preview_overlay_text,
         shift_date_by_months, shift_date_by_years, status_label_for_incident_severity,
         status_label_for_incident_status, status_label_for_project_status, status_text,
-        table_command_for_key, table_title, update_help_scroll_bounds, visible_column_indices,
+        sync_form_ui_state, table_command_for_key, table_title, update_help_scroll_bounds,
+        visible_column_indices,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
         AppMode, AppSetting, AppState, ChatVisibility, DashboardCounts, FormKind, FormPayload,
-        IncidentSeverity, Project, ProjectStatus, ProjectTypeId, SettingKey, SettingValue,
-        SortDirection, TabKind,
+        IncidentSeverity, Project, ProjectFormInput, ProjectStatus, ProjectTypeId, SettingKey,
+        SettingValue, SortDirection, TabKind,
     };
     use ratatui::{Terminal, backend::TestBackend};
     use std::collections::BTreeSet;
@@ -5336,6 +5337,7 @@ mod tests {
     #[derive(Debug, Default)]
     struct TestRuntime {
         submit_count: usize,
+        submit_error: Option<String>,
         lifecycle_count: usize,
         lifecycle_actions: Vec<(TabKind, i64, LifecycleAction)>,
         deleted_rows: Vec<(TabKind, i64)>,
@@ -5628,6 +5630,9 @@ mod tests {
 
         fn submit_form(&mut self, payload: &FormPayload) -> anyhow::Result<()> {
             payload.validate()?;
+            if let Some(error) = &self.submit_error {
+                return Err(anyhow::anyhow!(error.clone()));
+            }
             self.submit_count += 1;
             Ok(())
         }
@@ -6798,6 +6803,125 @@ mod tests {
         );
         assert_eq!(state.mode, AppMode::Edit);
         assert_eq!(runtime.submit_count, 1);
+    }
+
+    #[test]
+    fn ctrl_s_submits_form() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        );
+        assert_eq!(state.mode, AppMode::Edit);
+        assert_eq!(runtime.submit_count, 1);
+    }
+
+    #[test]
+    fn ctrl_s_on_invalid_form_stays_open_and_surfaces_validation_error() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Form(FormKind::Project),
+            form_payload: Some(FormPayload::Project(ProjectFormInput {
+                title: String::new(),
+                project_type_id: ProjectTypeId::new(1),
+                status: ProjectStatus::Planned,
+                description: String::new(),
+                start_date: None,
+                end_date: None,
+                budget_cents: None,
+                actual_cents: None,
+            })),
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        sync_form_ui_state(&state, &mut view_data);
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+        assert_eq!(runtime.submit_count, 0);
+        assert!(
+            state
+                .status_line
+                .as_deref()
+                .unwrap_or_default()
+                .contains("form invalid:")
+        );
+    }
+
+    #[test]
+    fn ctrl_s_surfaces_runtime_save_error_and_keeps_form_open() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Form(FormKind::Project),
+            form_payload: Some(FormPayload::Project(ProjectFormInput {
+                title: "Kitchen".to_owned(),
+                project_type_id: ProjectTypeId::new(1),
+                status: ProjectStatus::Planned,
+                description: String::new(),
+                start_date: None,
+                end_date: None,
+                budget_cents: None,
+                actual_cents: None,
+            })),
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime {
+            submit_error: Some("db readonly".to_owned()),
+            ..TestRuntime::default()
+        };
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        sync_form_ui_state(&state, &mut view_data);
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        );
+
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+        assert_eq!(runtime.submit_count, 0);
+        assert_eq!(
+            state.status_line.as_deref(),
+            Some("save failed: db readonly")
+        );
     }
 
     #[test]

@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 529 tests
+- Rust tests currently (`crates/`): 532 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -39,7 +39,7 @@
 | `internal/app/demo_data_test.go` | 3 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Runtime demo-seed parity is covered with tests for non-empty snapshots across all data tabs, non-empty dashboard nav sections after seeding, and varied-seed runs that still produce populated rows. |
 | `internal/app/detail_test.go` | 57 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers nested drill push/pop flows, close-all collapse/no-op semantics, breadcrumb labels, selection/link/sort behaviors inside detail views, and explicit parent-context restoration (snapshot/table state) across push/pop and nested close-all helpers; Go handler wiring/form-kind internals remain partially architecture-specific. |
 | `internal/app/filter_test.go` | 39 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
-| `internal/app/form_save_test.go` | 18 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/form_save_test.go` | 18 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers form submit by both `enter` and `ctrl+s`, validation-failure behavior that keeps forms open with actionable `form invalid: ...` status, and runtime save-failure behavior that keeps forms open with actionable `save failed: ...` status; Go dirty-form confirmation/discard dialog flows are architecture-specific and remain open. |
 | `internal/app/form_select_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go tests target `huh`-specific select helpers (`withOrdinals`, focused-field introspection). Rust uses typed form-choice handling without `huh`; equivalent end-user behavior (numeric choice selection) is covered by form shortcut tests. |
 | `internal/app/form_validators_test.go` | 34 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/forms.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now directly covers typed form validation guardrails for required vendor/title fields, project date ordering, negative budget/cost/line-item rejection, linked-document entity-id requirements, unlinked document acceptance, and house-profile numeric edge cases; string-parser and BubbleTea-specific form plumbing remains architecture-specific. |
 | `internal/app/handler_crud_test.go` | 25 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -186,6 +186,7 @@
 - Added additional mode parity behavior/tests from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs`: help overlay scrolling semantics with status indicator transitions (`Top`/`Bot`/`%`) and edit-mode delete auto-show-deleted with delete/restore round-trip coverage on the selected row.
 - Added integration-level help overlay render regression parity from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs` by asserting overlay width stability across top/middle/bottom scroll positions using ratatui `TestBackend`.
 - Added further mode-parity tests from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs`: nav `tab` house-toggle routing semantics, help-overlay arrow-key scroll clamping, and fixed-width mode-badge status behavior across nav/edit/form modes.
+- Added `internal/app/form_save_test.go` parity tests in `crates/micasa-tui/src/lib.rs` for `ctrl+s` form submission equivalence to `enter`, invalid-payload save handling that keeps form mode active, and runtime save-error handling with actionable status text.
 
 ## Known Gaps
 
