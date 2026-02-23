@@ -1114,8 +1114,9 @@ mod tests {
     use super::DbRuntime;
     use anyhow::{Result, anyhow};
     use micasa_app::{
-        FormPayload, HouseProfileFormInput, IncidentSeverity, ProjectFormInput, ProjectStatus,
-        ProjectTypeId, ServiceLogEntryFormInput, SettingKey, SettingValue, TabKind,
+        FormPayload, HouseProfileFormInput, IncidentSeverity, MaintenanceItemFormInput,
+        ProjectFormInput, ProjectStatus, ProjectTypeId, ServiceLogEntryFormInput, SettingKey,
+        SettingValue, TabKind,
     };
     use micasa_db::{NewMaintenanceItem, NewProject, Store};
     use micasa_llm::{Client as LlmClient, Message as LlmMessage, Role as LlmRole};
@@ -1183,6 +1184,70 @@ mod tests {
         let projects = store.list_projects(false)?;
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].title, "Deck repair");
+        Ok(())
+    }
+
+    #[test]
+    fn house_profile_submit_twice_updates_existing_record() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+        runtime.submit_form(&FormPayload::HouseProfile(Box::new(
+            house_form_input_with_insurance("", None),
+        )))?;
+
+        let original = store
+            .get_house_profile()?
+            .expect("house profile should exist after first submit");
+
+        let mut updated = house_form_input_with_insurance("", None);
+        updated.nickname = "Lake House".to_owned();
+        updated.city = "Tahoe".to_owned();
+        runtime.submit_form(&FormPayload::HouseProfile(Box::new(updated)))?;
+
+        let current = store
+            .get_house_profile()?
+            .expect("house profile should still exist after second submit");
+        assert_eq!(current.id, original.id);
+        assert_eq!(current.nickname, "Lake House");
+        assert_eq!(current.city, "Tahoe");
+        Ok(())
+    }
+
+    #[test]
+    fn maintenance_submit_persists_interval_months_in_store_and_snapshot() -> Result<()> {
+        let store = Store::open_memory()?;
+        store.bootstrap()?;
+        let category_id = store.list_maintenance_categories()?[0].id;
+
+        let mut runtime = DbRuntime::with_llm_client_context_and_db_path(&store, None, "", None);
+        runtime.submit_form(&FormPayload::Maintenance(MaintenanceItemFormInput {
+            name: "Gutter Cleaning".to_owned(),
+            category_id,
+            appliance_id: None,
+            last_serviced_at: None,
+            interval_months: 30,
+            manual_url: String::new(),
+            manual_text: String::new(),
+            notes: String::new(),
+            cost_cents: None,
+        }))?;
+
+        let stored_items = store.list_maintenance_items(false)?;
+        assert_eq!(stored_items.len(), 1);
+        assert_eq!(stored_items[0].interval_months, 30);
+
+        let snapshot = runtime
+            .load_tab_snapshot(TabKind::Maintenance, false)?
+            .expect("maintenance snapshot");
+        match snapshot {
+            TabSnapshot::Maintenance(rows) => {
+                assert_eq!(rows.len(), 1);
+                assert_eq!(rows[0].interval_months, 30);
+            }
+            other => panic!("expected maintenance snapshot, got {other:?}"),
+        }
         Ok(())
     }
 
