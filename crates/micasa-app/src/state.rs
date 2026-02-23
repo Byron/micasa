@@ -20,6 +20,7 @@ pub struct AppState {
     pub status_line: Option<String>,
     pub form_payload: Option<FormPayload>,
     pub form_submission_count: usize,
+    pub form_return_mode: AppMode,
 }
 
 impl Default for AppState {
@@ -32,6 +33,7 @@ impl Default for AppState {
             status_line: None,
             form_payload: None,
             form_submission_count: 0,
+            form_return_mode: AppMode::Nav,
         }
     }
 }
@@ -93,10 +95,15 @@ impl AppState {
             }
             AppCommand::ExitToNav => {
                 self.mode = AppMode::Nav;
+                self.form_return_mode = AppMode::Nav;
                 self.form_payload = None;
                 vec![AppEvent::ModeChanged(self.mode), self.set_status("nav")]
             }
             AppCommand::OpenForm(kind) => {
+                self.form_return_mode = match self.mode {
+                    AppMode::Form(_) => AppMode::Nav,
+                    mode => mode,
+                };
                 self.mode = AppMode::Form(kind);
                 self.form_payload = FormPayload::blank_for(kind);
                 let mut events = vec![AppEvent::ModeChanged(self.mode)];
@@ -123,7 +130,8 @@ impl AppState {
             AppCommand::SubmitForm => self.submit_form(),
             AppCommand::CancelForm => {
                 if let AppMode::Form(kind) = self.mode {
-                    self.mode = AppMode::Nav;
+                    self.mode = self.form_return_mode;
+                    self.form_return_mode = AppMode::Nav;
                     self.form_payload = None;
                     vec![
                         AppEvent::ModeChanged(self.mode),
@@ -206,7 +214,8 @@ impl AppState {
         }
 
         self.form_submission_count += 1;
-        self.mode = AppMode::Nav;
+        self.mode = self.form_return_mode;
+        self.form_return_mode = AppMode::Nav;
         self.form_payload = None;
         vec![
             AppEvent::ModeChanged(self.mode),
@@ -348,6 +357,32 @@ mod tests {
     }
 
     #[test]
+    fn submit_form_returns_to_previous_mode_when_opened_from_edit() {
+        let mut state = AppState::default();
+        state.dispatch(AppCommand::EnterEditMode);
+        assert_eq!(state.mode, AppMode::Edit);
+
+        state.dispatch(AppCommand::OpenForm(FormKind::Project));
+        let payload = FormPayload::Project(ProjectFormInput {
+            title: "Kitchen refresh".to_owned(),
+            project_type_id: ProjectTypeId::new(1),
+            status: ProjectStatus::Planned,
+            description: String::new(),
+            start_date: None,
+            end_date: None,
+            budget_cents: Some(1_000_000),
+            actual_cents: None,
+        });
+        state.dispatch(AppCommand::SetFormPayload(payload));
+
+        let events = state.dispatch(AppCommand::SubmitForm);
+        assert_eq!(state.mode, AppMode::Edit);
+        assert!(state.form_payload.is_none());
+        assert_eq!(state.form_submission_count, 1);
+        assert!(events.contains(&AppEvent::FormSubmitted(FormKind::Project)));
+    }
+
+    #[test]
     fn submit_form_reports_validation_error() {
         let mut state = AppState::default();
         state.dispatch(AppCommand::OpenForm(FormKind::Project));
@@ -390,6 +425,30 @@ mod tests {
 
         let events = state.dispatch(AppCommand::CancelForm);
         assert_eq!(state.mode, AppMode::Nav);
+        assert!(events.contains(&AppEvent::FormCanceled(FormKind::MaintenanceItem)));
+    }
+
+    #[test]
+    fn cancel_form_returns_to_previous_mode_when_opened_from_edit() {
+        let mut state = AppState::default();
+        state.dispatch(AppCommand::EnterEditMode);
+        state.dispatch(AppCommand::OpenForm(FormKind::MaintenanceItem));
+        state.dispatch(AppCommand::SetFormPayload(FormPayload::Maintenance(
+            crate::MaintenanceItemFormInput {
+                name: "Filter".to_owned(),
+                category_id: MaintenanceCategoryId::new(1),
+                appliance_id: None,
+                last_serviced_at: None,
+                interval_months: 3,
+                manual_url: String::new(),
+                manual_text: String::new(),
+                notes: String::new(),
+                cost_cents: None,
+            },
+        )));
+
+        let events = state.dispatch(AppCommand::CancelForm);
+        assert_eq!(state.mode, AppMode::Edit);
         assert!(events.contains(&AppEvent::FormCanceled(FormKind::MaintenanceItem)));
     }
 
