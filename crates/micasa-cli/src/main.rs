@@ -26,7 +26,7 @@ fn run() -> Result<()> {
         return Ok(());
     }
 
-    if options.print_path {
+    if options.print_config_path {
         println!("{}", options.config_path.display());
         return Ok(());
     }
@@ -43,7 +43,16 @@ fn run() -> Result<()> {
         )
     })?;
 
-    let db_path = config.db_path()?;
+    let db_path = if options.demo {
+        PathBuf::from(":memory:")
+    } else {
+        config.db_path()?
+    };
+    if options.print_db_path {
+        println!("{}", db_path.display());
+        return Ok(());
+    }
+
     let mut store = Store::open(&db_path).with_context(|| {
         format!(
             "open database {} -- if this path is wrong, set [storage].db_path or MICASA_DB_PATH",
@@ -52,6 +61,9 @@ fn run() -> Result<()> {
     })?;
     store.bootstrap()?;
     store.set_max_document_size(config.max_document_size())?;
+    if options.demo {
+        store.seed_demo_data()?;
+    }
 
     let cache_dir = micasa_db::document_cache_dir()?;
     let _removed = micasa_db::evict_stale_cache(&cache_dir, config.cache_ttl_days())?;
@@ -98,7 +110,9 @@ fn run() -> Result<()> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CliOptions {
     config_path: PathBuf,
-    print_path: bool,
+    print_config_path: bool,
+    print_db_path: bool,
+    demo: bool,
     print_example: bool,
     check_only: bool,
     show_help: bool,
@@ -111,7 +125,9 @@ where
 {
     let mut options = CliOptions {
         config_path: default_config_path,
-        print_path: false,
+        print_config_path: false,
+        print_db_path: false,
+        demo: false,
         print_example: false,
         check_only: false,
         show_help: false,
@@ -127,10 +143,16 @@ where
                 options.config_path = PathBuf::from(value.as_ref());
             }
             "--print-config-path" => {
-                options.print_path = true;
+                options.print_config_path = true;
+            }
+            "--print-path" => {
+                options.print_db_path = true;
             }
             "--print-example-config" => {
                 options.print_example = true;
+            }
+            "--demo" => {
+                options.demo = true;
             }
             "--check" => {
                 options.check_only = true;
@@ -153,7 +175,9 @@ fn print_help() {
     println!("micasa (Rust)");
     println!("  --config <path>          Use a specific config path");
     println!("  --print-config-path      Print resolved config path");
+    println!("  --print-path             Print resolved database path");
     println!("  --print-example-config   Print a v2 config template");
+    println!("  --demo                   Launch with seeded demo data (in-memory)");
     println!("  --check                  Validate config + DB + startup dependencies");
     println!("  --help                   Show this help");
 }
@@ -175,7 +199,9 @@ mod tests {
             options,
             CliOptions {
                 config_path: default_options_path(),
-                print_path: false,
+                print_config_path: false,
+                print_db_path: false,
+                demo: false,
                 print_example: false,
                 check_only: false,
                 show_help: false,
@@ -216,10 +242,21 @@ mod tests {
             vec!["--print-config-path", "--print-example-config", "--check"],
             default_options_path(),
         )?;
-        assert!(options.print_path);
+        assert!(options.print_config_path);
+        assert!(!options.print_db_path);
+        assert!(!options.demo);
         assert!(options.print_example);
         assert!(options.check_only);
         assert!(!options.show_help);
+        Ok(())
+    }
+
+    #[test]
+    fn parse_cli_args_sets_demo_and_db_path_print_flags() -> Result<()> {
+        let options = parse_cli_args(vec!["--demo", "--print-path"], default_options_path())?;
+        assert!(!options.print_config_path);
+        assert!(options.print_db_path);
+        assert!(options.demo);
         Ok(())
     }
 

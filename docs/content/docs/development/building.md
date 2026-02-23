@@ -73,7 +73,6 @@ nix build '.#micasa'
 | `nix run '.#capture-one'` | Capture a single VHS tape as a WebP screenshot |
 | `nix run '.#capture-screenshots'` | Capture screenshot tapes in parallel |
 | `nix run '.#pre-commit'` | Run repo pre-commit hooks |
-| `nix run '.#deadcode'` | Run Go dead-code analysis helper |
 | `nix run '.#osv-scanner'` | Scan dependencies for known vulnerabilities |
 
 ## Container image

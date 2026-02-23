@@ -18,7 +18,9 @@ micasa [flags]
 Flags:
   --config <path>          Use a specific config path
   --print-config-path      Print resolved config path
+  --print-path             Print resolved database path
   --print-example-config   Print a v2 config template
+  --demo                   Launch with seeded demo data (in-memory)
   --check                  Validate config + DB + startup dependencies
   -h, --help               Show help
 ```
@@ -29,11 +31,17 @@ Flags:
 # Show where micasa will read/write config
 micasa --print-config-path
 
+# Show the resolved database path
+micasa --print-path
+
 # Generate a config template
 micasa --print-example-config
 
 # Validate configuration and startup dependencies without launching the TUI
 micasa --check
+
+# Launch with seed data in an in-memory DB
+micasa --demo
 ```
 
 ## Environment variables

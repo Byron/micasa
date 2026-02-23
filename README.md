@@ -57,7 +57,7 @@ cargo install --path crates/micasa-cli
 
 Or grab a binary from the [latest release](https://github.com/cpcloud/micasa/releases/latest).
 
-Linux, macOS, and Windows binaries are available for amd64 and arm64.
+Linux, macOS, and Windows binaries are currently published for amd64.
 
 ```sh
 micasa --demo         # poke around with sample data
@@ -78,7 +78,7 @@ Full docs at [micasa.dev/docs](https://micasa.dev/docs/) -- start with [Installa
 [Rust](https://www.rust-lang.org) with a synchronous terminal stack:
 [ratatui](https://github.com/ratatui/ratatui) + [rusqlite](https://github.com/rusqlite/rusqlite) + SQLite. TUI design remains inspired by [VisiData](https://www.visidata.org/) -- modal navigation, column-level operations, and keyboard-driven data exploration. Developed with AI coding agents ([Claude](https://claude.ai), [Claude Code](https://claude.ai/code)).
 
-PRs welcome -- including AI-assisted ones, as long as you've reviewed and curated the code. See the [contributing guide](https://micasa.dev/docs/development/contributing/) for details. The repo uses a [Nix](https://nixos.org) dev shell with pre-commit hooks for formatting, linting, and tests:
+PRs welcome -- including AI-assisted ones, as long as you've reviewed and curated the code. See the [contributing guide](https://micasa.dev/docs/development/contributing/) for details. The repo uses a [Nix](https://nixos.org) dev shell with reproducible checks:
 
 ```sh
 nix develop          # enter dev shell

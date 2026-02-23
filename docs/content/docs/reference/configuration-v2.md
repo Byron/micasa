@@ -49,7 +49,9 @@ When micasa chooses a DB path:
 
 ```sh
 micasa --print-config-path
+micasa --print-path
 micasa --print-example-config
+micasa --demo
 micasa --check
 ```
 

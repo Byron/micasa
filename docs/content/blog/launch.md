@@ -138,11 +138,11 @@ only to servers [you configure](/docs/reference/configuration/#llm-section).
 ## Try it
 
 ```sh
-go install github.com/cpcloud/micasa/cmd/micasa@latest
+cargo install --path crates/micasa-cli
 micasa --demo   # sample data to poke around with
 micasa          # start fresh with your own house
 ```
 
 Linux, macOS, and Windows. Binaries on the
 [releases page](https://github.com/cpcloud/micasa/releases/latest)
-if you don't have Go installed.
+if you don't want to build from source.

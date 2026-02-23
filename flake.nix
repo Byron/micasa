@@ -24,22 +24,6 @@
         pkgs = import nixpkgs { inherit system; };
         version = builtins.replaceStrings [ "\n" "\r" ] [ "" "" ] (builtins.readFile ./VERSION);
 
-        # Temporary Go parity build retained during Rust cutover verification.
-        micasa-go = pkgs.buildGoModule {
-          pname = "micasa";
-          inherit version;
-          src = ./.;
-          subPackages = [ "cmd/micasa" ];
-          vendorHash = "sha256-FZfMwtcVOZ8mkA1NHXitqwp5X/FTb1VxyKvoy5qEoPU=";
-          env.CGO_ENABLED = 0;
-          preCheck = ''
-            export HOME="$(mktemp -d)"
-          '';
-          ldflags = [
-            "-X main.version=${version}"
-          ];
-        };
-
         micasa = pkgs.rustPlatform.buildRustPackage {
           pname = "micasa";
           inherit version;
@@ -65,7 +49,7 @@
 
           comment_prefix() {
             case "$1" in
-              *.go|go.mod)  echo "//" ;;
+              *.rs)         echo "//" ;;
               *.nix|*.yml|*.yaml|*.sh|.envrc|.gitignore) echo "#" ;;
               *.md)         echo "md" ;;
               *)            echo "#" ;;
@@ -114,17 +98,12 @@
         preCommit = git-hooks.lib.${system}.run {
           src = ./.;
           hooks = {
-            golines = {
-              enable = true;
-              settings.flags = "--base-formatter=${pkgs.gofumpt}/bin/gofumpt " + "--max-len=100";
-            };
-            golangci-lint.enable = true;
             license-header = {
               enable = true;
               name = "license-header";
               entry = "${licenseCheck}";
-              files = "\\.(go|nix|ya?ml|sh|md)$|^\\.envrc$|\\.gitignore$|^go\\.mod$";
-              excludes = ["LICENSE" "flake\\.lock" "go\\.sum" "\\.json$" "^docs/content/"];
+              files = "\\.(rs|nix|ya?ml|sh|md)$|^\\.envrc$|\\.gitignore$";
+              excludes = [ "LICENSE" "flake\\.lock" "\\.json$" "^docs/content/" ];
               language = "system";
               pass_filenames = true;
             };
@@ -142,20 +121,6 @@
         vhsFontSetup = ''
           export FONTCONFIG_FILE="${vhsFontsConf}"
         '';
-
-        deadcode = pkgs.buildGoModule {
-          pname = "deadcode";
-          version = "0.42.0";
-          src = pkgs.fetchFromGitHub {
-            owner = "golang";
-            repo = "tools";
-            rev = "v0.42.0";
-            hash = "sha256-0RiinnIocPaj8Z5jtYGkbFiRf1BXyap4Z8e/sw2FBgg=";
-          };
-          subPackages = [ "cmd/deadcode" ];
-          vendorHash = "sha256-oYmM+5lNmlP2i78NsG3v4WRhAUbiwS+EFkiicI6MKXA=";
-          doCheck = false;
-        };
 
         root = pkgs.buildEnv {
           name = "micasa-root";
@@ -180,7 +145,6 @@
               pkgs.cargo
               pkgs.rustfmt
               pkgs.clippy
-              pkgs.go
               pkgs.osv-scanner
               pkgs.git
               pkgs.hugo
@@ -190,8 +154,7 @@
           };
 
         packages = {
-          inherit micasa micasa-go;
-          micasa-go-parity = micasa-go;
+          inherit micasa;
           default = micasa;
           docs = pkgs.writeShellApplication {
             name = "micasa-docs";
@@ -340,16 +303,6 @@
                 | parallel -0 -j"$jobs" --bar record-tape {}
             '';
           };
-          run-deadcode = pkgs.writeShellApplication {
-            name = "run-deadcode";
-            runtimeInputs = [ deadcode pkgs.go ];
-            runtimeEnv.CGO_ENABLED = "0";
-            text = ''
-              export GOCACHE="''${GOCACHE:-$(mktemp -d)}"
-              export GOMODCACHE="''${GOMODCACHE:-$(mktemp -d)}"
-              deadcode -test ./...
-            '';
-          };
           run-osv-scanner = pkgs.writeShellApplication {
             name = "run-osv-scanner";
             runtimeInputs = [ pkgs.osv-scanner ];
@@ -359,7 +312,7 @@
           };
           run-pre-commit = pkgs.writeShellApplication {
             name = "run-pre-commit";
-            runtimeInputs = [ pkgs.go pkgs.git ] ++ preCommit.enabledPackages;
+            runtimeInputs = [ pkgs.git ] ++ preCommit.enabledPackages;
             excludeShellChecks = [
               # shellHook from git-hooks.lib contains patterns that
               # trigger these warnings; the code is upstream-generated.
@@ -406,7 +359,6 @@
           capture-one = flake-utils.lib.mkApp { drv = self.packages.${system}.capture-one; };
           capture-screenshots = flake-utils.lib.mkApp { drv = self.packages.${system}.capture-screenshots; };
           record-animated = flake-utils.lib.mkApp { drv = self.packages.${system}.record-animated; };
-          deadcode = flake-utils.lib.mkApp { drv = self.packages.${system}.run-deadcode; };
           osv-scanner = flake-utils.lib.mkApp { drv = self.packages.${system}.run-osv-scanner; };
           pre-commit = flake-utils.lib.mkApp { drv = self.packages.${system}.run-pre-commit; };
         };

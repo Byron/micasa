@@ -52,8 +52,5 @@ If SQL generation/execution fails, fallback summarization from data snapshot is
 used. Streaming output is handled via blocking SSE reads and thread message
 passing.
 
-## Legacy Go reference
-
-Go sources under `internal/` remain in-repo as historical/parity reference
-only. Runtime changes, release artifacts, and primary verification all target
-the Rust crates above.
+Go runtime/parity sources were removed during the Rust cutover. The Rust
+workspace is the only runtime and release surface.
