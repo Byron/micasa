@@ -11010,6 +11010,54 @@ mod tests {
     }
 
     #[test]
+    fn status_text_uses_nav_badge_not_legacy_normal_label() {
+        let state = AppState::default();
+        let view_data = view_data_for_test();
+
+        let status = status_text(&state, &view_data);
+        assert!(status.contains("NAV"));
+        assert!(!status.contains("NORMAL"));
+    }
+
+    #[test]
+    fn edit_mode_status_omits_undo_redo_and_profile_hints() {
+        let state = AppState {
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let view_data = view_data_for_test();
+
+        let status = status_text(&state, &view_data);
+        assert!(status.contains("EDIT"));
+        assert!(!status.to_ascii_lowercase().contains("undo"));
+        assert!(!status.to_ascii_lowercase().contains("redo"));
+        assert!(!status.to_ascii_lowercase().contains("profile"));
+    }
+
+    #[test]
+    fn pin_values_do_not_leak_into_status_hint_bar() {
+        let state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut view_data = view_data_for_test();
+        view_data.table_state.tab = Some(TabKind::Projects);
+        view_data.table_state.pin = Some(super::PinnedCell {
+            column: 1,
+            value: super::TableCell::Text("scoped pin".to_owned()),
+        });
+
+        let status = status_text(&state, &view_data);
+        assert!(!status.contains("scoped pin"));
+    }
+
+    #[test]
+    fn help_overlay_text_excludes_legacy_date_picker_heading() {
+        let help = help_overlay_text();
+        assert!(!help.contains("Date Picker"));
+    }
+
+    #[test]
     fn dashboard_overlay_jumps_to_target_tab() {
         let mut state = AppState {
             active_tab: TabKind::Projects,

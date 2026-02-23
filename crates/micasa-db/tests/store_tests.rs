@@ -2211,6 +2211,107 @@ fn project_deletion_record_is_created_and_cleared_on_restore() -> Result<()> {
 }
 
 #[test]
+fn latest_active_project_deletion_record_tracks_recent_unrestored_target() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let first = store.create_project(&NewProject {
+        title: "First".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let second = store.create_project(&NewProject {
+        title: "Second".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+
+    store.soft_delete_project(first)?;
+    store.soft_delete_project(second)?;
+
+    let mut stmt = store.raw_connection().prepare(
+        "SELECT target_id FROM deletion_records WHERE entity = 'project' AND restored_at IS NULL ORDER BY deleted_at DESC, id DESC",
+    )?;
+    let active_targets = stmt
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    assert_eq!(active_targets, vec![second.get(), first.get()]);
+
+    store.restore_project(second)?;
+    let active_after_restore_second = store
+        .raw_connection()
+        .prepare(
+            "SELECT target_id FROM deletion_records WHERE entity = 'project' AND restored_at IS NULL ORDER BY deleted_at DESC, id DESC",
+        )?
+        .query_map([], |row| row.get::<_, i64>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    assert_eq!(active_after_restore_second, vec![first.get()]);
+
+    store.restore_project(first)?;
+    let active_after_restore_all: i64 = store.raw_connection().query_row(
+        "SELECT COUNT(*) FROM deletion_records WHERE entity = 'project' AND restored_at IS NULL",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(active_after_restore_all, 0);
+    Ok(())
+}
+
+#[test]
+fn active_deletion_records_remain_entity_scoped() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Scoped project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Scoped vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+
+    store.soft_delete_project(project_id)?;
+    store.soft_delete_vendor(vendor_id)?;
+
+    let active_project: i64 = store.raw_connection().query_row(
+        "SELECT target_id FROM deletion_records WHERE entity = 'project' AND restored_at IS NULL ORDER BY deleted_at DESC, id DESC LIMIT 1",
+        [],
+        |row| row.get(0),
+    )?;
+    let active_vendor: i64 = store.raw_connection().query_row(
+        "SELECT target_id FROM deletion_records WHERE entity = 'vendor' AND restored_at IS NULL ORDER BY deleted_at DESC, id DESC LIMIT 1",
+        [],
+        |row| row.get(0),
+    )?;
+    assert_eq!(active_project, project_id.get());
+    assert_eq!(active_vendor, vendor_id.get());
+    Ok(())
+}
+
+#[test]
 fn typed_lifecycle_api_restore_guard_for_quote_parent() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
