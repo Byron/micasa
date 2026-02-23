@@ -1,7 +1,7 @@
 +++
 title = "Architecture"
 weight = 2
-description = "Rust workspace architecture, runtime flow, and migration notes."
+description = "Rust workspace architecture and runtime flow."
 linkTitle = "Architecture"
 +++
 
@@ -54,6 +54,6 @@ passing.
 
 ## Legacy Go reference
 
-The Go implementation under `internal/` remains in-repo only as a parity
-reference during migration closure. New runtime behavior should be documented
-and implemented in the Rust crates above.
+Go sources under `internal/` remain in-repo as historical/parity reference
+only. Runtime changes, release artifacts, and primary verification all target
+the Rust crates above.

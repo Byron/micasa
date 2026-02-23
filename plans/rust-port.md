@@ -7,6 +7,7 @@
 
 - Request date: 2026-02-19
 - Tracking issue: [#2 Rust parity slice: tab CRUD and form flows](https://github.com/Byron/micasa/issues/2)
+- Step 10 closure issue: [#36 docs migration and Go deprecation cleanup](https://github.com/Byron/micasa/issues/36)
 - Migration owner: Codex session
 
 ## Goals
@@ -60,19 +61,19 @@
 
 - [x] `@` chat overlay and session context
 - [x] Slash commands
-- [ ] Model list/pull behavior
-- [ ] NL -> SQL -> summary pipeline
-- [ ] Streaming and cancellation
-- [ ] Actionable error messages
+- [x] Model list/pull behavior
+- [x] NL -> SQL -> summary pipeline
+- [x] Streaming and cancellation
+- [x] Actionable error messages
 
 ### Persistence and integrity
 
-- [ ] Soft-delete and restore lifecycle guards
-- [ ] Foreign-key guards and nullable links
-- [ ] Deterministic ordering with tiebreakers
-- [ ] Document BLOB storage
-- [ ] Document cache extraction/opening
-- [ ] Seed data defaults
+- [x] Soft-delete and restore lifecycle guards
+- [x] Foreign-key guards and nullable links
+- [x] Deterministic ordering with tiebreakers
+- [x] Document BLOB storage
+- [x] Document cache extraction/opening
+- [x] Seed data defaults
 
 ### Tooling and packaging
 
@@ -94,9 +95,9 @@
 
 ## Milestones
 
-1. Rust workspace bootstrap with compiling crates and typed domain skeleton.
-2. `rusqlite` schema/bootstrap and repository coverage.
-3. `ratatui` state machine + table navigation baseline.
-4. Full feature surface port and LLM parity.
-5. Test parity closure and CI/release cutover.
-6. Docs migration and Go deprecation cleanup.
+1. [x] Rust workspace bootstrap with compiling crates and typed domain skeleton.
+2. [x] `rusqlite` schema/bootstrap and repository coverage.
+3. [x] `ratatui` state machine + table navigation baseline.
+4. [x] Full feature surface port and LLM parity.
+5. [x] Test parity closure and CI/release cutover.
+6. [x] Docs migration and Go deprecation cleanup.

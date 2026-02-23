@@ -1,41 +1,53 @@
 +++
 title = "Testing"
 weight = 4
-description = "How to run and write tests."
+description = "How to run and write tests in the Rust workspace."
 linkTitle = "Testing"
 +++
 
 ## Running tests
 
-Always run all tests from the repo root with shuffle enabled:
+Run workspace tests from the repo root:
 
 ```sh
-go test -shuffle=on -v ./...
+cargo test --workspace
 ```
 
-`-shuffle=on` randomizes test execution order to catch accidental order
-dependencies. Go picks and prints the seed automatically.
+Run full local verification before opening a PR:
+
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
 
 ## Test philosophy
 
-- **Black-box testing**: tests interact with exported behavior, not
-  implementation details. They create a Model, send key messages, and assert
-  on the resulting state or view output.
-- **In-memory database**: data-layer tests use `:memory:` SQLite databases for
-  speed and isolation.
-- **No test order dependencies**: `-shuffle=on` ensures this.
+- **Pipeline-first behavior tests**: test the same path users hit in runtime
+  and TUI (state transitions, key scripts, rendered surfaces), not detached
+  helper internals.
+- **SQLite-backed correctness**: data-layer tests use in-memory or temp-file
+  SQLite stores through `micasa-db`, including lifecycle guards and ordering.
+- **Determinism over luck**: assert stable ordering and edge-case behavior
+  (tie-breakers, soft-delete visibility, typed filters, and restore guards).
+- **Actionable failures**: validate user-visible errors include likely cause and
+  remediation.
 
 ## Writing tests
 
 When adding a new feature:
 
-1. Add data-layer tests if you touched Store methods
-2. Add app-layer tests for key handling, state transitions, and view output
-3. Use the existing test helpers (`newTestModel`, `newTestStore`, etc.)
-4. Don't poke into unexported fields -- test through the public interface
+1. Add `micasa-db` tests when schema/store/query behavior changes.
+2. Add `micasa-app` tests for typed state transitions and command handling.
+3. Add `micasa-tui` scripted keybinding/snapshot tests for UX behavior changes.
+4. Add `micasa-llm` tests for model listing, pull flow, streaming, and cancel.
+5. Use `micasa-testkit` fixtures/builders when they cover your scenario.
+6. Test through public APIs and runtime adapters, not private fields.
 
 ## CI
 
-Tests run in CI on every push to `main` and on pull requests, across Linux,
-macOS, and Windows. CI uses `-shuffle=on` and `-race` to catch ordering dependencies and data
-races. Pre-commit hooks catch formatting and lint issues before they reach CI.
+CI runs on every push to `main` and on pull requests.
+
+- Rust gate: `fmt`, `clippy -D warnings`, build, and workspace tests across
+  Linux/macOS/Windows.
+- Temporary parity gate: Go-vs-Rust comparison job during migration cleanup.

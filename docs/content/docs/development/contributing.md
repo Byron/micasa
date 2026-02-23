@@ -45,25 +45,30 @@ and reviewed with it too. A human always makes the final call on merging.
 ## Scope
 
 micasa is an end-user application, not a library. PRs that refactor internals
-into importable packages, add a public Go API, or otherwise repackage micasa
+into importable packages, add a public library API, or otherwise repackage micasa
 for use as a dependency will be closed.
 
 ## Setup
 
 1. Fork and clone the repo
-2. Enter the dev shell: `nix develop` (or install Go 1.25+ manually)
-3. The dev shell auto-installs pre-commit hooks on first entry
+2. Enter the dev shell: `nix develop` (recommended) or install Rust stable
+3. Confirm local checks pass:
 
-## Pre-commit hooks
+```sh
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
 
-The repo uses pre-commit hooks that run automatically on `git commit`:
+## Repo checks
 
-- **golines** + **gofumpt**: code formatting (max 100 chars/line)
-- **golangci-lint**: static analysis
-- **license-header**: ensures every source file has the Apache-2.0 header
+Use the repo's reproducible quality checks via Nix:
 
-If a hook fails, fix the issue and commit again. The hooks auto-fix formatting
-where possible.
+```sh
+nix run '.#pre-commit'
+```
+
+If a check fails, fix the issue and re-run until clean.
 
 ## Commit conventions
 
@@ -90,18 +95,16 @@ in the issue first.
 
 ## Code style
 
-- **Run `go mod tidy` before committing** to keep dependencies clean
 - Follow existing patterns: check how similar features are implemented
-- Use the Wong colorblind-safe palette for any new colors (see `styles.go`)
-- Always provide both Light and Dark variants in `lipgloss.AdaptiveColor`
-- Keep type safety: avoid `any` casts, use proper types and guards
+- Use the established color/style roles for any new TUI colors
+- Keep type safety: prefer enums/newtypes and typed structs over stringly keys
 - DRY: search for existing helpers before adding new ones
 
 ## Tests
 
 - Write tests for new features
 - Don't test implementation details -- test behavior
-- Run `go test -shuffle=on -v ./...` to verify
+- Run `cargo test --workspace` to verify
 - All tests must pass on Linux, macOS, and Windows
 
 ## License

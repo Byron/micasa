@@ -9,7 +9,6 @@ linkTitle = "Building"
 
 - **Rust stable toolchain** (`rustc`, `cargo`)
 - **Nix** (optional but recommended for pinned tooling)
-- **Go** (optional; only needed for temporary Go parity checks/tooling)
 
 ## Quick build
 
@@ -49,8 +48,8 @@ The recommended reproducible environment uses Nix flakes:
 nix develop
 ```
 
-The shell includes Rust tooling, Go parity tooling, docs tooling, and repo
-checks pinned to known versions.
+The shell includes Rust tooling, docs tooling, and repo checks pinned to known
+versions.
 
 ## Nix builds
 
@@ -59,12 +58,6 @@ Build the Rust binary directly from the flake package:
 ```sh
 nix build '.#micasa'
 ./result/bin/micasa --check
-```
-
-A temporary Go parity package remains available during migration:
-
-```sh
-nix build '.#micasa-go-parity'
 ```
 
 ## Nix flake apps

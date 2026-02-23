@@ -65,10 +65,32 @@ micasa --check
 
 Legacy unversioned Go config is intentionally not auto-loaded.
 
-1. Print a template with `micasa --print-example-config`.
-2. Copy values from the old file into `[storage]`, `[ui]`, and `[llm]`.
-3. Set `version = 2`.
-4. Run `micasa --check`.
+1. Find your active config path:
+
+   ```sh
+   micasa --print-config-path
+   ```
+
+2. Print a fresh v2 template and save it:
+
+   ```sh
+   micasa --print-example-config > config.toml
+   ```
+
+3. Copy values from your old file into v2 sections:
+
+   | Legacy key location | v2 location |
+   |---------------------|-------------|
+   | top-level DB path / storage key | `[storage].db_path` |
+   | top-level dashboard toggle | `[ui].show_dashboard` |
+   | top-level or mixed LLM keys | `[llm].enabled`, `[llm].base_url`, `[llm].model`, `[llm].extra_context`, `[llm].timeout` |
+
+4. Ensure `version = 2` is present at file top-level.
+5. Validate before starting the TUI:
+
+   ```sh
+   micasa --check
+   ```
 
 If migration is incomplete, startup prints an actionable error with the exact
 missing step.
