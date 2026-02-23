@@ -6801,7 +6801,8 @@ mod tests {
             &tx,
             KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
         );
-        assert_eq!(state.mode, AppMode::Edit);
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+        assert_eq!(state.status_line.as_deref(), Some("form saved"));
         assert_eq!(runtime.submit_count, 1);
     }
 
@@ -6837,6 +6838,54 @@ mod tests {
             &mut view_data,
             &tx,
             KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        );
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+        assert_eq!(state.status_line.as_deref(), Some("form saved"));
+        assert_eq!(runtime.submit_count, 1);
+    }
+
+    #[test]
+    fn esc_after_form_save_returns_to_edit_mode() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+        );
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+        assert_eq!(runtime.submit_count, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
         );
         assert_eq!(state.mode, AppMode::Edit);
         assert_eq!(runtime.submit_count, 1);

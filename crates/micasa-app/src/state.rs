@@ -214,14 +214,7 @@ impl AppState {
         }
 
         self.form_submission_count += 1;
-        self.mode = self.form_return_mode;
-        self.form_return_mode = AppMode::Nav;
-        self.form_payload = None;
-        vec![
-            AppEvent::ModeChanged(self.mode),
-            AppEvent::FormSubmitted(kind),
-            self.set_status("form submitted"),
-        ]
+        vec![AppEvent::FormSubmitted(kind), self.set_status("form saved")]
     }
 
     fn rotate_tab(&mut self, delta: isize) -> Vec<AppEvent> {
@@ -334,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn submit_form_transitions_to_nav() {
+    fn submit_form_keeps_form_open() {
         let mut state = AppState::default();
         state.dispatch(AppCommand::OpenForm(FormKind::Project));
         let payload = FormPayload::Project(ProjectFormInput {
@@ -350,14 +343,15 @@ mod tests {
         state.dispatch(AppCommand::SetFormPayload(payload));
 
         let events = state.dispatch(AppCommand::SubmitForm);
-        assert_eq!(state.mode, AppMode::Nav);
-        assert!(state.form_payload.is_none());
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+        assert!(state.form_payload.is_some());
         assert_eq!(state.form_submission_count, 1);
         assert!(events.contains(&AppEvent::FormSubmitted(FormKind::Project)));
+        assert!(events.contains(&AppEvent::StatusUpdated("form saved".to_owned())));
     }
 
     #[test]
-    fn submit_form_returns_to_previous_mode_when_opened_from_edit() {
+    fn cancel_after_submit_returns_to_previous_mode_when_opened_from_edit() {
         let mut state = AppState::default();
         state.dispatch(AppCommand::EnterEditMode);
         assert_eq!(state.mode, AppMode::Edit);
@@ -375,11 +369,16 @@ mod tests {
         });
         state.dispatch(AppCommand::SetFormPayload(payload));
 
-        let events = state.dispatch(AppCommand::SubmitForm);
+        let submit_events = state.dispatch(AppCommand::SubmitForm);
+        assert_eq!(state.mode, AppMode::Form(FormKind::Project));
+        assert!(state.form_payload.is_some());
+        assert_eq!(state.form_submission_count, 1);
+        assert!(submit_events.contains(&AppEvent::FormSubmitted(FormKind::Project)));
+
+        let cancel_events = state.dispatch(AppCommand::CancelForm);
         assert_eq!(state.mode, AppMode::Edit);
         assert!(state.form_payload.is_none());
-        assert_eq!(state.form_submission_count, 1);
-        assert!(events.contains(&AppEvent::FormSubmitted(FormKind::Project)));
+        assert!(cancel_events.contains(&AppEvent::FormCanceled(FormKind::Project)));
     }
 
     #[test]
