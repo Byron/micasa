@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 508 tests
+- Rust tests currently (`crates/`): 513 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -49,7 +49,7 @@
 | `internal/app/lazy_reload_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go stale-flag reload internals (`Tab.Stale`, lazy clear-on-visit) were replaced by Rust’s direct snapshot refresh flow on state transitions/navigation, so there is no one-to-one stale-flag mechanism to port. |
 | `internal/app/lighter_forms_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/mag_test.go` | 14 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers ctrl+o toggling, rounded order-of-magnitude formatters, prose money/bare-number mag transforms, typed table-cell mag gating, and table-money mag rendering without unit (header carries `$`); remaining Go pin-translation helper semantics are not 1:1 in Rust’s typed pin/table model. |
-| `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers Enter-on-plain-cell edit guidance, help overlay toggle/key-absorption, nav-mode Esc status clearing when no detail is open, nav `d` row movement without delete dispatch, edit-mode `i` no-op behavior, edit-mode tab-switch key blocking (`b`/`f`/`B`/`F`), and project settled-toggle on/off + non-project unavailable status semantics; remaining mode/layout edge cases are still open. |
+| `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers startup mode defaults, nav→edit (`i`) and edit→nav (`esc`) transitions, Enter-on-plain-cell edit guidance, help overlay toggle/key-absorption, nav-mode Esc status clearing when no detail is open, nav `d` row movement without delete dispatch, `^`/`$` first/last-column jumps, nav tab shortcuts (`f`/`b`/`F`/`B`), edit-mode `i` no-op behavior, edit-mode tab-switch key blocking (`b`/`f`/`B`/`F`), and project settled-toggle on/off + non-project unavailable status semantics; remaining mode/layout edge cases are still open. |
 | `internal/app/notes_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Note-preview parity is covered for enter-to-open, empty-note no-op with status, any-key dismiss/key swallowing, overlay text rendering/close hint, and contextual `enter` hint semantics on notes columns. |
 | `internal/app/overlay_status_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Overlay status suppression parity is covered for dashboard/help/note-preview/column-finder/date-picker overlays plus no-overlay fallback, including hidden vs visible primary keybinding hints. |
 | `internal/app/rows_test.go` | 24 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers typed projection-row parity for projects/maintenance/service-log/appliances/documents/settings and empty-house snapshots, including deleted-row flags and optional/null cell semantics; Go renderer-specific row formatting helpers remain architecture-specific. |
@@ -180,6 +180,7 @@
 - Added typed FK count API parity from Go `internal/data/store_test.go` in `crates/micasa-db/src/lib.rs` and `crates/micasa-db/tests/store_tests.rs`: strongly typed count helpers for quotes by vendor/project, maintenance items by appliance, and service logs by vendor, including empty-input semantics and non-deleted row counting regressions.
 - Added typed form-validator parity tests from Go `internal/app/form_validators_test.go` in `crates/micasa-app/src/forms.rs` for project date ordering, vendor required-name checks, negative money/cost/line-item rejection, linked-document entity-id rules, unlinked document acceptance, and house-profile numeric edge cases.
 - Added DB parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for service-log vendor clearing on update and typed FK count API behavior that excludes soft-deleted rows.
+- Added additional mode parity tests from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs` for startup nav mode, nav↔edit transitions (`i`/`esc`), nav tab shortcuts (`f`/`b`/`F`/`B`), restoring sort-key behavior after leaving edit mode, and `$` first/last-column jump key coverage paired with `^`.
 
 ## Known Gaps
 

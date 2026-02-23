@@ -5707,6 +5707,143 @@ mod tests {
     }
 
     #[test]
+    fn starts_in_nav_mode() {
+        let state = AppState::default();
+        assert_eq!(state.mode, AppMode::Nav);
+    }
+
+    #[test]
+    fn i_key_enters_edit_mode_from_nav() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        );
+
+        assert_eq!(state.mode, AppMode::Edit);
+    }
+
+    #[test]
+    fn esc_exits_edit_mode_to_nav() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+
+        assert_eq!(state.mode, AppMode::Nav);
+        assert_eq!(state.status_line.as_deref(), Some("nav"));
+    }
+
+    #[test]
+    fn nav_tab_shortcuts_cycle_and_jump_tabs() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.active_tab, TabKind::Quotes);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE),
+        );
+        assert_eq!(state.active_tab, TabKind::Projects);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('F'), KeyModifiers::SHIFT),
+        );
+        assert_eq!(state.active_tab, TabKind::Settings);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('B'), KeyModifiers::SHIFT),
+        );
+        assert_eq!(state.active_tab, TabKind::Dashboard);
+    }
+
+    #[test]
+    fn table_sort_key_restores_after_exiting_edit_mode() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+        assert!(view_data.table_state.sorts.is_empty());
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(state.mode, AppMode::Nav);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.table_state.sorts.len(), 1);
+    }
+
+    #[test]
     fn tab_switch_shortcuts_are_ignored_in_edit_mode() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
@@ -6916,6 +7053,19 @@ mod tests {
             KeyEvent::new(KeyCode::Char('^'), KeyModifiers::SHIFT),
         );
         assert_eq!(view_data.table_state.selected_col, 0);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('$'), KeyModifiers::SHIFT),
+        );
+        let projection = super::active_projection(&view_data).expect("active projection");
+        assert_eq!(
+            view_data.table_state.selected_col,
+            projection.column_count().saturating_sub(1)
+        );
     }
 
     #[test]
