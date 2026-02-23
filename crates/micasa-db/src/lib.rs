@@ -12,9 +12,9 @@ use micasa_app::{
     ServiceLogEntryId, SettingKey, SettingValue, Vendor, VendorId,
 };
 use rusqlite::types::ValueRef;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::ffi::OsStr;
 use std::fs;
@@ -2271,6 +2271,106 @@ impl Store {
             .context("collect quotes")
     }
 
+    pub fn count_quotes_by_vendor(
+        &self,
+        vendor_ids: &[VendorId],
+    ) -> Result<BTreeMap<VendorId, usize>> {
+        if vendor_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let placeholders = vec!["?"; vendor_ids.len()].join(", ");
+        let sql = format!(
+            "
+            SELECT vendor_id, COUNT(*)
+            FROM quotes
+            WHERE deleted_at IS NULL
+              AND vendor_id IN ({placeholders})
+            GROUP BY vendor_id
+            "
+        );
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .context("prepare quote count by vendor query")?;
+        let rows = stmt
+            .query_map(
+                params_from_iter(vendor_ids.iter().map(|id| id.get())),
+                |row| {
+                    let vendor_id: i64 = row.get(0)?;
+                    let count: i64 = row.get(1)?;
+                    Ok((vendor_id, count))
+                },
+            )
+            .context("query quote count by vendor")?;
+        let pairs = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect quote count by vendor")?;
+
+        let mut counts = BTreeMap::new();
+        for (vendor_id, count) in pairs {
+            let count = usize::try_from(count).with_context(|| {
+                format!(
+                    "quote count overflow for vendor {} -- reduce row volume and retry",
+                    vendor_id
+                )
+            })?;
+            counts.insert(VendorId::new(vendor_id), count);
+        }
+        Ok(counts)
+    }
+
+    pub fn count_quotes_by_project(
+        &self,
+        project_ids: &[ProjectId],
+    ) -> Result<BTreeMap<ProjectId, usize>> {
+        if project_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let placeholders = vec!["?"; project_ids.len()].join(", ");
+        let sql = format!(
+            "
+            SELECT project_id, COUNT(*)
+            FROM quotes
+            WHERE deleted_at IS NULL
+              AND project_id IN ({placeholders})
+            GROUP BY project_id
+            "
+        );
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .context("prepare quote count by project query")?;
+        let rows = stmt
+            .query_map(
+                params_from_iter(project_ids.iter().map(|id| id.get())),
+                |row| {
+                    let project_id: i64 = row.get(0)?;
+                    let count: i64 = row.get(1)?;
+                    Ok((project_id, count))
+                },
+            )
+            .context("query quote count by project")?;
+        let pairs = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect quote count by project")?;
+
+        let mut counts = BTreeMap::new();
+        for (project_id, count) in pairs {
+            let count = usize::try_from(count).with_context(|| {
+                format!(
+                    "quote count overflow for project {} -- reduce row volume and retry",
+                    project_id
+                )
+            })?;
+            counts.insert(ProjectId::new(project_id), count);
+        }
+        Ok(counts)
+    }
+
     pub fn create_quote(&self, quote: &NewQuote) -> Result<QuoteId> {
         self.require_parent_alive(ParentEntityRef::Project(quote.project_id))?;
         self.require_parent_alive(ParentEntityRef::Vendor(quote.vendor_id))?;
@@ -2538,6 +2638,56 @@ impl Store {
             .context("collect maintenance items")
     }
 
+    pub fn count_maintenance_items_by_appliance(
+        &self,
+        appliance_ids: &[ApplianceId],
+    ) -> Result<BTreeMap<ApplianceId, usize>> {
+        if appliance_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let placeholders = vec!["?"; appliance_ids.len()].join(", ");
+        let sql = format!(
+            "
+            SELECT appliance_id, COUNT(*)
+            FROM maintenance_items
+            WHERE deleted_at IS NULL
+              AND appliance_id IN ({placeholders})
+            GROUP BY appliance_id
+            "
+        );
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .context("prepare maintenance count by appliance query")?;
+        let rows = stmt
+            .query_map(
+                params_from_iter(appliance_ids.iter().map(|id| id.get())),
+                |row| {
+                    let appliance_id: i64 = row.get(0)?;
+                    let count: i64 = row.get(1)?;
+                    Ok((appliance_id, count))
+                },
+            )
+            .context("query maintenance count by appliance")?;
+        let pairs = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect maintenance count by appliance")?;
+
+        let mut counts = BTreeMap::new();
+        for (appliance_id, count) in pairs {
+            let count = usize::try_from(count).with_context(|| {
+                format!(
+                    "maintenance count overflow for appliance {} -- reduce row volume and retry",
+                    appliance_id
+                )
+            })?;
+            counts.insert(ApplianceId::new(appliance_id), count);
+        }
+        Ok(counts)
+    }
+
     pub fn create_maintenance_item(&self, item: &NewMaintenanceItem) -> Result<MaintenanceItemId> {
         if let Some(appliance_id) = item.appliance_id {
             self.require_parent_alive(ParentEntityRef::Appliance(appliance_id))?;
@@ -2673,6 +2823,56 @@ impl Store {
 
         rows.collect::<rusqlite::Result<Vec<_>>>()
             .context("collect service log entries")
+    }
+
+    pub fn count_service_logs_by_vendor(
+        &self,
+        vendor_ids: &[VendorId],
+    ) -> Result<BTreeMap<VendorId, usize>> {
+        if vendor_ids.is_empty() {
+            return Ok(BTreeMap::new());
+        }
+
+        let placeholders = vec!["?"; vendor_ids.len()].join(", ");
+        let sql = format!(
+            "
+            SELECT vendor_id, COUNT(*)
+            FROM service_log_entries
+            WHERE deleted_at IS NULL
+              AND vendor_id IN ({placeholders})
+            GROUP BY vendor_id
+            "
+        );
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .context("prepare service log count by vendor query")?;
+        let rows = stmt
+            .query_map(
+                params_from_iter(vendor_ids.iter().map(|id| id.get())),
+                |row| {
+                    let vendor_id: i64 = row.get(0)?;
+                    let count: i64 = row.get(1)?;
+                    Ok((vendor_id, count))
+                },
+            )
+            .context("query service log count by vendor")?;
+        let pairs = rows
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .context("collect service log count by vendor")?;
+
+        let mut counts = BTreeMap::new();
+        for (vendor_id, count) in pairs {
+            let count = usize::try_from(count).with_context(|| {
+                format!(
+                    "service log count overflow for vendor {} -- reduce row volume and retry",
+                    vendor_id
+                )
+            })?;
+            counts.insert(VendorId::new(vendor_id), count);
+        }
+        Ok(counts)
     }
 
     pub fn list_service_log_for_maintenance(

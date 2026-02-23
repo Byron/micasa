@@ -8,12 +8,12 @@
 - Primary migration issue: [#2](https://github.com/Byron/micasa/issues/2)
 - Step 8 parity execution: [#5](https://github.com/Byron/micasa/issues/5)
 - Strict matrix + remaining ports pass: [#6](https://github.com/Byron/micasa/issues/6)
-- Snapshot date: 2026-02-22
+- Snapshot date: 2026-02-23
 
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 493 tests
+- Rust tests currently (`crates/`): 496 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -68,7 +68,7 @@
 | `internal/data/settings_test.go` | 10 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Typed settings/chat-history parity is covered for defaults, round-trip updates, dedupe behavior, non-consecutive duplicates, and dashboard toggle semantics. |
 | `internal/data/sqlite/ddlmod_test.go` | 9 | `crates/micasa-db/src/lib.rs` | n/a | Go GORM sqlite dialector internals removed in Rust; behavior covered via rusqlite integration tests. |
 | `internal/data/sqlite/sqlite_test.go` | 11 | `crates/micasa-db/src/lib.rs` | n/a | Go GORM sqlite dialector internals removed in Rust; behavior covered via rusqlite integration tests. |
-| `internal/data/store_test.go` | 90 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists, including direct coverage for house-profile create/update paths, incident updates, dashboard counts, generic typed settings APIs, sqlite pragma configuration, and latest active deletion-record ordering/scoping semantics; substantial long-tail test ports remain. |
+| `internal/data/store_test.go` | 90 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists, including direct coverage for house-profile create/update paths, incident updates, dashboard counts, typed FK count APIs (quotes by vendor/project, maintenance by appliance, service logs by vendor), generic typed settings APIs, sqlite pragma configuration, and latest active deletion-record ordering/scoping semantics; substantial long-tail test ports remain. |
 | `internal/data/testmain_test.go` | 1 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | n/a | Go `TestMain` seed/env harness is package-level test bootstrap plumbing; Rust DB tests set deterministic seeds within fixtures and do not require a `TestMain` equivalent. |
 | `internal/data/validate_path_test.go` | 4 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Path-validation parity is covered with table-driven valid/invalid cases (URI/file/query/empty/edge forms), URL-like rejection checks, and `Store::open` URI rejection tests. |
 | `internal/data/validation_test.go` | 36 | `crates/micasa-db/src/validation.rs` | ported | Full money/date/interval parser+formatter suite ported with overflow and month-end clamping regressions. |
@@ -177,6 +177,7 @@
 - Added dashboard insurance-renewal parity from Go `internal/app/dashboard_load_test.go` and `internal/app/dashboard_test.go` in `crates/micasa-cli/src/runtime.rs` and `crates/micasa-tui/src/lib.rs`: typed insurance renewal snapshot rows in the shared expiring window, insurance-only expiring-section nav rendering, and typed house-tab jump targets for dashboard insurance entries.
 - Added mode-key parity coverage from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs`: nav-only enforcement for tab-switch keys (`b`/`f`/`B`/`F`) and explicit settled-project toggle behavior/status coverage for projects vs non-project tabs.
 - Added insurance-only dashboard jump parity from Go `internal/app/dashboard_test.go` in `crates/micasa-tui/src/lib.rs`: pressing `enter` on an insurance-only expiring row now has explicit regression coverage for closing the dashboard and routing to the house tab.
+- Added typed FK count API parity from Go `internal/data/store_test.go` in `crates/micasa-db/src/lib.rs` and `crates/micasa-db/tests/store_tests.rs`: strongly typed count helpers for quotes by vendor/project, maintenance items by appliance, and service logs by vendor, including empty-input semantics and non-deleted row counting regressions.
 
 ## Known Gaps
 
