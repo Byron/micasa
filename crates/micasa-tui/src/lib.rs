@@ -4971,11 +4971,7 @@ fn status_text(state: &AppState, view_data: &ViewData) -> String {
         return String::new();
     }
 
-    let mode = match state.mode {
-        AppMode::Nav => "NAV",
-        AppMode::Edit => "EDIT",
-        AppMode::Form(_) => "FORM",
-    };
+    let mode = mode_badge(state.mode);
     let enter_hint = contextual_enter_hint(view_data);
     let mag_label = if view_data.mag_mode { "on" } else { "off" };
     let mut default = format!(
@@ -4992,6 +4988,14 @@ fn status_text(state: &AppState, view_data: &ViewData) -> String {
     match &state.status_line {
         Some(status) => format!("{mode} | {status} | {default}"),
         None => format!("{mode} | {default}"),
+    }
+}
+
+fn mode_badge(mode: AppMode) -> &'static str {
+    match mode {
+        AppMode::Nav => "NAV ",
+        AppMode::Edit => "EDIT",
+        AppMode::Form(_) => "FORM",
     }
 }
 
@@ -5828,6 +5832,36 @@ mod tests {
         );
         assert!(!should_quit);
         assert_eq!(state.active_tab, TabKind::House);
+    }
+
+    #[test]
+    fn tab_key_toggles_house_profile_target_in_nav_mode() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            mode: AppMode::Nav,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+        assert_eq!(state.active_tab, TabKind::House);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+        assert_eq!(state.active_tab, TabKind::Projects);
     }
 
     #[test]
@@ -11137,6 +11171,67 @@ mod tests {
     }
 
     #[test]
+    fn help_overlay_arrow_keys_scroll_and_clamp() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+        );
+        assert!(view_data.help_visible);
+
+        update_help_scroll_bounds(&mut view_data, ratatui::layout::Rect::new(0, 0, 80, 5));
+        assert!(view_data.help_scroll_max > 0);
+        assert_eq!(view_data.help_scroll, 0);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.help_scroll, 0);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.help_scroll, 1);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
+        );
+        let max = view_data.help_scroll_max;
+        assert_eq!(view_data.help_scroll, max);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.help_scroll, max);
+    }
+
+    #[test]
     fn help_overlay_render_width_is_stable_across_scroll_positions() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
@@ -12030,6 +12125,43 @@ mod tests {
         let status = status_text(&state, &view_data);
         assert!(status.contains("NAV"));
         assert!(!status.contains("NORMAL"));
+    }
+
+    #[test]
+    fn mode_badge_width_is_stable_across_modes() {
+        let nav_state = AppState {
+            mode: AppMode::Nav,
+            ..AppState::default()
+        };
+        let edit_state = AppState {
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let form_state = AppState {
+            mode: AppMode::Form(FormKind::Project),
+            ..AppState::default()
+        };
+        let view_data = view_data_for_test();
+
+        let nav_status = status_text(&nav_state, &view_data);
+        let edit_status = status_text(&edit_state, &view_data);
+        let form_status = status_text(&form_state, &view_data);
+
+        let nav_prefix = nav_status
+            .split('|')
+            .next()
+            .expect("status contains mode prefix");
+        let edit_prefix = edit_status
+            .split('|')
+            .next()
+            .expect("status contains mode prefix");
+        let form_prefix = form_status
+            .split('|')
+            .next()
+            .expect("status contains mode prefix");
+
+        assert_eq!(nav_prefix.chars().count(), edit_prefix.chars().count());
+        assert_eq!(nav_prefix.chars().count(), form_prefix.chars().count());
     }
 
     #[test]
