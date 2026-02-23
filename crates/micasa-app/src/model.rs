@@ -557,7 +557,7 @@ pub struct ChatInput {
 
 #[cfg(test)]
 mod tests {
-    use super::{SettingKey, SettingValue};
+    use super::{SettingKey, SettingValue, TabKind};
 
     #[test]
     fn bool_setting_parse_and_storage_round_trip() {
@@ -585,5 +585,15 @@ mod tests {
     fn mismatched_setting_value_type_rejected() {
         let text = SettingValue::Text("qwen3".to_owned());
         assert!(text.to_storage(SettingKey::UiShowDashboard).is_none());
+    }
+
+    #[test]
+    fn tab_kind_order_and_labels_include_vendors() {
+        let vendor_index = TabKind::ALL
+            .iter()
+            .position(|tab| *tab == TabKind::Vendors)
+            .expect("vendors tab should be in tab order");
+        assert_eq!(vendor_index, 8);
+        assert_eq!(TabKind::Vendors.label(), "vendors");
     }
 }

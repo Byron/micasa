@@ -2947,8 +2947,8 @@ fn drill_request_for(tab: TabKind, column: usize, row_id: i64) -> Option<DrillRe
             kind: DocumentEntityKind::Appliance,
             entity_id: row_id,
         }),
-        (TabKind::Vendors, 5) => Some(DrillRequest::QuotesForVendor(VendorId::new(row_id))),
-        (TabKind::Vendors, 6) => Some(DrillRequest::ServiceLogForVendor(VendorId::new(row_id))),
+        (TabKind::Vendors, 6) => Some(DrillRequest::QuotesForVendor(VendorId::new(row_id))),
+        (TabKind::Vendors, 7) => Some(DrillRequest::ServiceLogForVendor(VendorId::new(row_id))),
         _ => None,
     }
 }
@@ -3034,8 +3034,8 @@ fn column_action_for(tab: TabKind, column: usize) -> Option<ColumnActionKind> {
             | (TabKind::Incidents, 7)
             | (TabKind::Appliances, 6)
             | (TabKind::Appliances, 7)
-            | (TabKind::Vendors, 5)
             | (TabKind::Vendors, 6)
+            | (TabKind::Vendors, 7)
     ) {
         return Some(ColumnActionKind::Drill);
     }
@@ -4458,7 +4458,9 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
         },
         TabSnapshot::Vendors(rows) => TableProjection {
             title: "vendors",
-            columns: vec!["id", "name", "contact", "email", "phone", "quotes", "jobs"],
+            columns: vec![
+                "id", "name", "contact", "email", "phone", "website", "quotes", "jobs",
+            ],
             rows: rows
                 .iter()
                 .map(|row| TableRowProjection {
@@ -4468,6 +4470,7 @@ fn base_projection(snapshot: &TabSnapshot) -> TableProjection {
                         TableCell::Text(row.contact_name.clone()),
                         TableCell::Text(row.email.clone()),
                         TableCell::Text(row.phone.clone()),
+                        TableCell::Text(row.website.clone()),
                         TableCell::Text(String::new()),
                         TableCell::Text(String::new()),
                     ],
@@ -6720,6 +6723,88 @@ mod tests {
         for (tab, expected) in cases {
             assert_eq!(super::form_for_tab(tab), expected);
         }
+    }
+
+    #[test]
+    fn form_field_specs_include_core_fields_for_each_form() {
+        let cases: &[(FormKind, &[&str])] = &[
+            (FormKind::Project, &["title", "type", "status"]),
+            (FormKind::Quote, &["project", "vendor", "total"]),
+            (FormKind::MaintenanceItem, &["item", "category", "interval"]),
+            (FormKind::ServiceLogEntry, &["item", "date", "vendor"]),
+            (
+                FormKind::Incident,
+                &["title", "status", "severity", "noticed"],
+            ),
+            (FormKind::Appliance, &["name", "brand", "location"]),
+            (FormKind::Vendor, &["name", "contact", "email"]),
+            (FormKind::Document, &["title", "entity", "file"]),
+            (FormKind::HouseProfile, &["nickname", "city", "state"]),
+        ];
+
+        for (kind, required) in cases {
+            let labels: Vec<&str> = super::form_field_specs(*kind)
+                .iter()
+                .map(|field| field.label)
+                .collect();
+            for label in *required {
+                assert!(
+                    labels.contains(label),
+                    "expected form {:?} to include {label}",
+                    kind
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_inline_edit_target_routes_settings_dates_and_forms() {
+        let mut runtime = TestRuntime::default();
+
+        let settings_state = AppState {
+            active_tab: TabKind::Settings,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut settings_view_data = view_data_for_test();
+        refresh_view_data(&settings_state, &mut runtime, &mut settings_view_data)
+            .expect("refresh should work");
+        let settings_target =
+            super::resolve_inline_edit_target(&settings_state, &settings_view_data);
+        assert!(matches!(
+            settings_target,
+            super::InlineEditTarget::Setting(AppSetting {
+                key: SettingKey::UiShowDashboard,
+                ..
+            })
+        ));
+
+        let incidents_state = AppState {
+            active_tab: TabKind::Incidents,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut incidents_view_data = view_data_for_test();
+        refresh_view_data(&incidents_state, &mut runtime, &mut incidents_view_data)
+            .expect("refresh should work");
+        incidents_view_data.table_state.selected_col = 4;
+        let date_target = super::resolve_inline_edit_target(&incidents_state, &incidents_view_data);
+        assert_eq!(date_target, super::InlineEditTarget::DatePicker);
+
+        let projects_state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut projects_view_data = view_data_for_test();
+        refresh_view_data(&projects_state, &mut runtime, &mut projects_view_data)
+            .expect("refresh should work");
+        projects_view_data.table_state.selected_col = 1;
+        let form_target = super::resolve_inline_edit_target(&projects_state, &projects_view_data);
+        assert_eq!(
+            form_target,
+            super::InlineEditTarget::Form(FormKind::Project)
+        );
     }
 
     #[test]
@@ -9426,7 +9511,7 @@ mod tests {
         let tx = internal_tx();
         refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
 
-        for _ in 0..5 {
+        for _ in 0..6 {
             handle_key_event(
                 &mut state,
                 &mut runtime,
@@ -9918,6 +10003,26 @@ mod tests {
     }
 
     #[test]
+    fn vendor_projection_columns_include_website_quotes_and_jobs() {
+        let projection = super::projection_for_snapshot(
+            &TabSnapshot::Vendors(vec![TestRuntime::sample_vendor(7, "Acme HVAC")]),
+            &super::TableUiState {
+                tab: Some(TabKind::Vendors),
+                ..super::TableUiState::default()
+            },
+        );
+
+        assert_eq!(projection.columns.len(), 8);
+        assert_eq!(projection.columns[5], "website");
+        assert_eq!(projection.columns[6], "quotes");
+        assert_eq!(projection.columns[7], "jobs");
+        assert_eq!(
+            projection.rows[0].cells[5],
+            super::TableCell::Text("https://example.com".to_owned())
+        );
+    }
+
+    #[test]
     fn project_projection_columns_include_quotes_and_docs() {
         let projection = super::projection_for_snapshot(
             &TabSnapshot::Projects(vec![TestRuntime::sample_project(1, "Alpha")]),
@@ -9963,6 +10068,22 @@ mod tests {
         let without_vendor_cell = without_vendor.rows[0].cells[3].clone();
         assert!(super::cell_has_link_target(&with_vendor_cell));
         assert!(!super::cell_has_link_target(&without_vendor_cell));
+    }
+
+    #[test]
+    fn linked_tab_targets_cover_quote_vendor_and_service_log_refs() {
+        assert_eq!(
+            super::linked_tab_for_column(TabKind::Quotes, 2),
+            Some(TabKind::Vendors)
+        );
+        assert_eq!(
+            super::linked_tab_for_column(TabKind::ServiceLog, 1),
+            Some(TabKind::Maintenance)
+        );
+        assert_eq!(
+            super::linked_tab_for_column(TabKind::ServiceLog, 3),
+            Some(TabKind::Vendors)
+        );
     }
 
     #[test]
@@ -10060,7 +10181,7 @@ mod tests {
         let tx = internal_tx();
         refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
 
-        for _ in 0..5 {
+        for _ in 0..6 {
             handle_key_event(
                 &mut state,
                 &mut runtime,
@@ -10069,7 +10190,7 @@ mod tests {
                 KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
             );
         }
-        assert_eq!(view_data.table_state.selected_col, 5);
+        assert_eq!(view_data.table_state.selected_col, 6);
 
         handle_key_event(
             &mut state,
@@ -10103,7 +10224,7 @@ mod tests {
             &tx,
             KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
         );
-        assert_eq!(view_data.table_state.selected_col, 6);
+        assert_eq!(view_data.table_state.selected_col, 7);
 
         handle_key_event(
             &mut state,
