@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 496 tests
+- Rust tests currently (`crates/`): 508 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -41,7 +41,7 @@
 | `internal/app/filter_test.go` | 39 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/form_save_test.go` | 18 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/form_select_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go tests target `huh`-specific select helpers (`withOrdinals`, focused-field introspection). Rust uses typed form-choice handling without `huh`; equivalent end-user behavior (numeric choice selection) is covered by form shortcut tests. |
-| `internal/app/form_validators_test.go` | 34 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
+| `internal/app/form_validators_test.go` | 34 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/forms.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now directly covers typed form validation guardrails for required vendor/title fields, project date ordering, negative budget/cost/line-item rejection, linked-document entity-id requirements, unlinked document acceptance, and house-profile numeric edge cases; string-parser and BubbleTea-specific form plumbing remains architecture-specific. |
 | `internal/app/handler_crud_test.go` | 25 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/handlers_test.go` | 4 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Rust replaces Go tab handler objects with typed form dispatch (`form_for_tab`) and inline-edit routing. Parity tests now cover tab→form mapping and `e` edit dispatch behavior for supported vs unsupported tabs. |
 | `internal/app/inline_edit_dispatch_test.go` | 5 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -68,7 +68,7 @@
 | `internal/data/settings_test.go` | 10 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Typed settings/chat-history parity is covered for defaults, round-trip updates, dedupe behavior, non-consecutive duplicates, and dashboard toggle semantics. |
 | `internal/data/sqlite/ddlmod_test.go` | 9 | `crates/micasa-db/src/lib.rs` | n/a | Go GORM sqlite dialector internals removed in Rust; behavior covered via rusqlite integration tests. |
 | `internal/data/sqlite/sqlite_test.go` | 11 | `crates/micasa-db/src/lib.rs` | n/a | Go GORM sqlite dialector internals removed in Rust; behavior covered via rusqlite integration tests. |
-| `internal/data/store_test.go` | 90 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists, including direct coverage for house-profile create/update paths, incident updates, dashboard counts, typed FK count APIs (quotes by vendor/project, maintenance by appliance, service logs by vendor), generic typed settings APIs, sqlite pragma configuration, and latest active deletion-record ordering/scoping semantics; substantial long-tail test ports remain. |
+| `internal/data/store_test.go` | 90 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | partial | Core CRUD/lifecycle/query/doc-cache parity exists, including direct coverage for house-profile create/update paths, incident updates, dashboard counts, typed FK count APIs (quotes by vendor/project, maintenance by appliance, service logs by vendor) with soft-delete exclusion checks, service-log vendor assign/clear update flows, generic typed settings APIs, sqlite pragma configuration, and latest active deletion-record ordering/scoping semantics; substantial long-tail test ports remain. |
 | `internal/data/testmain_test.go` | 1 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | n/a | Go `TestMain` seed/env harness is package-level test bootstrap plumbing; Rust DB tests set deterministic seeds within fixtures and do not require a `TestMain` equivalent. |
 | `internal/data/validate_path_test.go` | 4 | `crates/micasa-db/tests/store_tests.rs`, `crates/micasa-db/src/lib.rs` | ported | Path-validation parity is covered with table-driven valid/invalid cases (URI/file/query/empty/edge forms), URL-like rejection checks, and `Store::open` URI rejection tests. |
 | `internal/data/validation_test.go` | 36 | `crates/micasa-db/src/validation.rs` | ported | Full money/date/interval parser+formatter suite ported with overflow and month-end clamping regressions. |
@@ -178,6 +178,8 @@
 - Added mode-key parity coverage from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs`: nav-only enforcement for tab-switch keys (`b`/`f`/`B`/`F`) and explicit settled-project toggle behavior/status coverage for projects vs non-project tabs.
 - Added insurance-only dashboard jump parity from Go `internal/app/dashboard_test.go` in `crates/micasa-tui/src/lib.rs`: pressing `enter` on an insurance-only expiring row now has explicit regression coverage for closing the dashboard and routing to the house tab.
 - Added typed FK count API parity from Go `internal/data/store_test.go` in `crates/micasa-db/src/lib.rs` and `crates/micasa-db/tests/store_tests.rs`: strongly typed count helpers for quotes by vendor/project, maintenance items by appliance, and service logs by vendor, including empty-input semantics and non-deleted row counting regressions.
+- Added typed form-validator parity tests from Go `internal/app/form_validators_test.go` in `crates/micasa-app/src/forms.rs` for project date ordering, vendor required-name checks, negative money/cost/line-item rejection, linked-document entity-id rules, unlinked document acceptance, and house-profile numeric edge cases.
+- Added DB parity tests from Go `internal/data/store_test.go` in `crates/micasa-db/tests/store_tests.rs` for service-log vendor clearing on update and typed FK count API behavior that excludes soft-deleted rows.
 
 ## Known Gaps
 

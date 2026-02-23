@@ -642,4 +642,195 @@ mod tests {
         });
         assert!(payload.validate().is_err());
     }
+
+    #[test]
+    fn vendor_validation_rejects_empty_name() {
+        let payload = FormPayload::Vendor(super::VendorFormInput {
+            name: "  ".to_owned(),
+            contact_name: String::new(),
+            email: String::new(),
+            phone: String::new(),
+            website: String::new(),
+            notes: String::new(),
+        });
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn project_validation_rejects_end_before_start() {
+        let payload = FormPayload::Project(ProjectFormInput {
+            title: "Kitchen".to_owned(),
+            project_type_id: ProjectTypeId::new(1),
+            status: ProjectStatus::Planned,
+            description: String::new(),
+            start_date: Some(
+                Date::from_calendar_date(2026, Month::January, 10)
+                    .expect("valid static start date"),
+            ),
+            end_date: Some(
+                Date::from_calendar_date(2026, Month::January, 9).expect("valid static end date"),
+            ),
+            budget_cents: None,
+            actual_cents: None,
+        });
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn project_validation_rejects_negative_budget() {
+        let payload = FormPayload::Project(ProjectFormInput {
+            title: "Kitchen".to_owned(),
+            project_type_id: ProjectTypeId::new(1),
+            status: ProjectStatus::Planned,
+            description: String::new(),
+            start_date: None,
+            end_date: None,
+            budget_cents: Some(-1),
+            actual_cents: None,
+        });
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn quote_validation_rejects_negative_line_items() {
+        let payload = FormPayload::Quote(QuoteFormInput {
+            project_id: ProjectId::new(1),
+            vendor_id: VendorId::new(1),
+            total_cents: 1_000,
+            labor_cents: Some(-1),
+            materials_cents: None,
+            other_cents: None,
+            received_date: None,
+            notes: String::new(),
+        });
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn service_log_validation_rejects_negative_cost() {
+        let payload = FormPayload::ServiceLogEntry(ServiceLogEntryFormInput {
+            maintenance_item_id: MaintenanceItemId::new(1),
+            serviced_at: Date::from_calendar_date(2026, Month::January, 15)
+                .expect("valid static date"),
+            vendor_id: None,
+            cost_cents: Some(-1),
+            notes: String::new(),
+        });
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn incident_validation_rejects_negative_cost() {
+        let payload = FormPayload::Incident(IncidentFormInput {
+            title: "Leak".to_owned(),
+            description: String::new(),
+            status: IncidentStatus::Open,
+            severity: IncidentSeverity::Soon,
+            date_noticed: Date::from_calendar_date(2026, Month::January, 10)
+                .expect("valid noticed date"),
+            date_resolved: None,
+            location: String::new(),
+            cost_cents: Some(-1),
+            appliance_id: None,
+            vendor_id: None,
+            notes: String::new(),
+        });
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn document_validation_rejects_missing_entity_id_for_linked_document() {
+        let payload = FormPayload::Document(super::DocumentFormInput {
+            title: "Invoice".to_owned(),
+            file_name: "invoice.pdf".to_owned(),
+            entity_kind: DocumentEntityKind::Project,
+            entity_id: 0,
+            mime_type: "application/pdf".to_owned(),
+            data: vec![1, 2, 3],
+            notes: String::new(),
+        });
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn document_validation_accepts_unlinked_zero_entity_id_with_data() {
+        let payload = FormPayload::Document(super::DocumentFormInput {
+            title: "Loose note".to_owned(),
+            file_name: "note.txt".to_owned(),
+            entity_kind: DocumentEntityKind::None,
+            entity_id: 0,
+            mime_type: "text/plain".to_owned(),
+            data: b"hello".to_vec(),
+            notes: String::new(),
+        });
+        assert!(payload.validate().is_ok());
+    }
+
+    #[test]
+    fn house_profile_validation_rejects_negative_bedrooms() {
+        let payload = FormPayload::HouseProfile(Box::new(HouseProfileFormInput {
+            nickname: "Home".to_owned(),
+            address_line_1: String::new(),
+            address_line_2: String::new(),
+            city: String::new(),
+            state: String::new(),
+            postal_code: String::new(),
+            year_built: None,
+            square_feet: None,
+            lot_square_feet: None,
+            bedrooms: Some(-1),
+            bathrooms: None,
+            foundation_type: String::new(),
+            wiring_type: String::new(),
+            roof_type: String::new(),
+            exterior_type: String::new(),
+            heating_type: String::new(),
+            cooling_type: String::new(),
+            water_source: String::new(),
+            sewer_type: String::new(),
+            parking_type: String::new(),
+            basement_type: String::new(),
+            insurance_carrier: String::new(),
+            insurance_policy: String::new(),
+            insurance_renewal: None,
+            property_tax_cents: None,
+            hoa_name: String::new(),
+            hoa_fee_cents: None,
+        }));
+        assert!(payload.validate().is_err());
+    }
+
+    #[test]
+    fn house_profile_validation_rejects_nonfinite_bathrooms() {
+        let payload = FormPayload::HouseProfile(Box::new(HouseProfileFormInput {
+            nickname: "Home".to_owned(),
+            address_line_1: String::new(),
+            address_line_2: String::new(),
+            city: String::new(),
+            state: String::new(),
+            postal_code: String::new(),
+            year_built: None,
+            square_feet: None,
+            lot_square_feet: None,
+            bedrooms: None,
+            bathrooms: Some(f64::NAN),
+            foundation_type: String::new(),
+            wiring_type: String::new(),
+            roof_type: String::new(),
+            exterior_type: String::new(),
+            heating_type: String::new(),
+            cooling_type: String::new(),
+            water_source: String::new(),
+            sewer_type: String::new(),
+            parking_type: String::new(),
+            basement_type: String::new(),
+            insurance_carrier: String::new(),
+            insurance_policy: String::new(),
+            insurance_renewal: None,
+            property_tax_cents: None,
+            hoa_name: String::new(),
+            hoa_fee_cents: None,
+        }));
+        assert!(payload.validate().is_err());
+    }
 }

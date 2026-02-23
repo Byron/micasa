@@ -3505,6 +3505,57 @@ fn service_log_update_can_assign_vendor() -> Result<()> {
 }
 
 #[test]
+fn service_log_update_can_clear_vendor_link() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "HVAC Pros".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "HVAC filter".to_owned(),
+        category_id,
+        appliance_id: None,
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+
+    let entry_id = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::January, 15)?,
+        vendor_id: Some(vendor_id),
+        cost_cents: None,
+        notes: "initial".to_owned(),
+    })?;
+
+    store.update_service_log_entry(
+        entry_id,
+        &UpdateServiceLogEntry {
+            maintenance_item_id: maintenance_id,
+            serviced_at: Date::from_calendar_date(2026, Month::January, 15)?,
+            vendor_id: None,
+            cost_cents: None,
+            notes: "self-performed".to_owned(),
+        },
+    )?;
+
+    let updated = store.get_service_log_entry(entry_id)?;
+    assert_eq!(updated.vendor_id, None);
+    assert_eq!(updated.notes, "self-performed");
+    Ok(())
+}
+
+#[test]
 fn list_service_log_for_maintenance_respects_include_deleted_flag() -> Result<()> {
     let store = Store::open_memory()?;
     store.bootstrap()?;
@@ -4185,6 +4236,118 @@ fn count_quotes_by_project_api_matches_go_semantics() -> Result<()> {
 
     let empty = store.count_quotes_by_project(&[])?;
     assert!(empty.is_empty());
+    Ok(())
+}
+
+#[test]
+fn typed_fk_count_apis_exclude_soft_deleted_rows() -> Result<()> {
+    let store = Store::open_memory()?;
+    store.bootstrap()?;
+
+    let vendor_id = store.create_vendor(&NewVendor {
+        name: "Count Vendor".to_owned(),
+        contact_name: String::new(),
+        email: String::new(),
+        phone: String::new(),
+        website: String::new(),
+        notes: String::new(),
+    })?;
+    let project_type_id = store.list_project_types()?[0].id;
+    let project_id = store.create_project(&NewProject {
+        title: "Count Project".to_owned(),
+        project_type_id,
+        status: ProjectStatus::Planned,
+        description: String::new(),
+        start_date: None,
+        end_date: None,
+        budget_cents: None,
+        actual_cents: None,
+    })?;
+    let appliance_id = store.create_appliance(&NewAppliance {
+        name: "Furnace".to_owned(),
+        brand: String::new(),
+        model_number: String::new(),
+        serial_number: String::new(),
+        purchase_date: None,
+        warranty_expiry: None,
+        location: String::new(),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let category_id = store.list_maintenance_categories()?[0].id;
+    let maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Filter".to_owned(),
+        category_id,
+        appliance_id: Some(appliance_id),
+        last_serviced_at: None,
+        interval_months: 6,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    let extra_maintenance_id = store.create_maintenance_item(&NewMaintenanceItem {
+        name: "Coils".to_owned(),
+        category_id,
+        appliance_id: Some(appliance_id),
+        last_serviced_at: None,
+        interval_months: 12,
+        manual_url: String::new(),
+        manual_text: String::new(),
+        notes: String::new(),
+        cost_cents: None,
+    })?;
+    store.soft_delete_maintenance_item(extra_maintenance_id)?;
+
+    let _quote_a = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 1_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+    let quote_b = store.create_quote(&NewQuote {
+        project_id,
+        vendor_id,
+        total_cents: 2_000,
+        labor_cents: None,
+        materials_cents: None,
+        other_cents: None,
+        received_date: None,
+        notes: String::new(),
+    })?;
+    store.soft_delete_quote(quote_b)?;
+
+    let _service_log_a = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::July, 1)?,
+        vendor_id: Some(vendor_id),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    let service_log_b = store.create_service_log_entry(&NewServiceLogEntry {
+        maintenance_item_id: maintenance_id,
+        serviced_at: Date::from_calendar_date(2026, Month::July, 2)?,
+        vendor_id: Some(vendor_id),
+        cost_cents: None,
+        notes: String::new(),
+    })?;
+    store.soft_delete_service_log_entry(service_log_b)?;
+
+    let quote_counts_by_vendor = store.count_quotes_by_vendor(&[vendor_id])?;
+    assert_eq!(quote_counts_by_vendor.get(&vendor_id), Some(&1));
+
+    let quote_counts_by_project = store.count_quotes_by_project(&[project_id])?;
+    assert_eq!(quote_counts_by_project.get(&project_id), Some(&1));
+
+    let maintenance_counts = store.count_maintenance_items_by_appliance(&[appliance_id])?;
+    assert_eq!(maintenance_counts.get(&appliance_id), Some(&1));
+
+    let service_log_counts = store.count_service_logs_by_vendor(&[vendor_id])?;
+    assert_eq!(service_log_counts.get(&vendor_id), Some(&1));
     Ok(())
 }
 
