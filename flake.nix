@@ -178,6 +178,8 @@
             packages = [
               pkgs.rustc
               pkgs.cargo
+              pkgs.rustfmt
+              pkgs.clippy
               pkgs.go
               pkgs.osv-scanner
               pkgs.git
@@ -327,7 +329,6 @@
             ];
             text = ''
               TAPES="docs/tapes"
-              ntapes=$(fd -g 'using-*.tape' . "$TAPES" | wc -l)
               ntapes=$(fd -g 'using-*.tape' . "$TAPES" | wc -l)
               if [[ "$ntapes" -eq 0 ]]; then
                 echo "no using-*.tape files found in $TAPES" >&2

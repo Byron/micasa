@@ -76,11 +76,11 @@
 
 ### Tooling and packaging
 
-- [ ] Rust workspace and crate structure
-- [ ] `flake.nix` builds Rust binary as `micasa`
-- [ ] CI switched to Rust verification jobs
-- [ ] Release workflow switched to Rust artifact builds
-- [ ] Docs updated for Rust architecture and config v2 migration
+- [x] Rust workspace and crate structure
+- [x] `flake.nix` builds Rust binary as `micasa`
+- [x] CI switched to Rust verification jobs (with temporary Go-vs-Rust parity job)
+- [x] Release workflow switched to Rust artifact builds
+- [x] Docs updated for Rust architecture and config v2 migration
 
 ## Test strategy
 

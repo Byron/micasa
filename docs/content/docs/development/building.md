@@ -36,6 +36,11 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
+## Dependency review
+
+Third-party crate review notes are tracked in
+[Dependency Audit]({{< ref "/docs/development/dependency-audit" >}}).
+
 ## Nix dev shell
 
 The recommended reproducible environment uses Nix flakes:
