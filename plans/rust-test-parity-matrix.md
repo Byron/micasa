@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 492 tests
+- Rust tests currently (`crates/`): 493 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -35,7 +35,7 @@
 | `internal/app/compact_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers compact interval rendering, typed status/severity short labels, compact money cell display, and `$` header annotation in the table projection/render pipeline; Go-only status-style map assertions and exact `cell.Null` transform semantics are architecture-specific and remain n/a-equivalent gaps. |
 | `internal/app/dashboard_load_test.go` | 9 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Runtime parity now covers overdue/upcoming classification, active-project filtering, warranty-window inclusion/exclusion, and insurance-renewal inclusion/exclusion in the shared expiring window; remaining Go-specific layout/render details are still open. |
 | `internal/app/dashboard_rows_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Dashboard nav row parity now covers overdue/upcoming/warranty relative-duration text, entry target kinds, project/status rows, recent-activity rows, and empty snapshots; style-specific and extra-column parity remains open. |
-| `internal/app/dashboard_test.go` | 33 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust covers dashboard overlay nav/keyblocking/tab-switch, section ordering, and expiring-section behavior when insurance renewal is the only expiring item; many renderer/layout edge-case tests remain. |
+| `internal/app/dashboard_test.go` | 33 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust covers dashboard overlay nav/keyblocking/tab-switch, section ordering, insurance-only expiring-section rendering, and insurance-row enter-jump routing to house; many renderer/layout edge-case tests remain. |
 | `internal/app/demo_data_test.go` | 3 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Runtime demo-seed parity is covered with tests for non-empty snapshots across all data tabs, non-empty dashboard nav sections after seeding, and varied-seed runs that still produce populated rows. |
 | `internal/app/detail_test.go` | 57 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers nested drill push/pop flows, close-all collapse/no-op semantics, breadcrumb labels, selection/link/sort behaviors inside detail views, and explicit parent-context restoration (snapshot/table state) across push/pop and nested close-all helpers; Go handler wiring/form-kind internals remain partially architecture-specific. |
 | `internal/app/filter_test.go` | 39 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
@@ -176,6 +176,7 @@
 - Added additional row-projection parity tests from Go `internal/app/rows_test.go` in `crates/micasa-tui/src/lib.rs` for project deleted/null-money cells, maintenance optional-appliance interval cells, service-log optional vendor/cost cells, appliance warranty/cost/deleted cells, document entity-kind/size typed cells, settings row tags/labels/values, and empty-house snapshot row behavior.
 - Added dashboard insurance-renewal parity from Go `internal/app/dashboard_load_test.go` and `internal/app/dashboard_test.go` in `crates/micasa-cli/src/runtime.rs` and `crates/micasa-tui/src/lib.rs`: typed insurance renewal snapshot rows in the shared expiring window, insurance-only expiring-section nav rendering, and typed house-tab jump targets for dashboard insurance entries.
 - Added mode-key parity coverage from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs`: nav-only enforcement for tab-switch keys (`b`/`f`/`B`/`F`) and explicit settled-project toggle behavior/status coverage for projects vs non-project tabs.
+- Added insurance-only dashboard jump parity from Go `internal/app/dashboard_test.go` in `crates/micasa-tui/src/lib.rs`: pressing `enter` on an insurance-only expiring row now has explicit regression coverage for closing the dashboard and routing to the house tab.
 
 ## Known Gaps
 

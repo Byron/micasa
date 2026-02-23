@@ -11460,6 +11460,41 @@ mod tests {
     }
 
     #[test]
+    fn dashboard_overlay_insurance_only_entry_jumps_to_house_tab() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        view_data.dashboard.visible = true;
+        view_data.dashboard.snapshot = DashboardSnapshot {
+            insurance_renewal: Some(super::DashboardInsuranceRenewal {
+                house_profile_id: micasa_app::HouseProfileId::new(1),
+                carrier: "Acme Insurance".to_owned(),
+                renewal_date: Date::from_calendar_date(2026, Month::April, 15).expect("date"),
+                days_from_now: 60,
+            }),
+            ..DashboardSnapshot::default()
+        };
+        view_data.dashboard.cursor = 1;
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        );
+        assert_eq!(state.active_tab, TabKind::House);
+        assert!(!view_data.dashboard.visible);
+        assert_eq!(runtime.show_dashboard_pref, Some(false));
+        assert_eq!(state.status_line.as_deref(), Some("dashboard -> house"));
+    }
+
+    #[test]
     fn dashboard_and_overlay_text_snapshots_match_expected_content() {
         let state = AppState {
             active_tab: TabKind::Projects,
