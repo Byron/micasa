@@ -5324,6 +5324,7 @@ mod tests {
         IncidentSeverity, Project, ProjectStatus, ProjectTypeId, SettingKey, SettingValue,
         SortDirection, TabKind,
     };
+    use ratatui::{Terminal, backend::TestBackend};
     use std::collections::BTreeSet;
     use std::sync::mpsc;
     use time::{Date, Month, OffsetDateTime};
@@ -5774,6 +5775,38 @@ mod tests {
             let _ = handle_key_event(state, runtime, view_data, tx, *key);
             pump_internal(state, view_data, tx, rx);
         }
+    }
+
+    fn render_lines_for_test(
+        state: &AppState,
+        view_data: &mut ViewData,
+        width: u16,
+        height: u16,
+    ) -> Vec<String> {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("test terminal should initialize");
+        terminal
+            .draw(|frame| super::render(frame, state, view_data))
+            .expect("draw should succeed");
+
+        let buffer = terminal.backend().buffer().clone();
+        (0..height)
+            .map(|y| {
+                let mut line = String::new();
+                for x in 0..width {
+                    line.push_str(buffer[(x, y)].symbol());
+                }
+                line
+            })
+            .collect()
+    }
+
+    fn max_rendered_width(lines: &[String]) -> usize {
+        lines
+            .iter()
+            .map(|line| line.trim_end().chars().count())
+            .max()
+            .unwrap_or(0)
     }
 
     #[test]
@@ -11100,6 +11133,64 @@ mod tests {
         assert_eq!(
             help_scroll_indicator(view_data.help_scroll, view_data.help_scroll_max),
             "Top"
+        );
+    }
+
+    #[test]
+    fn help_overlay_render_width_is_stable_across_scroll_positions() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+        );
+        assert!(view_data.help_visible);
+
+        let lines_top = render_lines_for_test(&state, &mut view_data, 100, 12);
+        assert_eq!(
+            help_scroll_indicator(view_data.help_scroll, view_data.help_scroll_max),
+            "Top"
+        );
+        let width_top = max_rendered_width(&lines_top);
+
+        for _ in 0..5 {
+            handle_key_event(
+                &mut state,
+                &mut runtime,
+                &mut view_data,
+                &tx,
+                KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+            );
+        }
+        let lines_middle = render_lines_for_test(&state, &mut view_data, 100, 12);
+        let width_middle = max_rendered_width(&lines_middle);
+        assert_eq!(width_top, width_middle);
+        assert!(
+            help_scroll_indicator(view_data.help_scroll, view_data.help_scroll_max).contains('%')
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
+        );
+        let lines_bottom = render_lines_for_test(&state, &mut view_data, 100, 12);
+        let width_bottom = max_rendered_width(&lines_bottom);
+        assert_eq!(width_top, width_bottom);
+        assert_eq!(
+            help_scroll_indicator(view_data.help_scroll, view_data.help_scroll_max),
+            "Bot"
         );
     }
 

@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 525 tests
+- Rust tests currently (`crates/`): 526 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -184,6 +184,7 @@
 - Added additional mode parity and state-machine fixes from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs` and `crates/micasa-app/src/state.rs`: form cancel/submit now return to the prior mode (edit vs nav), active tab remains stable across mode toggles, nav-mode `p` remains a no-op, global quit (`ctrl+q`) is explicitly covered in edit mode, and left-column navigation/clamping (`h`) is asserted alongside `^`/`$` jump behavior.
 - Added further mode-key parity tests from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs` for edit-mode `tab` no-op behavior, explicit `d` keymap restoration after exiting edit mode, no-lifecycle guarantees for nav/edit page-movement keys (`d`/`u`/`ctrl+d`/`pgup`), and global `ctrl+q` quit coverage in form and help-overlay contexts.
 - Added additional mode parity behavior/tests from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs`: help overlay scrolling semantics with status indicator transitions (`Top`/`Bot`/`%`) and edit-mode delete auto-show-deleted with delete/restore round-trip coverage on the selected row.
+- Added integration-level help overlay render regression parity from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs` by asserting overlay width stability across top/middle/bottom scroll positions using ratatui `TestBackend`.
 
 ## Known Gaps
 
