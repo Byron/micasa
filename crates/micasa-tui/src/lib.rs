@@ -757,6 +757,8 @@ struct ViewData {
     detail_stack: Vec<DetailStackEntry>,
     chat: ChatUiState,
     help_visible: bool,
+    help_scroll: u16,
+    help_scroll_max: u16,
     mag_mode: bool,
     active_tab_snapshot: Option<TabSnapshot>,
     table_state: TableUiState,
@@ -788,7 +790,7 @@ pub fn run_app<R: AppRuntime>(state: &mut AppState, runtime: &mut R) -> Result<(
     loop {
         process_internal_events(state, &mut view_data, &internal_tx, &internal_rx);
 
-        if let Err(error) = terminal.draw(|frame| render(frame, state, &view_data)) {
+        if let Err(error) = terminal.draw(|frame| render(frame, state, &mut view_data)) {
             result = Err(error).context("draw frame");
             break;
         }
@@ -955,9 +957,29 @@ fn handle_key_event<R: AppRuntime>(
     }
 
     if view_data.help_visible {
-        if key.code == KeyCode::Esc || key.code == KeyCode::Char('?') {
-            view_data.help_visible = false;
-            emit_status(state, view_data, internal_tx, "help hidden");
+        match (key.code, key.modifiers) {
+            (KeyCode::Esc, _) | (KeyCode::Char('?'), _) => {
+                view_data.help_visible = false;
+                view_data.help_scroll = 0;
+                view_data.help_scroll_max = 0;
+                emit_status(state, view_data, internal_tx, "help hidden");
+            }
+            (KeyCode::Char('j'), KeyModifiers::NONE) | (KeyCode::Down, _) => {
+                view_data.help_scroll = view_data
+                    .help_scroll
+                    .saturating_add(1)
+                    .min(view_data.help_scroll_max);
+            }
+            (KeyCode::Char('k'), KeyModifiers::NONE) | (KeyCode::Up, _) => {
+                view_data.help_scroll = view_data.help_scroll.saturating_sub(1);
+            }
+            (KeyCode::Char('g'), KeyModifiers::NONE) => {
+                view_data.help_scroll = 0;
+            }
+            (KeyCode::Char('G'), _) => {
+                view_data.help_scroll = view_data.help_scroll_max;
+            }
+            _ => {}
         }
         return false;
     }
@@ -1056,6 +1078,8 @@ fn handle_key_event<R: AppRuntime>(
             }
             (KeyCode::Char('?'), KeyModifiers::NONE) => {
                 view_data.help_visible = true;
+                view_data.help_scroll = 0;
+                view_data.help_scroll_max = 0;
                 emit_status(state, view_data, internal_tx, "help open");
                 return false;
             }
@@ -1201,6 +1225,9 @@ fn handle_key_event<R: AppRuntime>(
                     };
                     match runtime.apply_lifecycle(state.active_tab, row_id, action) {
                         Ok(()) => {
+                            if action == LifecycleAction::Delete && !state.show_deleted {
+                                let _ = state.dispatch(AppCommand::ToggleDeleted);
+                            }
                             if let Err(error) = refresh_view_data(state, runtime, view_data) {
                                 emit_status(
                                     state,
@@ -3294,7 +3321,7 @@ fn tab_title(tab: TabKind, state: &AppState, table_state: &TableUiState) -> Stri
     }
 }
 
-fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData) {
+fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &mut ViewData) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -3401,9 +3428,17 @@ fn render(frame: &mut ratatui::Frame<'_>, state: &AppState, view_data: &ViewData
 
     if view_data.help_visible {
         let area = centered_rect(80, 72, frame.area());
+        update_help_scroll_bounds(view_data, area);
         frame.render_widget(Clear, area);
+        let indicator = help_scroll_indicator(view_data.help_scroll, view_data.help_scroll_max);
+        let title = if indicator.is_empty() {
+            "help".to_owned()
+        } else {
+            format!("help {indicator}")
+        };
         let help = Paragraph::new(help_overlay_text())
-            .block(Block::default().title("help").borders(Borders::ALL));
+            .scroll((view_data.help_scroll, 0))
+            .block(Block::default().title(title).borders(Borders::ALL));
         frame.render_widget(help, area);
     }
 }
@@ -3834,6 +3869,34 @@ chat model picker: type /model <query> | up/down or ctrl+p/ctrl+n | enter select
 col finder: type filter | up/down | enter jump | esc close\n\
 note preview: any key close\n\
 dashboard: j/k g/G enter jump D close b/f switch ? help"
+}
+
+fn update_help_scroll_bounds(view_data: &mut ViewData, area: Rect) {
+    let viewport_height = area.height.saturating_sub(2) as usize;
+    let total_lines = help_overlay_text().lines().count();
+    let max_scroll = if viewport_height == 0 {
+        0
+    } else {
+        total_lines.saturating_sub(viewport_height)
+    };
+    view_data.help_scroll_max = max_scroll.min(u16::MAX as usize) as u16;
+    if view_data.help_scroll > view_data.help_scroll_max {
+        view_data.help_scroll = view_data.help_scroll_max;
+    }
+}
+
+fn help_scroll_indicator(scroll: u16, max_scroll: u16) -> String {
+    if max_scroll == 0 {
+        return String::new();
+    }
+    if scroll == 0 {
+        return "Top".to_owned();
+    }
+    if scroll >= max_scroll {
+        return "Bot".to_owned();
+    }
+    let percent = ((scroll as usize * 100) / max_scroll as usize).clamp(1, 99);
+    format!("{percent}%")
 }
 
 fn render_table(
@@ -5248,12 +5311,12 @@ mod tests {
         contextual_enter_hint, dashboard_nav_entries, first_visible_column, format_compact_money,
         format_interval_months, format_magnitude_money, format_magnitude_usize,
         handle_date_picker_key, handle_key_event, header_label_for_column, help_overlay_text,
-        highlight_column_label, last_visible_column, refresh_view_data, render_breadcrumb_text,
-        render_chat_overlay_text, render_dashboard_overlay_text, render_dashboard_text,
-        render_date_picker_overlay_text, render_note_preview_overlay_text, shift_date_by_months,
-        shift_date_by_years, status_label_for_incident_severity, status_label_for_incident_status,
-        status_label_for_project_status, status_text, table_command_for_key, table_title,
-        visible_column_indices,
+        help_scroll_indicator, highlight_column_label, last_visible_column, refresh_view_data,
+        render_breadcrumb_text, render_chat_overlay_text, render_dashboard_overlay_text,
+        render_dashboard_text, render_date_picker_overlay_text, render_note_preview_overlay_text,
+        shift_date_by_months, shift_date_by_years, status_label_for_incident_severity,
+        status_label_for_incident_status, status_label_for_project_status, status_text,
+        table_command_for_key, table_title, update_help_scroll_bounds, visible_column_indices,
     };
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use micasa_app::{
@@ -5269,6 +5332,8 @@ mod tests {
     struct TestRuntime {
         submit_count: usize,
         lifecycle_count: usize,
+        lifecycle_actions: Vec<(TabKind, i64, LifecycleAction)>,
+        deleted_rows: Vec<(TabKind, i64)>,
         undo_count: usize,
         redo_count: usize,
         can_undo: bool,
@@ -5464,15 +5529,29 @@ mod tests {
         fn load_tab_snapshot(
             &mut self,
             tab: TabKind,
-            _include_deleted: bool,
+            include_deleted: bool,
         ) -> anyhow::Result<Option<TabSnapshot>> {
             let snapshot = match tab {
                 TabKind::Dashboard => None,
                 TabKind::House => Some(TabSnapshot::House(Box::new(None))),
-                TabKind::Projects => Some(TabSnapshot::Projects(vec![
-                    Self::sample_project(1, "Alpha"),
-                    Self::sample_project(2, "Beta"),
-                ])),
+                TabKind::Projects => {
+                    let mut rows = vec![
+                        Self::sample_project(1, "Alpha"),
+                        Self::sample_project(2, "Beta"),
+                    ];
+                    for row in &mut rows {
+                        if self
+                            .deleted_rows
+                            .contains(&(TabKind::Projects, row.id.get()))
+                        {
+                            row.deleted_at = Some(OffsetDateTime::UNIX_EPOCH);
+                        }
+                    }
+                    if !include_deleted {
+                        rows.retain(|row| row.deleted_at.is_none());
+                    }
+                    Some(TabSnapshot::Projects(rows))
+                }
                 TabKind::Quotes => Some(TabSnapshot::Quotes(vec![
                     Self::sample_quote(11, 2, 7),
                     Self::sample_quote(12, 1, 7),
@@ -5567,11 +5646,23 @@ mod tests {
 
         fn apply_lifecycle(
             &mut self,
-            _tab: TabKind,
-            _row_id: i64,
-            _action: LifecycleAction,
+            tab: TabKind,
+            row_id: i64,
+            action: LifecycleAction,
         ) -> anyhow::Result<()> {
             self.lifecycle_count += 1;
+            self.lifecycle_actions.push((tab, row_id, action));
+            let key = (tab, row_id);
+            match action {
+                LifecycleAction::Delete => {
+                    if !self.deleted_rows.contains(&key) {
+                        self.deleted_rows.push(key);
+                    }
+                }
+                LifecycleAction::Restore => {
+                    self.deleted_rows.retain(|row| *row != key);
+                }
+            }
             Ok(())
         }
 
@@ -10948,6 +11039,71 @@ mod tests {
     }
 
     #[test]
+    fn help_overlay_supports_scrolling_and_indicator_transitions() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+        );
+        assert!(view_data.help_visible);
+
+        update_help_scroll_bounds(&mut view_data, ratatui::layout::Rect::new(0, 0, 80, 5));
+        assert!(view_data.help_scroll_max > 0);
+        assert_eq!(
+            help_scroll_indicator(view_data.help_scroll, view_data.help_scroll_max),
+            "Top"
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.help_scroll, 1);
+        assert!(
+            help_scroll_indicator(view_data.help_scroll, view_data.help_scroll_max).contains('%')
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('G'), KeyModifiers::SHIFT),
+        );
+        assert_eq!(view_data.help_scroll, view_data.help_scroll_max);
+        assert_eq!(
+            help_scroll_indicator(view_data.help_scroll, view_data.help_scroll_max),
+            "Bot"
+        );
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+        );
+        assert_eq!(view_data.help_scroll, 0);
+        assert_eq!(
+            help_scroll_indicator(view_data.help_scroll, view_data.help_scroll_max),
+            "Top"
+        );
+    }
+
+    #[test]
     fn esc_in_nav_mode_clears_status_when_no_detail_is_open() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
@@ -12151,6 +12307,53 @@ mod tests {
         );
         assert_eq!(runtime.undo_count, 1);
         assert_eq!(runtime.redo_count, 1);
+    }
+
+    #[test]
+    fn edit_mode_delete_auto_shows_deleted_and_second_delete_restores_row() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            show_deleted: false,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+        assert_eq!(view_data.table_state.selected_row, 0);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+        assert!(state.show_deleted);
+        assert_eq!(state.status_line.as_deref(), Some("row deleted"));
+        assert_eq!(runtime.lifecycle_count, 1);
+        assert_eq!(
+            runtime.lifecycle_actions[0],
+            (TabKind::Projects, 1, LifecycleAction::Delete)
+        );
+        assert!(runtime.deleted_rows.contains(&(TabKind::Projects, 1)));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+        assert!(state.show_deleted);
+        assert_eq!(state.status_line.as_deref(), Some("row restored"));
+        assert_eq!(runtime.lifecycle_count, 2);
+        assert_eq!(
+            runtime.lifecycle_actions[1],
+            (TabKind::Projects, 1, LifecycleAction::Restore)
+        );
+        assert!(!runtime.deleted_rows.contains(&(TabKind::Projects, 1)));
     }
 
     #[test]
