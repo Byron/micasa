@@ -13,7 +13,7 @@
 ## Totals
 
 - Go tests discovered (`cmd/` + `internal/`): 870 test/benchmark functions across 50 files
-- Rust tests currently (`crates/`): 489 tests
+- Rust tests currently (`crates/`): 492 tests
 - Coverage posture: Partial; major gaps remain in high-count Go `internal/app` and `internal/data` suites.
 
 ## Status Keys
@@ -49,7 +49,7 @@
 | `internal/app/lazy_reload_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | n/a | Go stale-flag reload internals (`Tab.Stale`, lazy clear-on-visit) were replaced by Rust’s direct snapshot refresh flow on state transitions/navigation, so there is no one-to-one stale-flag mechanism to port. |
 | `internal/app/lighter_forms_test.go` | 8 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | High-level keybinding/form/chat/drilldown coverage exists; many renderer/layout edge-case tests remain. |
 | `internal/app/mag_test.go` | 14 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers ctrl+o toggling, rounded order-of-magnitude formatters, prose money/bare-number mag transforms, typed table-cell mag gating, and table-money mag rendering without unit (header carries `$`); remaining Go pin-translation helper semantics are not 1:1 in Rust’s typed pin/table model. |
-| `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers Enter-on-plain-cell edit guidance, help overlay toggle/key-absorption, nav-mode Esc status clearing when no detail is open, nav `d` row movement without delete dispatch, and edit-mode `i` no-op behavior; remaining mode/layout edge cases are still open. |
+| `internal/app/mode_test.go` | 31 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers Enter-on-plain-cell edit guidance, help overlay toggle/key-absorption, nav-mode Esc status clearing when no detail is open, nav `d` row movement without delete dispatch, edit-mode `i` no-op behavior, edit-mode tab-switch key blocking (`b`/`f`/`B`/`F`), and project settled-toggle on/off + non-project unavailable status semantics; remaining mode/layout edge cases are still open. |
 | `internal/app/notes_test.go` | 7 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Note-preview parity is covered for enter-to-open, empty-note no-op with status, any-key dismiss/key swallowing, overlay text rendering/close hint, and contextual `enter` hint semantics on notes columns. |
 | `internal/app/overlay_status_test.go` | 6 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | ported | Overlay status suppression parity is covered for dashboard/help/note-preview/column-finder/date-picker overlays plus no-overlay fallback, including hidden vs visible primary keybinding hints. |
 | `internal/app/rows_test.go` | 24 | `crates/micasa-tui/src/lib.rs`, `crates/micasa-app/src/state.rs`, `crates/micasa-cli/src/runtime.rs` | partial | Rust now covers typed projection-row parity for projects/maintenance/service-log/appliances/documents/settings and empty-house snapshots, including deleted-row flags and optional/null cell semantics; Go renderer-specific row formatting helpers remain architecture-specific. |
@@ -175,6 +175,7 @@
 - Added additional undo-key parity tests from Go `internal/app/undo_test.go` in `crates/micasa-tui/src/lib.rs` for edit-mode empty-history feedback, edit-mode runtime error propagation in status text, and nav-mode `u`/`r` behavior that does not dispatch undo/redo runtime hooks.
 - Added additional row-projection parity tests from Go `internal/app/rows_test.go` in `crates/micasa-tui/src/lib.rs` for project deleted/null-money cells, maintenance optional-appliance interval cells, service-log optional vendor/cost cells, appliance warranty/cost/deleted cells, document entity-kind/size typed cells, settings row tags/labels/values, and empty-house snapshot row behavior.
 - Added dashboard insurance-renewal parity from Go `internal/app/dashboard_load_test.go` and `internal/app/dashboard_test.go` in `crates/micasa-cli/src/runtime.rs` and `crates/micasa-tui/src/lib.rs`: typed insurance renewal snapshot rows in the shared expiring window, insurance-only expiring-section nav rendering, and typed house-tab jump targets for dashboard insurance entries.
+- Added mode-key parity coverage from Go `internal/app/mode_test.go` in `crates/micasa-tui/src/lib.rs`: nav-only enforcement for tab-switch keys (`b`/`f`/`B`/`F`) and explicit settled-project toggle behavior/status coverage for projects vs non-project tabs.
 
 ## Known Gaps
 

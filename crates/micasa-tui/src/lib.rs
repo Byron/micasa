@@ -993,6 +993,9 @@ fn handle_key_event<R: AppRuntime>(
     if !matches!(state.mode, AppMode::Form(_)) {
         match (key.code, key.modifiers) {
             (KeyCode::Char('f'), KeyModifiers::NONE) => {
+                if !matches!(state.mode, AppMode::Nav) {
+                    return false;
+                }
                 if !view_data.detail_stack.is_empty() {
                     emit_status(state, view_data, internal_tx, "close detail first");
                     return false;
@@ -1002,6 +1005,9 @@ fn handle_key_event<R: AppRuntime>(
                 return false;
             }
             (KeyCode::Char('b'), KeyModifiers::NONE) => {
+                if !matches!(state.mode, AppMode::Nav) {
+                    return false;
+                }
                 if !view_data.detail_stack.is_empty() {
                     emit_status(state, view_data, internal_tx, "close detail first");
                     return false;
@@ -1011,6 +1017,9 @@ fn handle_key_event<R: AppRuntime>(
                 return false;
             }
             (KeyCode::Char('F'), _) => {
+                if !matches!(state.mode, AppMode::Nav) {
+                    return false;
+                }
                 if !view_data.detail_stack.is_empty() {
                     emit_status(state, view_data, internal_tx, "close detail first");
                     return false;
@@ -1020,6 +1029,9 @@ fn handle_key_event<R: AppRuntime>(
                 return false;
             }
             (KeyCode::Char('B'), _) => {
+                if !matches!(state.mode, AppMode::Nav) {
+                    return false;
+                }
                 if !view_data.detail_stack.is_empty() {
                     emit_status(state, view_data, internal_tx, "close detail first");
                     return false;
@@ -5695,6 +5707,30 @@ mod tests {
     }
 
     #[test]
+    fn tab_switch_shortcuts_are_ignored_in_edit_mode() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        let start_tab = state.active_tab;
+        for key in [
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('F'), KeyModifiers::SHIFT),
+            KeyEvent::new(KeyCode::Char('B'), KeyModifiers::SHIFT),
+        ] {
+            handle_key_event(&mut state, &mut runtime, &mut view_data, &tx, key);
+            assert_eq!(state.active_tab, start_tab);
+        }
+    }
+
+    #[test]
     fn at_key_opens_chat_and_esc_closes_it() {
         let mut state = AppState::default();
         let mut runtime = TestRuntime::default();
@@ -6978,6 +7014,65 @@ mod tests {
         );
         assert!(view_data.table_state.pin.is_none());
         assert!(!view_data.table_state.filter_active);
+    }
+
+    #[test]
+    fn settled_toggle_in_projects_updates_state_and_status() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        assert!(!view_data.table_state.hide_settled_projects);
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE),
+        );
+        assert!(view_data.table_state.hide_settled_projects);
+        assert_eq!(state.status_line.as_deref(), Some("settled hidden"));
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE),
+        );
+        assert!(!view_data.table_state.hide_settled_projects);
+        assert_eq!(state.status_line.as_deref(), Some("settled shown"));
+    }
+
+    #[test]
+    fn settled_toggle_outside_projects_reports_unavailable() {
+        let mut state = AppState {
+            active_tab: TabKind::Quotes,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        assert!(!view_data.table_state.hide_settled_projects);
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('t'), KeyModifiers::NONE),
+        );
+        assert!(!view_data.table_state.hide_settled_projects);
+        assert_eq!(
+            state.status_line.as_deref(),
+            Some("settled toggle only on projects")
+        );
     }
 
     #[test]
