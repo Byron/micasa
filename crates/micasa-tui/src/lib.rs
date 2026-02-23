@@ -5899,6 +5899,31 @@ mod tests {
     }
 
     #[test]
+    fn tab_key_is_noop_in_edit_mode() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        let start_tab = state.active_tab;
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        );
+
+        assert_eq!(state.active_tab, start_tab);
+        assert_eq!(state.mode, AppMode::Edit);
+    }
+
+    #[test]
     fn ctrl_q_quits_in_edit_mode() {
         let mut state = AppState {
             active_tab: TabKind::Projects,
@@ -5907,6 +5932,47 @@ mod tests {
         };
         let mut runtime = TestRuntime::default();
         let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        let should_quit = handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL),
+        );
+        assert!(should_quit);
+    }
+
+    #[test]
+    fn ctrl_q_quits_in_form_mode() {
+        let mut state = AppState {
+            mode: AppMode::Form(FormKind::Project),
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+
+        let should_quit = handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL),
+        );
+        assert!(should_quit);
+    }
+
+    #[test]
+    fn ctrl_q_quits_even_when_help_overlay_is_visible() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        view_data.help_visible = true;
         let tx = internal_tx();
 
         let should_quit = handle_key_event(
@@ -7228,6 +7294,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
         );
         assert_eq!(view_data.table_state.selected_row, 1);
+        assert_eq!(runtime.lifecycle_count, 0);
 
         handle_key_event(
             &mut state,
@@ -7237,6 +7304,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
         );
         assert_eq!(view_data.table_state.selected_row, 0);
+        assert_eq!(runtime.lifecycle_count, 0);
 
         state.mode = AppMode::Edit;
         handle_key_event(
@@ -7247,6 +7315,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL),
         );
         assert_eq!(view_data.table_state.selected_row, 1);
+        assert_eq!(runtime.lifecycle_count, 0);
 
         handle_key_event(
             &mut state,
@@ -7256,6 +7325,49 @@ mod tests {
             KeyEvent::new(KeyCode::PageUp, KeyModifiers::NONE),
         );
         assert_eq!(view_data.table_state.selected_row, 0);
+        assert_eq!(runtime.lifecycle_count, 0);
+    }
+
+    #[test]
+    fn d_key_reverts_to_half_page_move_after_returning_to_nav() {
+        let mut state = AppState {
+            active_tab: TabKind::Projects,
+            mode: AppMode::Edit,
+            ..AppState::default()
+        };
+        let mut runtime = TestRuntime::default();
+        let mut view_data = view_data_for_test();
+        let tx = internal_tx();
+        refresh_view_data(&state, &mut runtime, &mut view_data).expect("refresh should work");
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+        assert_eq!(runtime.lifecycle_count, 1);
+        assert_eq!(view_data.table_state.selected_row, 0);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        );
+        assert_eq!(state.mode, AppMode::Nav);
+
+        handle_key_event(
+            &mut state,
+            &mut runtime,
+            &mut view_data,
+            &tx,
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        );
+        assert_eq!(runtime.lifecycle_count, 1);
+        assert_eq!(view_data.table_state.selected_row, 1);
     }
 
     #[test]
